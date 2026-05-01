@@ -141,7 +141,7 @@
 		compatible = "pwm-fan";
 		#cooling-cells = <2>;
 		#thermal-sensor-cells = <1>;
-		cooling-levels = <0 160 255>;
+		cooling-levels = <0 80 112 144 176 216 255>;
 		pwms = <&pwm 0 10000 0>;
 		status = "okay";
 	};
@@ -384,8 +384,8 @@
 
 	cooling-maps {
 		cpu-active-high {
-			/* active: set fan to cooling level 2 */
-			cooling-device = <&fan 2 2>;
+			/* active: set fan to cooling level 3 */
+			cooling-device = <&fan 3 3>;
 			trip = <&cpu_trip_active_high>;
 		};
 
