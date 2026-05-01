@@ -260,7 +260,7 @@ _ping() {
 _curl() {
   url=$1
   # timeout 10s
-  res=$(curl --connect-timeout 10 --interface "$NET_DEV" "$url" -o /dev/null --silent --show-error)
+  res=$(curl --connect-timeout 10 --max-time 15 --interface "$NET_DEV" "$url" -o /dev/null --silent --show-error)
   status=$?
   if [ "$status" -ne 0 ]; then
     log "Curl failed: $res"

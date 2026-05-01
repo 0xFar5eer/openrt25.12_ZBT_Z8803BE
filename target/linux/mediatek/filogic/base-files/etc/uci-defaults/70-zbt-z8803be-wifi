@@ -78,31 +78,28 @@ done
 # Per-band channel + htmode defaults tuned for WiFi 7 on this radio.
 #
 # Rationale per band:
-#   2.4 GHz -> ch 1, EHT20
+#   2.4 GHz -> ch 11, EHT20
 #     20 MHz is the only sane width on 2.4 in a dense area; 40 MHz
 #     causes severe co-channel interference with neighbour networks.
 #     EHT20 still flags the BSS as 802.11be so WiFi 7 clients pick
 #     higher-order MCS tables.
 #
-#   5 GHz -> ch 36, EHT160
-#     Channel 36 is UNII-1 (no DFS CAC wait), and EHT160 fits
-#     cleanly at ch36-64. Gives iPhones / laptops 2.4 Gbps peak on
-#     2 spatial streams.
+#   5 GHz -> ch 149, EHT80
+#     Channel 149 keeps 3FL separated from 2FL ch36 and 1FL ch100.
+#     EHT80 avoids overlap with adjacent-floor 80 MHz cells.
 #
-#   6 GHz -> ch 37, EHT320
+#   6 GHz -> ch 37, EHT160
 #     37 is a Preferred Scanning Channel (PSC): WiFi 6E/7 clients
 #     only scan PSC frequencies to save battery, so a non-PSC AP is
-#     effectively invisible. EHT320 with primary ch 37 occupies
-#     5945-6265 MHz (center ch 31). Peak ~5.76 Gbps on 2x2 WiFi 7
-#     clients. Requires the PH regdb unlock shipped with this firmware
-#     (600-PH-unlock-full-bands.patch) so the full 320 MHz block is
-#     permitted. 160 MHz / 80 MHz clients negotiate down cleanly.
+#     effectively invisible. EHT160 with primary ch 37 keeps 3-floor
+#     deployments separable inside the PH lower-6 GHz range, while 80 MHz
+#     clients negotiate down cleanly.
 for radio in $(uci -q show wireless | sed -nE 's/^wireless\.([^.]+)=wifi-device$/\1/p'); do
 	band=$(uci -q get "wireless.${radio}.band")
 	case "$band" in
-	2g) uci -q set "wireless.${radio}.channel=1"  ; uci -q set "wireless.${radio}.htmode=EHT20"  ;;
-	5g) uci -q set "wireless.${radio}.channel=36" ; uci -q set "wireless.${radio}.htmode=EHT160" ;;
-	6g) uci -q set "wireless.${radio}.channel=37" ; uci -q set "wireless.${radio}.htmode=EHT320" ;;
+	2g) uci -q set "wireless.${radio}.channel=11"  ; uci -q set "wireless.${radio}.htmode=EHT20"  ;;
+	5g) uci -q set "wireless.${radio}.channel=149" ; uci -q set "wireless.${radio}.htmode=EHT80" ;;
+	6g) uci -q set "wireless.${radio}.channel=37" ; uci -q set "wireless.${radio}.htmode=EHT160" ;;
 	esac
 done
 

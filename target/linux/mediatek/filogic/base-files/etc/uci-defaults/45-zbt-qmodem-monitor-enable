@@ -11,8 +11,8 @@
 # isn't symlinked into /etc/rc.d on a clean image. We do both here so
 # the cellular link gets watchdogged out of the box.
 #
-# Why curl/gstatic/15s/threshold=4:
-#   * monitor_method=curl on http://www.gstatic.com/generate_204 is
+# Why curl/direct-IP gstatic/30s/threshold=10:
+#   * monitor_method=curl on http://142.250.23.94/generate_204 is
 #     what we actually need on Smart/Globe PH. Empirical test on the
 #     RM551E-GL on Globe PH (Apr 2026):
 #         ping  -I wwan0 1.0.0.1   → 100% loss (carrier ICMP block)
@@ -26,18 +26,14 @@
 #     9.9.9.9 — not stable enough to bet a watchdog on. HTTP/204 to
 #     gstatic.com is the same probe Android (and ChromeOS, and many
 #     OEM L4 health checks) use for captive-portal detection, so the
-#     carrier always lets it through. It also exercises the full
-#     stack: USB → modem firmware → RAN → GGSN → internet → DNS →
-#     TCP → HTTP. If this fails, the data path really is broken.
-#   * interval=15s lines up with qmodem's default and is small enough
-#     that a real outage is detected fast without flooding the
-#     carrier (the curl is a 100–500 byte HTTPS exchange with TLS
-#     resumption; well below any reasonable rate limit).
-#   * threshold=4 means we declare-down after 4 consecutive failures.
-#     With curl's 10 s connect timeout that's ~60–80 s detection.
-#     Below 4 we'd react to single dial-cycle blips; above 4 the
-#     user-facing outage stretches past one full minute before the
-#     watchdog reacts.
+#     carrier always lets it through. Using the observed A record avoids
+#     DNS resolver hiccups being misclassified as a broken modem. It
+#     still exercises the full data path: USB → modem firmware → RAN →
+#     GGSN → internet → TCP → HTTP.
+#   * interval=30s and threshold=10 means we declare-down only after
+#     roughly five minutes of consecutive HTTP failures. That is slow
+#     enough to ride through short carrier/DNS/backhaul blips without
+#     repeatedly rebooting a healthy modem.
 #
 # Why run_scripts -> zbt-modem-reboot-guard:
 #   The qmodem_monitor send_at_commands action would let us send
@@ -81,9 +77,9 @@ apply_monitor_contract() {
         for kv in \
                 "monitor_enabled=1" \
                 "monitor_method=curl" \
-                "monitor_http_url=http://www.gstatic.com/generate_204" \
-                "monitor_interval=15" \
-                "monitor_threshold=4"
+                "monitor_http_url=http://142.250.23.94/generate_204" \
+                "monitor_interval=30" \
+                "monitor_threshold=10"
         do
                 k=${kv%%=*}; v=${kv#*=}
                 cur=$(uci -q get "qmodem.${sec}.${k}")
