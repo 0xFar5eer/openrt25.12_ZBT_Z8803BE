@@ -8,11 +8,11 @@
 
 这是面向 **ZBTLink ZBT-Z8803BE** WiFi 7 路由器的当前自定义 OpenWrt 固件。
 
-- **构建版本:** `r34156+1-f2ce3e7c4a`
+- **OpenWrt 基线:** `r32802-f505120278`
 - **内核:** Linux `6.12.74`
 - **目标平台:** `mediatek/filogic`
 - **设备:** MediaTek MT7988A / Filogic 880 + MT7996 系列三频 WiFi 7
-- **发布标签:** `v34156-1-zbt8803be`
+- **发布标签:** `v25.12.2-1-zbt8803be`
 
 ## 下载
 
@@ -31,9 +31,9 @@
 ## 校验值
 
 ```text
-0a6c1f5f0520acdb7e528c5c45e92716982dd3b7137132dcd82aab7c45943035  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-5a27c934a088e7e27796c8b628ee66f8211a4b5604dbceeb7f58ce31271b2738  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-9e3bc8886ab24ef54c2c096ff32e81a14f5527e5138601967deeb8893a213507  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+a3a239e6dd3f0cec33269abe284c9e7fd528ce182a74084168f78506e97ced0c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+207bbea0fe27aff34e114a2246db977812019a2f2881e5c49e055df83f554a77  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+8c2c5a061ba975169976b77218f52ab69c61dfc9e78008ad61e78b7fddf2cbe4  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ```
 
 ## 已包含功能
@@ -51,6 +51,7 @@
 - **WAN 故障切换默认值:** 首次启动即写入 WAN metric `10` 与 WWAN/QModem metric `20`，支持拔网线自动切换。
 - **存储:** USB 3.0、ext4、vfat、exfat、ntfs3、Samba 4、SFTP。
 - **监控:** autocore、cpufreq、collectd/statistics、WiFi history。
+- **温度监控:** 内置 ZBT 温度图表，支持不同模块的避让温度线和风扇 PWM 记录。
 - **Shell 默认项:** banner、彩色提示符、常用别名和工具。
 - **软件源:** 已配置 OpenWrt + ImmortalWrt overlay APK 源。
 

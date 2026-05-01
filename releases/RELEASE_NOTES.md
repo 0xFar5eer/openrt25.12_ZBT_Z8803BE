@@ -1,66 +1,58 @@
-# ZBT-Z8803BE OpenWrt r34167
+# ZBT-Z8803BE OpenWrt 25.12.2 stable port
 
 [English](RELEASE_NOTES.md) | [中文](RELEASE_NOTES.zh-CN.md)
 
-> **Community build.** Maintained by a single contributor; expect rough edges. Bug reports and pull requests are very welcome.
+> **Community build.** Maintained by a single contributor; expect rough edges. Bug reports and pull requests are welcome.
 
 Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
-- **Build:** `r34167+2-cfb4b100d1`
+- **Release tag:** `v25.12.2-1-zbt8803be`
+- **OpenWrt base:** official `v25.12.2` / `r32802-f505120278`
+- **ZBT source commit:** `a397db631e`
 - **Kernel:** `6.12.74`
 - **Target:** `mediatek/filogic`
 - **Default login:** `root` / `admin`
 
 ## What's new
 
-- **Added: cellular link self-heals when the carrier silently drops the PDP context.** Wires `qmodem_monitor` out of the box on every modem-device section: 15 s curl probe to `http://www.gstatic.com/generate_204` (the same captive-portal probe Android uses, always allowed past Smart / Globe PH carrier filtering), threshold 4 (≈60–80 s detection window), `monitor_action=run_scripts` dispatching to a new `/usr/sbin/zbt-modem-reboot-guard`. The guard issues `AT+CFUN=1,1` (3GPP soft reset, ~30 s re-attach) only when both gates pass: (a) router uptime ≥ 5 min so cold-boot dial sequences complete first, and (b) no other reboot fired in the last 5 min so a flapping carrier can't pile back-to-back resets. Both grace windows are tunable via `/etc/config/qmodem` main-section options `zbt_reboot_boot_grace` and `zbt_reboot_lockout`. Why curl, not ping: Smart / Globe PH blackhole ICMP from cellular IPs to most public space (including their own gateway and `1.1.1.1` / `8.8.8.8`); only `9.9.9.9` is reliable for ICMP and not stable enough to bet a watchdog on. HTTP/204 to gstatic exercises the full stack USB → modem firmware → RAN → GGSN → internet → DNS → TCP → HTTP, so when it fails the data path really is broken. Why no kernel-level fix: the carrier-side blackhole leaves the modem in a `registered + L1 + L2 + IP assigned + L3 dead` state that is invisible to `qmi_wwan` and netifd — only an end-to-end probe can see it. New files: `etc/uci-defaults/45-zbt-qmodem-monitor-enable`, `usr/sbin/zbt-modem-reboot-guard`.
-- **Fixed: qmodem_monitor's curl / ping probes ran via the wrong WAN on multi-uplink builds.** The upstream FUjr/QModem feed's `update_netcfg()` had three independent bugs in `NET_DEV` resolution: (1) treated the literal dash `-` (qmodem's "no alias" placeholder) as a real alias and looked up `network.-.ifname` which never exists; (2) only read the legacy `option ifname`, missing modern netifd's canonical `option device` written for new wwan interfaces (21.02+); (3) had no fallback from alias-name (a human-readable display name such as `modem1`) to modem-id (e.g. `4_1`, the actual UCI section name qmodem maintains). Together these dropped `NET_DEV` to empty in every fresh deployment shape — `curl` then ran without `--interface` and probed via the system default route, often the OTHER WAN on a multi-uplink router (e.g. `br-wan` on a tether-failover deployment when `wwan0` was the monitored modem). Any flakiness on that other path then triggered chronic false-positive reboots against a healthy modem every ~6 minutes. The patched copy of `modem_monitor.sh` ships as a base-files overlay at `/usr/lib/zbt/qmodem-modem_monitor.sh` and is copied into `/usr/share/qmodem/modem_monitor.sh` by the new `46-zbt-qmodem-monitor-patch` uci-default on every boot when the live file differs (idempotent via `cmp`). Survives package upgrades and re-runs after sysupgrade. Belt-and-suspenders: `30-zbt-z8803be-wan-failover` now also mirrors `device` → `ifname` on `network.4_1` for any pre-r34167 firmware that hasn't yet picked up the patched monitor.
-- **Fixed: youtubeUnblock DPI bypass killed cellular WWAN traffic when enabled.** The userspace daemon's fragmented TLS ClientHello is silently dropped by the on-board 5G modem path — the carrier's middlebox sees malformed TCP and resets the flow, while the S23 USB tether on `br-wan` re-NATs in its baseband so DPI bypass works there. Reworked `99a-zbt-youtubeunblock-disable` to: (a) pin `all_domains=0` and pre-seed `sni_domains` with `binance.com`, `bnbstatic.com`, `binance.org` (the only DPI hijack observed on Smart / Globe PH; YouTube / Google / Cloudflare flow without interference); (b) replace the package's auto-loaded nft template with a `br-wan`-scoped version (`oifname != "br-wan" return` short-circuits non-tether egress out of the chain so `wwan0` is never enqueued). Service still ships disabled; behaviour for fresh flashes that don't opt in is unchanged. Operators that re-enable it now get bypass on the tether path without breaking modem dial.
-- **Fixed: cellular WWAN double-NATted out of the box, breaking inbound port forwards and PMTUD.** qmodem's stock `donot_nat=0` default makes the Quectel firmware run `AT+QCFG="nat",1` on every dial, so the modem internally NATs `wwan0` traffic behind a fake `192.168.225.x/24` IP. fw4's wan-zone masquerade then NATs a *second* time, with three knock-on effects: (a) port forwards punched on the OpenWrt side never reach the WAN because the modem's hidden NAT table doesn't know about them; (b) PMTUD breaks because upstream `ICMP frag-needed` lands on the modem's NAT instead of fw4; (c) `quectel-CM-M`'s IP-attach handler reports the fake `192.168.225.x` to netifd as the WAN address. `35-zbt-qmodem-dns-suppress` now also asserts `qmodem.<sec>.donot_nat=1` on every modem-device section + the 4_1 pre-seed, so `modem_dial.sh` sends `AT+QCFG="nat",0`, the modem stops NATting, and the carrier-assigned (CGNAT) IP surfaces directly on `wwan0`. Verified across `feeds/qmodem` source (`modem_dial.sh:153`/`:776`, `network_config.js:342`).
-- **Documented: firmware now ships an explicit auto-APN contract for the cellular qmodem section.** Header comment on `35-zbt-qmodem-dns-suppress` was rewritten to enumerate what we set (do_not_add_dns=1, donot_nat=1) and what we deliberately leave at qmodem's default (apn unset, force_set_apn=0, pdp_type=ipv4v6, pre_dial_at_cmds unset). On PH carriers (Smart, Globe), letting `quectel-CM-M` auto-detect the carrier-blessed APN is the only configuration that gets through QMI-WDS PDN setup; forcing any client-side APN was observed to trigger `QMUXError=0xe` (`PDN_REQUEST_REJECTED`) loops with the Quectel RM551E firmware. Setup scripts may still override at runtime if a specific deployment needs it, but the firmware-shipped default is now auto-everything.
-- **Fixed: DNS broken on fresh `sysupgrade -n` while raw-IP routing still worked.** The previous DNS-neutral default in r34158 let `udhcpc` on `wan` write operator-pushed DNS into `/tmp/resolv.conf.d/resolv.conf.auto` BEFORE uci-defaults could intervene. dnsmasq then forwarded queries in round-robin to operator DNS alongside any seeded fallback. On Globe / Smart / Smart Bro PH a transient operator-DNS NXDOMAIN burst made the router boot with intermittent name resolution: `ping 1.0.0.1` worked, `ping cloudflare.com` and `apk update` failed. Reworked the firmware DNS contract end-to-end so a fresh flash now resolves out-of-the-box on any uplink:
-  - `90-zbt-z8803be-dns-cache` sets `noresolv=1` (dnsmasq ignores `resolv.conf.auto` entirely) and pins `option server` to `1.1.1.1` / `1.0.0.1` / `8.8.8.8` / `8.8.4.4`. Deterministic public DNS regardless of which uplink came up first.
-  - `35-zbt-qmodem-dns-suppress` (new) seeds `qmodem.4_1.do_not_add_dns=1` so the qmodem dial path adds `-D` to `quectel-CM-M`, which stops it from rewriting `/etc/resolv.conf` on every redial. Idempotent across qmodem's first-detect path (uses `modem-device` section type so qmodem's IF branch in `modem_scan.sh:473` preserves our flag).
-  - `30-zbt-z8803be-wan-failover` keeps `peerdns=0` on `wan` / `4_1` and seeds `system.zbt_wwan_dns.enabled='0'` so the operator-DNS-capture hotplug ships disabled by default.
-  - Setup scripts that prefer operator DNS, AdGuardHome, Pi-hole or any other resolver chain can replace the seeded server list (last-write-wins) - see the `DOWNSTREAM OVERRIDE` block in `90-zbt-z8803be-dns-cache`.
-- **Added: factory-reset modem on first flash to clear stale PDP / APN state.** New `15-zbt-modem-factory-reset-flag` writes a one-shot marker on fresh sysupgrade; `hotplug.d/usb/29-zbt-modem-factory-reset` fires on first USB detection, waits up to 20 s for the AT port, resets the PDP context to auto-APN, persists settings, and reboots the modem with `AT+CFUN=1,1`. Mitigates the carrier-lockup case where a modem flashed during a transient operator outage stays stuck on a half-attached PDP context indefinitely.
-- **Hardened: qmodem watchdog ifup recovery.** Refactored `usr/sbin/zbt-qmodem-watchdog-loop` into a standalone procd-managed loop with by-name firewall-zone resolution (was @zone[1], drifts when LuCI inserts other zones), reassertion of `network.4_1` proto=none stub on netifd state desync, and an `ifup 4_1` retry path with `network reload` on failure. Watchdog now self-heals from the post-flash `wwan0 carrier=1 but no IP` state without manual intervention.
-- **Fixed: cellular failover dead after a fresh `sysupgrade -n`.** FUjr/QModem creates the `qmodem.4_1` UCI section with `state='disabled'` on first USB-modem detection, so `qmodem_network` never starts `quectel-CM-M` and `wwan0` never gets an IP. Previous firmware masked this by preserving config across upgrades; clean wipes show the bug. `hotplug.d/usb/30-zbt-qmodem-autoenable` fires on Quectel modem detection (idVendor=2c7c), waits for the qmodem section to appear, flips `state=enabled`, re-asserts `network.4_1` / `4_1v6` proto=none stubs (fw4 needs them to bind `wwan0` to the wan zone for masquerade), restarts `qmodem_network`. WWAN now dials on first boot. (Coordinates with the new factory-reset hotplug above via marker file to avoid races.)
+- **Rebased to official OpenWrt `v25.12.2`.** The branch is now a clean stable-tag base with the ZBT-Z8803BE board support and firmware customizations ported on top. The build uses the stable `6.12.74` kernel from OpenWrt 25.12.2.
+- **Ported ZBT-Z8803BE board support.** Includes DTS/image profile, board LED/network/GPIO switch setup, NAND upgrade support, base-files overlays, modem LED services, QModem defaults, WAN/WWAN metric defaults, APK feed defaults, LuCI defaults, and ZBT shell/banner defaults.
+- **Integrated the built-in ZBT temperature monitor and fan policy.** The firmware ships `luci-app-zbt-temperature`, `/usr/sbin/zbt-temperature-log`, cron-backed tmpfs history, CPU/WiFi/modem/fan sampling, and the userspace fan governor from the previous build work.
+- **Added max-temperature avoid-limit overlays to the temperature charts.** Different sensor families now get different limit lines: SDR/mmWave modem sensors at 75°C, modem system sensors at 80°C, modem CPU/DSP/PHY sensors at 85°C, WiFi sensors at 85°C, and system CPU/SoC sensors at 90°C. Tooltips and the summary table show limit/headroom per sensor.
+- **Fixed QModem soft reboot.** Manual LuCI soft reboot, QModem shutdown soft reboot, and the ZBT modem watchdog now route through `/usr/sbin/zbt-modem-soft-reboot`, which tries `sms_tool`, `sms_tool_q`, `tom_modem`, and QModem's AT helper with real success/failure reporting. A board-guarded uci-default overlays the patched QModem scripts on first boot/sysupgrade.
+- **Bumped feeds to latest compatible heads.** OpenWrt packages/LuCI/routing/video feeds are pinned to current compatible heads, while telephony remains at the stable 25.12 pin. ImmortalWrt overlay feeds and FUjr/QModem are also refreshed. Unused recursive Kconfig LuCI apps from the overlay are pruned by the build harness after feed install.
+- **Ported vendored `autocore` and `cpufreq`.** These keep the selected LuCI monitoring/governor packages buildable on the official 25.12.2 base without depending on the old setup-script tree.
+
+## Validation
+
+- `node --check` passed for the custom LuCI JavaScript views.
+- Shell syntax checks passed for ZBT base-files scripts, init scripts, hotplug scripts, uci-defaults, and package scripts.
+- LuCI menu/ACL JSON files passed `python3 -m json.tool`.
+- `./.buildenv/build.sh feeds` and `./.buildenv/build.sh config` completed with selected ZBT packages present.
+- Full `./.buildenv/build.sh build` completed successfully.
+- Extracted output has `stale_apks=0` and no stale testing-kernel package references in the final target package output.
+- Live router runtime patch verification was performed for the temperature UI and QModem soft-reboot path; only a harmless `AT` command was sent for AT-port/tool validation.
 
 ## Checksums
 
 ```text
-c1f49dbeca4a6e171aaeadae1b4a3978fb6453efed4e7942651be9cd41ab96f6  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-c10faa3a101b24f81ab81ec1d59121918568771fdb1a42b47bb18f9747feffd2  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-bdd8a1214f2f410d7212f9ffe975db6bde0c4cd35984b4171306698c51bc6a20  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+a3a239e6dd3f0cec33269abe284c9e7fd528ce182a74084168f78506e97ced0c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+207bbea0fe27aff34e114a2246db977812019a2f2881e5c49e055df83f554a77  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+8c2c5a061ba975169976b77218f52ab69c61dfc9e78008ad61e78b7fddf2cbe4  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+1682c973d7c87d93bea629dc661d008060b33d29fba40059108fcf28e6496172  sha256sums
 ```
 
 ## Included
 
-- Mainline OpenWrt base, no MediaTek vendor feed.
+- Mainline OpenWrt 25.12.2 base, no MediaTek vendor feed required.
 - WiFi 7 tri-band with EHT320 and MLO support.
-- PH WiFi regulatory patch for full local 6 GHz testing.
-- LuCI HTTPS, Argon dark theme, Chinese translations, **System → About this build** page with releases URL and contact info.
-- QModem Next JS UI with SMS, Monitor, AT Debug, and SIM Switch.
-- QMI/MBIM/NCM/MHI/USB modem stack with `sms_tool_q`.
+- LuCI HTTPS, Argon dark theme/config, package manager, **System → About this build**, MLO app, and ZBT temperature monitor.
+- QModem Next JS UI with SMS, Monitor, AT Debug, SIM Switch, watchdog defaults, and robust soft reboot.
+- QMI/MBIM/NCM/MHI/USB modem stack with `sms_tool_q`, `tom_modem`, and `quectel-CM-5G-M`.
 - Firmware-enabled modem LED services and state poller.
-- Slot 1 modem power on by default; slot 2 off by default.
-- First-boot WAN failover defaults seed WAN metric `10` and WWAN/QModem metric `20`.
-- youtubeUnblock + LuCI app for SNI-fragmentation DPI bypass (disabled by default; defaults override fragments **all** SNIs when toggled on).
-- WireGuard, SQM/CAKE, DDNS, Samba, Diskman, statistics, autocore.
-- DNS cache bump, APK feeds, shell banner/color prompt/tools.
-- Diagnostic CLI toolkit pre-installed: `nohup`, `timeout`, `stdbuf`, `dig`, `host`, `lsof`, `strace`, `watch`, `screen`, `socat`, `arping`, plus `htop`, `nano`, `mtr`, `tcpdump`, `ethtool`, `iperf3`, `curl`, `ip-full`.
-
-## Verified
-
-Validated:
-
-- WAN internet OK
-- WWAN failover works when the WAN link drops
-- failover metrics persist correctly after reboot
-- WiFi/MLO active
-- QModem Next and SIM Switch OK
-- modem LED services active
+- First-boot WAN failover defaults: WAN metric `10`, WWAN/QModem metric `20`.
+- youtubeUnblock + LuCI app for SNI-fragmentation DPI bypass, disabled by default and scoped by firmware defaults.
+- WireGuard, SQM/CAKE, DDNS, Samba, Diskman, statistics, autocore, cpufreq, WiFi history, and diagnostic CLI tools.
 
 ## Flash
 
@@ -82,24 +74,3 @@ Recovery install:
 2. Open `http://192.168.1.1`.
 3. Upload the `squashfs-sysupgrade.bin` image.
 4. Wait for reboot, then log in as `root` / `admin`.
-
-## Notes
-
-- SFP+ is included but not physically verified here.
-- Hardware NAT/offload is not enabled.
-- The PH regulatory patch is for private/local testing. Use responsibly.
-- **Attended Sysupgrade is intentionally not included.** This build ships from GitHub Releases (not `downloads.openwrt.org`), so the buildbot-driven Attended Sysupgrade flow would either error out or offer a generic mainline SNAPSHOT image without our package set. Upgrade by downloading the new `squashfs-sysupgrade.bin` from this releases page and flashing it via **LuCI -> System -> Backup/Flash firmware** or `sysupgrade <file>` over SSH.
-
-## Support / contact
-
-- **Issues / PRs:** https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/issues
-- **Telegram:** https://t.me/Far5eer
-
-The same info is also shown in the SSH banner on every login and at **LuCI -> System -> About this build**.
-
-## Credits
-
-- [@pttuan](https://github.com/pttuan) — upstream OpenWrt board port via [openwrt#23053](https://github.com/openwrt/openwrt/pull/23053).
-- [FUjr/QModem](https://github.com/FUjr/QModem) — QModem Next UI + built-in SIM Switch.
-- [OneB1t/Z8803BE-research](https://github.com/OneB1t/Z8803BE-research) — vendor firmware research.
-- [OpenWrt mainline](https://openwrt.org) and [ImmortalWrt](https://github.com/immortalwrt) — base distribution and overlays.
