@@ -70,9 +70,7 @@ return view.extend({
 			[ release_lines['DISTRIB_ID'], release_lines['DISTRIB_RELEASE'], release_lines['DISTRIB_REVISION'] ]
 			.filter(Boolean).join(' ');
 
-		// Mainline OpenWrt master is heading toward 25.12; until upstream
-		// tags 25.12.0 the actual VERSION_NUMBER stays "SNAPSHOT".
-		const branch = '25.12-SNAPSHOT (mainline master)';
+		const branch = '25.12.2 stable';
 
 		const memTotalMiB = info.memory && info.memory.total
 			? Math.round(info.memory.total / 1048576)

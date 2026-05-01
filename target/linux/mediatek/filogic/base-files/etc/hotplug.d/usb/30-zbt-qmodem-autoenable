@@ -42,8 +42,8 @@ case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
 esac
 
 # Match Quectel modems only (idVendor 2c7c covers RM-series 5G/LTE modules).
-[ -e /sys/$DEVPATH/idVendor ] || exit 0
-[ "$(cat /sys/$DEVPATH/idVendor 2>/dev/null)" = "2c7c" ] || exit 0
+[ -e "/sys/$DEVPATH/idVendor" ] || exit 0
+[ "$(cat "/sys/$DEVPATH/idVendor" 2>/dev/null)" = "2c7c" ] || exit 0
 
 # Defer to /etc/hotplug.d/usb/29-zbt-modem-factory-reset when a one-shot
 # post-flash modem reset is in flight. Both hotplugs fire on the same

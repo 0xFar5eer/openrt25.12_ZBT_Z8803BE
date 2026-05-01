@@ -660,9 +660,11 @@ get_sms_capabilities() {
     json_close_object
 
     for idx in 1 2 3; do
-        eval "mem=\$mem$idx"
-        eval "used=\$used$idx"
-        eval "total=\$total$idx"
+        case "$idx" in
+            1) mem=$mem1; used=$used1; total=$total1 ;;
+            2) mem=$mem2; used=$used2; total=$total2 ;;
+            3) mem=$mem3; used=$used3; total=$total3 ;;
+        esac
 
         case "$mem" in
             "SM")

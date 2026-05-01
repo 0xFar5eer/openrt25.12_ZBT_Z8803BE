@@ -120,11 +120,11 @@ case "$cmd" in
         run_in_container bash -c "make -j$(ncpu) download V=s"
         ;;
     build)
-        local_args="$*"
-        if [ -z "$local_args" ]; then
-            local_args="-j$(ncpu)"
+        if [ "$#" -eq 0 ]; then
+            run_in_container make "-j$(ncpu)"
+        else
+            run_in_container make "$@"
         fi
-        run_in_container bash -c "make $local_args"
         ;;
     extract)
         mkdir -p "$PROJ/output"

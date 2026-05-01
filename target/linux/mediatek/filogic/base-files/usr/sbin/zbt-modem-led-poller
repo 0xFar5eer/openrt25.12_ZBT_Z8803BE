@@ -47,6 +47,11 @@ POLL_INTERVAL=${POLL_INTERVAL:-5}
 AT_TIMEOUT=${AT_TIMEOUT:-3}
 HELPER=/etc/zbt-leds.sh
 
+case "$POLL_INTERVAL" in *[!0-9]*|"") POLL_INTERVAL=5 ;; esac
+case "$AT_TIMEOUT" in *[!0-9]*|"") AT_TIMEOUT=3 ;; esac
+[ "$POLL_INTERVAL" -gt 0 ] || POLL_INTERVAL=5
+[ "$AT_TIMEOUT" -gt 0 ] || AT_TIMEOUT=3
+
 # --- helpers -----------------------------------------------------
 
 # Read the slot's power-enable GPIO via /sys/class/gpio/<name>/value.
@@ -188,11 +193,17 @@ run_cycle() {
 
 	for slot in 1 2; do
 		detect_slot "$slot"
-		eval "prev=\${last${slot}}"
+		case "$slot" in
+			1) prev=$last1 ;;
+			2) prev=$last2 ;;
+		esac
 		if [ "$SLOT_STATE" != "$prev" ]; then
 			apply_state "$slot" "$SLOT_STATE"
 			logger -t zbt-modem-leds "slot $slot: $prev -> $SLOT_STATE"
-			eval "last${slot}=\$SLOT_STATE"
+			case "$slot" in
+				1) last1=$SLOT_STATE ;;
+				2) last2=$SLOT_STATE ;;
+			esac
 		fi
 		if [ "$once" = "1" ]; then
 			echo "slot=$slot powered=${SLOT_POWERED:-0} port=${SLOT_PORT:-none} state=$SLOT_STATE"

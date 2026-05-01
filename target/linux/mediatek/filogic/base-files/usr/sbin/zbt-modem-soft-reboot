@@ -11,10 +11,12 @@ log() {
 while [ $# -gt 0 ]; do
 	case "$1" in
 		-d|--device|--port)
+			[ $# -ge 2 ] || exit 1
 			PORT=$2
 			shift 2
 			;;
 		-s|--section)
+			[ $# -ge 2 ] || exit 1
 			SECTION=$2
 			shift 2
 			;;
@@ -23,6 +25,13 @@ while [ $# -gt 0 ]; do
 			;;
 	esac
 done
+
+case "$SECTION" in
+	*[!A-Za-z0-9_]*)
+		log "failed: invalid qmodem section '${SECTION}'"
+		exit 1
+		;;
+esac
 
 if [ -z "$PORT" ] && [ -n "$SECTION" ]; then
 	PORT=$(uci -q get "qmodem.${SECTION}.override_at_port")
@@ -40,6 +49,14 @@ if [ -z "$PORT" ]; then
 		break
 	done
 fi
+
+case "$PORT" in
+	/dev/*) ;;
+	*)
+		log "failed: refused non-device AT port '${PORT:-empty}'"
+		exit 1
+		;;
+esac
 
 if [ -z "$PORT" ] || [ ! -e "$PORT" ]; then
 	log "failed: no AT port available (section=${SECTION:-auto}, port=${PORT:-empty})"
@@ -80,7 +97,7 @@ for method in sms_tool sms_tool_q tom_modem qmodem_at; do
 			;;
 	esac
 	status=$?
-	if [ "$status" = "0" ] && printf '%s\n' "$out" | grep -Eiq '(^|[^A-Z])OK([^A-Z]|$)|CFUN'; then
+	if [ "$status" = "0" ] && printf '%s\n' "$out" | grep -Eiq '(^|[^A-Z])OK([^A-Z]|$)'; then
 		log "ok: ${method} dispatched ${AT_CMD} on ${PORT}"
 		printf '%s\n' "$out"
 		exit 0

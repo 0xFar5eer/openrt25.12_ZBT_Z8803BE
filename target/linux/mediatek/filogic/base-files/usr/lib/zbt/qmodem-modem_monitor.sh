@@ -13,34 +13,42 @@ parse_args(){
     while [ $# -gt 0 ]; do
         case $1 in
             --modem_id)
+                [ $# -ge 2 ] || { log "Missing value for $1"; exit 1; }
                 Modem_ID=$2
                 shift 2
                 ;;
             --method)
+                [ $# -ge 2 ] || { log "Missing value for $1"; exit 1; }
                 Method=$2
                 shift 2
                 ;;
             --interval)
+                [ $# -ge 2 ] || { log "Missing value for $1"; exit 1; }
                 Interval=$2
                 shift 2
                 ;;
             --threshold)
+                [ $# -ge 2 ] || { log "Missing value for $1"; exit 1; }
                 Threshold=$2
                 shift 2
                 ;;
             --ping-type)
+                [ $# -ge 2 ] || { log "Missing value for $1"; exit 1; }
                 Ping_Type=$2
                 shift 2
                 ;;
             --ping-dest)
+                [ $# -ge 2 ] || { log "Missing value for $1"; exit 1; }
                 Ping_Dest=$2
                 shift 2
                 ;;
             --ping-ip-version)
+                [ $# -ge 2 ] || { log "Missing value for $1"; exit 1; }
                 Ping_IP_Version=$2
                 shift 2
                 ;;
             --http-url)
+                [ $# -ge 2 ] || { log "Missing value for $1"; exit 1; }
                 Http_Url=$2
                 shift 2
                 ;;
@@ -54,6 +62,11 @@ parse_args(){
     [ -z "$Method" ] && log "Method is empty" && exit 1
     [ -z "$Interval" ] && log "Interval is empty" && Interval=12
     [ -z "$Threshold" ] && log "Threshold is empty" && Threshold=5
+    case "$Modem_ID" in *[!A-Za-z0-9_]*|"") log "Invalid Modem_ID: $Modem_ID"; exit 1 ;; esac
+    case "$Interval" in *[!0-9]*|"") log "Invalid interval: $Interval"; Interval=12 ;; esac
+    case "$Threshold" in *[!0-9]*|"") log "Invalid threshold: $Threshold"; Threshold=5 ;; esac
+    [ "$Interval" -gt 0 ] || Interval=12
+    [ "$Threshold" -gt 0 ] || Threshold=5
 }
 
 
@@ -127,14 +140,14 @@ update_netcfg(){
 		Ifv4="$Modem_ID"
 	fi
     Ifv6="$Ifv4"v6
-    v4_info=$(ifstatus $Ifv4)
-    v6_info=$(ifstatus $Ifv6)
-    dns_v4=$(echo $v4_info | jq -r --arg "key" "dns-server" '.[$key][0]')
-    dns_v6=$(echo $v6_info | jq -r --arg "key" "dns-server" '.[$key][0]')
-    gateway_v4=$(echo $v4_info | jq -r --arg "key" "route" '.[$key][] | select(.target == "0.0.0.0") | .nexthop')
-    gateway_v6=$(echo $v6_info | jq -r --arg "key" "route" '.[$key][] | select(.target == "::") | .nexthop')
-    is_up_v4=$(echo $v4_info | jq -r --arg "key" "up" '.[$key]')
-    is_up_v6=$(echo $v6_info | jq -r --arg "key" "up" '.[$key]')
+    v4_info=$(ifstatus "$Ifv4")
+    v6_info=$(ifstatus "$Ifv6")
+    dns_v4=$(printf '%s\n' "$v4_info" | jq -r --arg "key" "dns-server" '.[$key][0]')
+    dns_v6=$(printf '%s\n' "$v6_info" | jq -r --arg "key" "dns-server" '.[$key][0]')
+    gateway_v4=$(printf '%s\n' "$v4_info" | jq -r --arg "key" "route" '.[$key][] | select(.target == "0.0.0.0") | .nexthop')
+    gateway_v6=$(printf '%s\n' "$v6_info" | jq -r --arg "key" "route" '.[$key][] | select(.target == "::") | .nexthop')
+    is_up_v4=$(printf '%s\n' "$v4_info" | jq -r --arg "key" "up" '.[$key]')
+    is_up_v6=$(printf '%s\n' "$v6_info" | jq -r --arg "key" "up" '.[$key]')
 }
 
 wait_until_ready(){
@@ -159,17 +172,17 @@ _ping() {
     Target=$2
     case $Type in
         ip)
-            ping -c 1 $Target -I $NET_DEV
+            ping -c 1 "$Target" -I "$NET_DEV"
             status=$?
             ;;
         gateway)
             case $Target in
                 4)
-                    ping -c 1 $gateway_v4 -I $NET_DEV
+                    ping -c 1 "$gateway_v4" -I "$NET_DEV"
                     status=$?
                 ;;
                 6)
-                    ping -c 1 $gateway_v6 -I $NET_DEV
+                    ping -c 1 "$gateway_v6" -I "$NET_DEV"
                     status=$?
                 ;;
                 *)
@@ -181,11 +194,11 @@ _ping() {
         dns)
         case $Target in
             4)
-                ping -c 1 $dns_v4 -I $NET_DEV
+                ping -c 1 "$dns_v4" -I "$NET_DEV"
                 status=$?
                 ;;
             6)
-                ping -c 1 $dns_v6 -I $NET_DEV
+                ping -c 1 "$dns_v6" -I "$NET_DEV"
                 status=$?
                 ;;
             *)
@@ -211,7 +224,7 @@ _ping() {
 _curl() {
   url=$1
   # timeout 10s
-  res=$(curl --connect-timeout 10 --interface $NET_DEV $url -o /dev/null --silent --show-error)
+  res=$(curl --connect-timeout 10 --interface "$NET_DEV" "$url" -o /dev/null --silent --show-error)
   status=$?
   if [ "$status" -ne 0 ]; then
     log "Curl failed: $res"
@@ -244,7 +257,12 @@ _run_script(){
     local script_path=$1
     shift
     log "Run script: $script_path $@"
-    $script_path $@
+    case "$script_path" in
+        /*) ;;
+        *) log "Refusing non-absolute script path: $script_path"; return 1 ;;
+    esac
+    [ -x "$script_path" ] || { log "Script is not executable: $script_path"; return 1; }
+    "$script_path" "$@"
 }
 
 
@@ -259,24 +277,24 @@ _send_at_command(){
     local at_command
     at_command=$1
     log "Send AT command: $at_command"
-    res=$(at $AT_PORT $at_command)
+    res=$(at "$AT_PORT" "$at_command")
     log "AT command response: $res"
 }
 
 # Action: switch_sim_slot - Switch SIM slot
 # Usage: switch_sim_slot <Modem_ID>
 switch_sim_slot() {
-  is_supported=$(ubus call qmodem get_sim_switch_capabilities '{"config_section": "'$Modem_ID'"}' | jq -r '.supportSwitch')
+  is_supported=$(ubus call qmodem get_sim_switch_capabilities "{\"config_section\":\"$Modem_ID\"}" | jq -r '.supportSwitch')
   if [ "$is_supported" = "1" ]; then
-    current_slot=$(ubus call qmodem get_sim_slot '{"config_section": "'$Modem_ID'"}' | jq -r '.sim_slot')
-    available_slots=$(ubus call qmodem get_sim_switch_capabilities '{"config_section": "'$Modem_ID'"}' | jq -r '.simSlots[]')
+    current_slot=$(ubus call qmodem get_sim_slot "{\"config_section\":\"$Modem_ID\"}" | jq -r '.sim_slot')
+    available_slots=$(ubus call qmodem get_sim_switch_capabilities "{\"config_section\":\"$Modem_ID\"}" | jq -r '.simSlots[]')
     for slot in $available_slots; do
         if [ "$slot" != "$current_slot" ]; then
             new_slot=$slot
             break
         fi
     done
-    ubus call qmodem set_sim_slot '{"config_section": "'$Modem_ID'", "slot": '$new_slot'}'
+    ubus call qmodem set_sim_slot "{\"config_section\":\"$Modem_ID\",\"slot\":$new_slot}"
     log "Switch SIM slot from $current_slot to $new_slot"
   else
     log "Switching SIM slot is not supported for modem $Modem_ID"
@@ -290,15 +308,16 @@ switch_sim_slot() {
 
 
 loop(){
+    wait_until_ready || return 1
     case $Method in
         ping)
             case $Ping_Type in
                 ip)
-                    _ping $Ping_Type $Ping_Dest
+                    _ping "$Ping_Type" "$Ping_Dest"
                     status=$?
                     ;;
                 gateway|dns)
-                    _ping $Ping_Type $Ping_IP_Version
+                    _ping "$Ping_Type" "$Ping_IP_Version"
                     status=$?
                     ;;
                 *)
@@ -308,7 +327,7 @@ loop(){
             esac
             ;;
         curl)
-            _curl $Http_Url
+            _curl "$Http_Url"
             status=$?
             ;;
         *)
@@ -362,7 +381,7 @@ while true; do
     else
         failed_count=0
     fi
-    sleep $Interval
+    sleep "$Interval"
     
     if [ "$failed_count" -ge "$Threshold" ]; then
         # log last failure time

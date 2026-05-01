@@ -41,8 +41,8 @@ case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
 esac
 
 # Match Quectel vendor only.
-[ -e /sys/$DEVPATH/idVendor ] || exit 0
-[ "$(cat /sys/$DEVPATH/idVendor 2>/dev/null)" = "2c7c" ] || exit 0
+[ -e "/sys/$DEVPATH/idVendor" ] || exit 0
+[ "$(cat "/sys/$DEVPATH/idVendor" 2>/dev/null)" = "2c7c" ] || exit 0
 
 # No marker -> nothing to do (already reset, or this is not a fresh flash).
 [ -f /etc/zbt-modem-factory-reset-pending ] || exit 0

@@ -153,22 +153,22 @@ get_at_cfg() {
     # Fallback to default file if language-specific file doesn't exist
     [ ! -f "$at_commands_file" ] && at_commands_file="/usr/share/qmodem/at_commands.json"
     
-    general_cmd=$(jq -rc '.general[]|to_entries| .[] | @sh "key=\(.key) value=\(.value)"' "$at_commands_file" 2>/dev/null)
-    platform_cmd=$(jq -rc ".${vendor}.${platform}[]|to_entries| .[] | @sh \"key=\(.key) value=\(.value)\"" "$at_commands_file" 2>/dev/null)
-    [ -z "$platform_cmd" ] && platform_cmd=$(jq -rc ".$vendor.general[]|to_entries| .[] | @sh \"key=\(.key) value=\(.value)\"" "$at_commands_file" 2>/dev/null)
-    cmds=$(echo -e "$general_cmd\n$platform_cmd")
-    IFS=$'\n'
-    for cmd in $cmds; do
+    general_cmd=$(jq -r '.general[]|to_entries| .[] | [.key, .value] | @tsv' "$at_commands_file" 2>/dev/null)
+    platform_cmd=$(jq -r ".${vendor}.${platform}[]|to_entries| .[] | [.key, .value] | @tsv" "$at_commands_file" 2>/dev/null)
+    [ -z "$platform_cmd" ] && platform_cmd=$(jq -r ".$vendor.general[]|to_entries| .[] | [.key, .value] | @tsv" "$at_commands_file" 2>/dev/null)
+    cmds=$(mktemp /tmp/qmodem-at-cmds.XXXXXX)
+    printf '%s\n%s\n' "$general_cmd" "$platform_cmd" > "$cmds"
+    while IFS='	' read -r key value; do
+        [ -n "$key" ] || continue
         json_add_object cmd
-        eval $cmd
         json_add_string "name" "$key"
         json_add_string "value" "$value"
         json_close_object
-    done
+    done < "$cmds"
+    rm -f "$cmds"
     json_close_array
     json_close_object
     json_dump
-    unset IFS
 }
 
 traffic_reset_fail()
