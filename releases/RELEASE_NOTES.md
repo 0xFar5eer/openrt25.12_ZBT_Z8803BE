@@ -8,7 +8,7 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
 - **Release tag:** `v25.12.2-1-zbt8803be`
 - **OpenWrt base:** official `v25.12.2` / `r32802-f505120278`
-- **ZBT source commit:** `a591de1c5c`
+- **ZBT source commit:** `7ea71ea905`
 - **Kernel:** `6.12.74`
 - **Target:** `mediatek/filogic`
 - **Default login:** `root` / `admin`
@@ -21,6 +21,7 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - **Added max-temperature avoid-limit overlays to the temperature charts.** Different sensor families now get different limit lines: SDR/mmWave modem sensors at 75°C, modem system sensors at 80°C, modem CPU/DSP/PHY sensors at 85°C, WiFi sensors at 85°C, and system CPU/SoC sensors at 90°C. Tooltips and the summary table show limit/headroom per sensor.
 - **Fixed QModem soft reboot.** Manual LuCI soft reboot, QModem shutdown soft reboot, and the ZBT modem watchdog now route through `/usr/sbin/zbt-modem-soft-reboot`, which tries `sms_tool`, `sms_tool_q`, `tom_modem`, and QModem's AT helper with real success/failure reporting. A board-guarded uci-default overlays the patched QModem scripts on first boot/sysupgrade.
 - **Hardened no-SIM modem monitoring.** QModem monitor and the ZBT modem reboot guard now query `AT+CPIN?` and skip modem reboot actions when the modem reports no SIM inserted, preventing unnecessary USB/modem reset loops on deployments without a SIM card.
+- **Smoothed PWM fan policy.** The board fan cooling table now exposes 7 levels `<0 80 112 144 176 216 255>`, and the temperature logger drives them from the highest system/WiFi/modem temperature so 100% fan is reserved for hotter conditions. On the older 3-state runtime, the same governor now drops from 100% back to medium around the mid-50°C range instead of holding full speed below 60°C.
 - **Bumped feeds to latest compatible heads.** OpenWrt packages/LuCI/routing/video feeds are pinned to current compatible heads, while telephony remains at the stable 25.12 pin. ImmortalWrt overlay feeds and FUjr/QModem are also refreshed. Unused recursive Kconfig LuCI apps from the overlay are pruned by the build harness after feed install.
 - **Ported vendored `autocore` and `cpufreq`.** These keep the selected LuCI monitoring/governor packages buildable on the official 25.12.2 base without depending on the old setup-script tree.
 
@@ -37,10 +38,10 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 ## Checksums
 
 ```text
-d65a5e08ee5942da455f8077e5a2cdce2a9fffd22ef2666ac5635c6ed02a26e4  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-60e13475c91d75b3fe794dda58082db9b81abae8a6aa914a6d25f4fc1cd28d1b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-2e88ffecfc99b0720f3664ec1cd4306e47bc39b925d64a12d812a4e052ab757c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-9ff2ae72b3a2ce65654563efffadaa1f932c27a560ac553a0c753225f3015063  sha256sums
+b731d5d77227e16f190f8a65fd66ace63ed9e86d3dd9e5012a35288f20f513f5  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+64c97983cd50e6dd96a599e51f4349d1cbdc290bf5aecb68aed5bdb80b910a10  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+a1333b907c7c2f21924ea7d1aa3d5e9e6a48d1f483a463f8c94c97f9d8e81690  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+a8790079565563a2669ecf0334578f77cc4786a28099d27f86c4e229a25b6148  sha256sums
 ```
 
 ## Included
