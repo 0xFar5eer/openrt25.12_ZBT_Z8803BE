@@ -8,7 +8,7 @@
 
 - **发布标签:** `v25.12.2-1-zbt8803be`
 - **OpenWrt 基线:** 官方 `v25.12.2` / `r32802-f505120278`
-- **ZBT 源码提交:** `c46624f258`
+- **ZBT 源码提交:** `a591de1c5c`
 - **内核:** `6.12.74`
 - **目标平台:** `mediatek/filogic`
 - **默认登录:** `root` / `admin`
@@ -20,6 +20,7 @@
 - **内置 ZBT 温度监控和风扇策略。** 固件自带 `luci-app-zbt-temperature`、`/usr/sbin/zbt-temperature-log`、cron/tmpfs 历史记录、CPU/WiFi/调制解调器/风扇采样，以及之前优化过的用户态风扇调速逻辑。
 - **温度图表新增避让温度线。** 不同传感器族使用不同阈值：SDR/mmWave 调制解调器传感器 75°C，调制解调器系统传感器 80°C，调制解调器 CPU/DSP/PHY 传感器 85°C，WiFi 传感器 85°C，系统 CPU/SoC 传感器 90°C。悬浮提示和汇总表会显示每个传感器的 limit/headroom。
 - **修复 QModem 软重启。** LuCI 手动软重启、QModem 关机软重启和 ZBT 调制解调器看门狗现在统一调用 `/usr/sbin/zbt-modem-soft-reboot`；该 helper 会依次尝试 `sms_tool`、`sms_tool_q`、`tom_modem` 和 QModem AT helper，并返回真实成功/失败状态。板级 uci-default 会在首次启动/sysupgrade 后覆盖安装打过补丁的 QModem 脚本。
+- **增强无 SIM 卡场景的调制解调器监控。** QModem monitor 和 ZBT 调制解调器重启守卫现在会查询 `AT+CPIN?`，当调制解调器报告未插入 SIM 卡时跳过重启动作，避免无 SIM 部署中反复 USB/调制解调器复位。
 - **Feeds 更新到最新兼容版本。** OpenWrt packages/LuCI/routing/video feeds 固定到当前兼容 head，telephony 保持 25.12 稳定 pin；ImmortalWrt overlay 和 FUjr/QModem 也已刷新。build harness 会在安装 feed 后移除未使用且会触发递归 Kconfig 的 overlay LuCI app。
 - **移植 vendored `autocore` 和 `cpufreq`。** 保持已选择的 LuCI 监控/CPU governor 包可在官方 25.12.2 基线上构建，不再依赖旧的 setup-script 目录。
 
@@ -36,10 +37,10 @@
 ## 校验值
 
 ```text
-3534c9577281c03482fc77ee3d8ff2d4acff6c0fa2fc2f672c7c8ccb1374a386  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-1a7f43c881c8d5caa99c60cd1f2164ed382f6f91b02d167ea39c74f3e6fa4c2d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+d65a5e08ee5942da455f8077e5a2cdce2a9fffd22ef2666ac5635c6ed02a26e4  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+60e13475c91d75b3fe794dda58082db9b81abae8a6aa914a6d25f4fc1cd28d1b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
 2e88ffecfc99b0720f3664ec1cd4306e47bc39b925d64a12d812a4e052ab757c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-27170fc68a05a697be8a4640157734368e102c8d2b273322fc93d158963fd2ee  sha256sums
+9ff2ae72b3a2ce65654563efffadaa1f932c27a560ac553a0c753225f3015063  sha256sums
 ```
 
 ## 已包含
