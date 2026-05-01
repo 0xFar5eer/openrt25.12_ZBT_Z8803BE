@@ -126,6 +126,14 @@ apply_monitor_contract() {
 
 contract_changed=0
 
+if uci -q get qmodem.main >/dev/null 2>&1; then
+        cur_monitor_cooldown=$(uci -q get qmodem.main.zbt_monitor_cooldown 2>/dev/null)
+        if [ "$cur_monitor_cooldown" != "300" ]; then
+                uci -q set qmodem.main.zbt_monitor_cooldown='300'
+                contract_changed=1
+        fi
+fi
+
 # Walk every modem-device section currently in /etc/config/qmodem.
 for sec in $(uci -q show qmodem 2>/dev/null \
                 | sed -nE "s/^qmodem\.([^.=]+)=modem-device$/\1/p"); do

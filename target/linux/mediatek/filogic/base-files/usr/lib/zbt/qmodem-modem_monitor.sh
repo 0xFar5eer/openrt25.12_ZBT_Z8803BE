@@ -1,6 +1,9 @@
 #!/bin/sh
 . /lib/functions.sh
 . /usr/share/qmodem/modem_util.sh
+MONITOR_COOLDOWN_FILE="/tmp/zbt-qmodem-monitor-action.lock"
+MONITOR_COOLDOWN_S_DEFAULT=300
+MONITOR_COOLDOWN_S=$MONITOR_COOLDOWN_S_DEFAULT
 # Envs
 # Modem_ID
 # Modem_ID=$1
@@ -73,6 +76,39 @@ parse_args(){
 log(){
     logger -t qmodem_monitor "$Modem_ID($Method): $@"
     #echo "$Modem_ID($Method): $@"
+}
+
+load_monitor_cooldown(){
+    config_load qmodem 2>/dev/null || true
+    config_get MONITOR_COOLDOWN_S main zbt_monitor_cooldown "$MONITOR_COOLDOWN_S_DEFAULT"
+    case "$MONITOR_COOLDOWN_S" in *[!0-9]*|"") MONITOR_COOLDOWN_S=$MONITOR_COOLDOWN_S_DEFAULT ;; esac
+    [ "$MONITOR_COOLDOWN_S" -gt 0 ] || MONITOR_COOLDOWN_S=$MONITOR_COOLDOWN_S_DEFAULT
+}
+
+monitor_cooldown_active(){
+    local uptime_s now lock_mtime age
+    uptime_s=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)
+    case "$uptime_s" in *[!0-9]*|"") uptime_s=0 ;; esac
+    if [ "$uptime_s" -lt "$MONITOR_COOLDOWN_S" ]; then
+        log "Cooldown active: router uptime ${uptime_s}s < ${MONITOR_COOLDOWN_S}s; skip monitor actions"
+        return 0
+    fi
+    [ -f "$MONITOR_COOLDOWN_FILE" ] || return 1
+    lock_mtime=$(stat -c %Y "$MONITOR_COOLDOWN_FILE" 2>/dev/null || echo 0)
+    now=$(date +%s)
+    case "$lock_mtime" in *[!0-9]*|"") lock_mtime=0 ;; esac
+    case "$now" in *[!0-9]*|"") now=0 ;; esac
+    age=$(( now - lock_mtime ))
+    [ "$age" -ge 0 ] || age=0
+    if [ "$age" -lt "$MONITOR_COOLDOWN_S" ]; then
+        log "Cooldown active: last monitor action ${age}s ago < ${MONITOR_COOLDOWN_S}s; skip monitor actions"
+        return 0
+    fi
+    return 1
+}
+
+mark_monitor_action(){
+    touch "$MONITOR_COOLDOWN_FILE" 2>/dev/null || true
 }
 
 update_cfg(){
@@ -383,6 +419,7 @@ no_sim_present(){
 
 parse_args "$@"
 update_cfg
+load_monitor_cooldown
 update_netcfg
 log "Start monitoring $Modem_ID($Method) with interval $Interval and threshold $Threshold"
 failed_count=0
@@ -408,7 +445,10 @@ while true; do
         log "$Method failed $failed_count times"
         if no_sim_present; then
             log "No SIM present; skip monitor actions"
+        elif monitor_cooldown_active; then
+            :
         else
+            mark_monitor_action
             run_actions
         fi
         failed_count=0
