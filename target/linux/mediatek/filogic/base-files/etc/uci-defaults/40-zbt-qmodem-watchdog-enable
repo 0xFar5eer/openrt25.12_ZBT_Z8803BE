@@ -1,0 +1,26 @@
+#!/bin/sh
+# Enable the zbt_qmodem_watchdog procd service on first boot.
+#
+# Pairs with /etc/init.d/zbt_qmodem_watchdog and
+# /etc/hotplug.d/usb/30-zbt-qmodem-autoenable to keep
+# qmodem.4_1.state=enabled in the face of qmodem's modem_scan.sh
+# flipping it back to 'disabled' during boot/scan cycles.
+#
+# Board guard: ZBT-Z8803BE only.
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+        zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+        *) exit 0 ;;
+esac
+
+if [ -x /etc/init.d/zbt_qmodem_watchdog ]; then
+	# enable: install /etc/rc.d/S99 symlink so procd starts the service
+	# during the next service boot phase. We don't `start` here because
+	# this script runs in uci-defaults context (early /etc/rc.d/S95
+	# uci-defaults_apply step) before procd_set_param has been called
+	# for any service - kicking off the watchdog now risks racing
+	# qmodem_init's own start. Procd's normal start sequence (which
+	# walks /etc/rc.d/S* in order) handles it correctly at S99.
+	/etc/init.d/zbt_qmodem_watchdog enable
+fi
+
+exit 0

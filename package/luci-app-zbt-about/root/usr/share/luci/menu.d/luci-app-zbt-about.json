@@ -1,0 +1,13 @@
+{
+	"admin/system/zbt-about": {
+		"title": "About this build",
+		"order": 90,
+		"action": {
+			"type": "view",
+			"path": "zbt8803be/about"
+		},
+		"depends": {
+			"acl": [ "luci-app-zbt-about" ]
+		}
+	}
+}

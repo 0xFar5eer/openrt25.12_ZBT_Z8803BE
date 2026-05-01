@@ -1,0 +1,92 @@
+#!/bin/sh
+
+AT_CMD='AT+CFUN=1,1'
+PORT=''
+SECTION=''
+
+log() {
+	logger -t zbt-modem-soft-reboot "$1"
+}
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-d|--device|--port)
+			PORT=$2
+			shift 2
+			;;
+		-s|--section)
+			SECTION=$2
+			shift 2
+			;;
+		*)
+			shift
+			;;
+	esac
+done
+
+if [ -z "$PORT" ] && [ -n "$SECTION" ]; then
+	PORT=$(uci -q get "qmodem.${SECTION}.override_at_port")
+	[ -n "$PORT" ] || PORT=$(uci -q get "qmodem.${SECTION}.at_port")
+fi
+
+if [ -z "$PORT" ]; then
+	for candidate in \
+		$(uci -q show qmodem 2>/dev/null | sed -n "s/.*\.override_at_port='\([^']*\)'.*/\1/p") \
+		$(uci -q show qmodem 2>/dev/null | sed -n "s/.*\.at_port='\([^']*\)'.*/\1/p") \
+		/dev/ttyUSB5 /dev/ttyUSB3 /dev/ttyUSB2 /dev/ttyUSB1 /dev/mhi_DUN /dev/at_pcie0 /dev/at_pcie1
+	do
+		[ -e "$candidate" ] || continue
+		PORT=$candidate
+		break
+	done
+fi
+
+if [ -z "$PORT" ] || [ ! -e "$PORT" ]; then
+	log "failed: no AT port available (section=${SECTION:-auto}, port=${PORT:-empty})"
+	exit 1
+fi
+
+send_with_sms_tool() {
+	local tool=$1
+	"$tool" -d "$PORT" -t 8 at "$AT_CMD" 2>&1
+}
+
+send_with_tom_modem() {
+	tom_modem -d "$PORT" -o a -c "$AT_CMD" -t 8 2>&1
+}
+
+send_with_qmodem_at() {
+	. /usr/share/qmodem/modem_util.sh
+	at "$PORT" "$AT_CMD" 2>&1
+}
+
+for method in sms_tool sms_tool_q tom_modem qmodem_at; do
+	case "$method" in
+		sms_tool)
+			command -v sms_tool >/dev/null 2>&1 || continue
+			out=$(send_with_sms_tool sms_tool)
+			;;
+		sms_tool_q)
+			command -v sms_tool_q >/dev/null 2>&1 || continue
+			out=$(send_with_sms_tool sms_tool_q)
+			;;
+		tom_modem)
+			command -v tom_modem >/dev/null 2>&1 || continue
+			out=$(send_with_tom_modem)
+			;;
+		qmodem_at)
+			[ -r /usr/share/qmodem/modem_util.sh ] || continue
+			out=$(send_with_qmodem_at)
+			;;
+	esac
+	status=$?
+	if [ "$status" = "0" ] && printf '%s\n' "$out" | grep -Eiq '(^|[^A-Z])OK([^A-Z]|$)|CFUN'; then
+		log "ok: ${method} dispatched ${AT_CMD} on ${PORT}"
+		printf '%s\n' "$out"
+		exit 0
+	fi
+	log "warn: ${method} failed on ${PORT} (exit=${status})"
+done
+
+log "failed: unable to dispatch ${AT_CMD} on ${PORT}"
+exit 1

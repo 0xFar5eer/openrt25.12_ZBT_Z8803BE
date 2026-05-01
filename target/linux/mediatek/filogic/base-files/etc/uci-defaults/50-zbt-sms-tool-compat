@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Compatibility shim: the qmodem feed ships its customized AT-port
+# tool as /usr/bin/sms_tool_q (the suffix marks it as the QModem
+# fork, distinct from the upstream sms-tool we don't bundle). Almost
+# every external doc, hotplug example, and user habit refers to it
+# as `sms_tool` without the suffix though, and typing the wrong name
+# wastes a debugging round-trip. Wire a symlink so either invocation
+# works. Idempotent and tolerant of the fork being absent (e.g.
+# during rescue boots or builds that strip qmodem out): only creates
+# the symlink if sms_tool_q is present and no sms_tool already
+# exists.
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+if [ -x /usr/bin/sms_tool_q ] && [ ! -e /usr/bin/sms_tool ]; then
+	ln -sf sms_tool_q /usr/bin/sms_tool
+fi
+
+exit 0

@@ -327,6 +327,12 @@ zbtlink,zbt-z8103ax|\
 zbtlink,zbt-z8103ax-c)
 	ucidef_set_led_netdev "wan" "wan" "green:wan" "eth1" "link tx rx"
 	;;
+zbtlink,zbt-z8803be|\
+zbtlink,zbt-z8803be,mt7988a-nand)
+	# No static UCI led entries on this board on purpose: the chassis
+	# SYS indicator (red:status / green:wan / blue:power) is driven
+	# by /etc/zbt-leds.sh and hotplug state logic.
+	;;
 zyxel,ex5601-t0-stock|\
 zyxel,ex5601-t0-ubootmod)
 	ucidef_set_led_netdev "lan1" "LAN1" "mdio-bus:05:green:lan" "lan1" "link tx rx"

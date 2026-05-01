@@ -1,0 +1,48 @@
+#!/bin/sh
+# Auto-enable QMI raw_ip mode on Quectel WWAN net devices.
+#
+# Background:
+#   The Quectel RM5xxE/RM5xxQ (and most newer Qualcomm-baseband modems
+#   used in the M.2 slots on the ZBT-Z8803BE) speak QMI but emit pure-IP
+#   frames with no Ethernet header. The qmi_wwan driver defaults to ETH
+#   framing, which silently drops every RX packet — wwan0 stays UP with
+#   an IP, default route exists, masquerade matches, but nothing comes
+#   back. ARP for the carrier gateway "FAILED", RX bytes stays at 0.
+#
+#   The fix is to flip the per-device sysfs node:
+#     echo Y > /sys/class/net/<dev>/qmi/raw_ip
+#   while the link is DOWN. After that the driver runs in raw_ip mode
+#   (interface flips to <POINTOPOINT,NOARP>, link/none) and packets
+#   actually flow.
+#
+#   qmodem ships its own dial daemon (quectel-CM-M) which does NOT
+#   touch raw_ip. OpenWrt's proto_qmi handles it, but qmodem doesn't
+#   use proto_qmi. So the only place left to do it cleanly is here:
+#   on net-add hotplug, before the dialer races to bring the link up.
+#
+# Idempotent: only fires when raw_ip exists and is currently "N".
+# Guarded by board name so it doesn't run on other targets that share
+# this base-files tree.
+
+[ "$ACTION" = "add" ] || exit 0
+[ -n "$DEVICENAME" ] || exit 0
+
+# Only Z8803BE — guard against accidental cross-board activation.
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+RAWIP="/sys/class/net/$DEVICENAME/qmi/raw_ip"
+[ -e "$RAWIP" ] || exit 0
+[ "$(cat "$RAWIP" 2>/dev/null)" = "Y" ] && exit 0
+
+logger -t zbt-qmi-rawip "enabling raw_ip on $DEVICENAME"
+
+# raw_ip can only be flipped while the netdev is administratively down.
+# quectel-CM-M may try to bring it up at the same instant; in practice
+# the dialer retries every few seconds so a brief down/up here doesn't
+# break anything that wasn't already going to retry.
+ip link set dev "$DEVICENAME" down 2>/dev/null
+echo Y > "$RAWIP" 2>/dev/null
+ip link set dev "$DEVICENAME" up 2>/dev/null
