@@ -119,6 +119,37 @@ if [ -z "$AT_PORT" ] || [ ! -e "$AT_PORT" ]; then
         exit 0
 fi
 
+query_cpin() {
+	local out
+
+	if command -v tom_modem >/dev/null 2>&1; then
+		out=$(tom_modem -d "$AT_PORT" -o a -c "AT+CPIN?" -t 5 2>&1 || true)
+		[ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+	fi
+	if command -v sms_tool >/dev/null 2>&1; then
+		out=$(sms_tool -d "$AT_PORT" -t 5 at "AT+CPIN?" 2>&1 || true)
+		[ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+	fi
+	if command -v sms_tool_q >/dev/null 2>&1; then
+		out=$(sms_tool_q -d "$AT_PORT" at "AT+CPIN?" 2>&1 || true)
+		[ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+	fi
+	if [ -r /usr/share/qmodem/modem_util.sh ]; then
+		out=$(. /usr/share/qmodem/modem_util.sh; at "$AT_PORT" "AT+CPIN?" 2>&1 || true)
+		[ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+	fi
+
+	return 1
+}
+
+CPIN_OUT=$(query_cpin || true)
+case "$CPIN_OUT" in
+	*"+CME ERROR: 10"*|*"SIM not inserted"*|*"SIM NOT INSERTED"*|*"NO SIM"*|*"No SIM"*)
+		log "skip: no SIM present on section ${TARGET_SECTION}; not rebooting modem"
+		exit 0
+		;;
+esac
+
 # --- engage --------------------------------------------------------------
 # Touch lock BEFORE issuing the AT command. If sms_tool blocks for any
 # reason, the lock is still in place and the next monitor cycle won't

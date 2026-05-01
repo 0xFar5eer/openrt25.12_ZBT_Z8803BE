@@ -361,6 +361,26 @@ run_actions(){
     config_list_foreach "$Modem_ID" monitor_action run_action
 }
 
+no_sim_present(){
+    [ -n "$AT_PORT" ] && [ -e "$AT_PORT" ] || return 1
+    local out
+    if command -v tom_modem >/dev/null 2>&1; then
+        out=$(tom_modem -d "$AT_PORT" -o a -c "AT+CPIN?" -t 5 2>&1 || true)
+        case "$out" in *"+CME ERROR: 10"*|*"SIM not inserted"*|*"SIM NOT INSERTED"*|*"NO SIM"*|*"No SIM"*) return 0 ;; esac
+    fi
+    if command -v sms_tool >/dev/null 2>&1; then
+        out=$(sms_tool -d "$AT_PORT" -t 5 at "AT+CPIN?" 2>&1 || true)
+        case "$out" in *"+CME ERROR: 10"*|*"SIM not inserted"*|*"SIM NOT INSERTED"*|*"NO SIM"*|*"No SIM"*) return 0 ;; esac
+    fi
+    if command -v sms_tool_q >/dev/null 2>&1; then
+        out=$(sms_tool_q -d "$AT_PORT" at "AT+CPIN?" 2>&1 || true)
+        case "$out" in *"+CME ERROR: 10"*|*"SIM not inserted"*|*"SIM NOT INSERTED"*|*"NO SIM"*|*"No SIM"*) return 0 ;; esac
+    fi
+    out=$(at "$AT_PORT" "AT+CPIN?" 2>&1 || true)
+    case "$out" in *"+CME ERROR: 10"*|*"SIM not inserted"*|*"SIM NOT INSERTED"*|*"NO SIM"*|*"No SIM"*) return 0 ;; esac
+    return 1
+}
+
 parse_args "$@"
 update_cfg
 update_netcfg
@@ -386,7 +406,11 @@ while true; do
     if [ "$failed_count" -ge "$Threshold" ]; then
         # log last failure time
         log "$Method failed $failed_count times"
-        run_actions
+        if no_sim_present; then
+            log "No SIM present; skip monitor actions"
+        else
+            run_actions
+        fi
         failed_count=0
         sleep 60
     fi
