@@ -4,7 +4,7 @@ Local staging folder for the current **ZBTLink ZBT-Z8803BE** firmware release.
 
 - **Tag:** `v25.12.2-1-zbt8803be`
 - **OpenWrt base:** `r32802-f505120278`
-- **ZBT source commit:** `395adbe584`
+- **ZBT source commit:** `1684bdf309`
 - **Kernel:** `6.12.74`
 
 Firmware binaries in this folder are gitignored. Upload them to GitHub Releases.
@@ -30,10 +30,10 @@ Do not upload `REDDIT_POST.md`.
 ## Current checksums
 
 ```text
-1bdbdf0dbdb5f59fd85df8b481fa8786d7bb5609731c30738fad3df4d7671690  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-da05844b3fc62cd5fdd263ad791c3d42a1e19a6399fc10aee7711823c72a6db5  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+82c478cda5d033b829e9445b7d1e54e167f2373d74856fb826a49418130ff963  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+0b33bc33be11bfb76045746194f781df4d7af4624b92cece56439b561488e0bc  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
 a1333b907c7c2f21924ea7d1aa3d5e9e6a48d1f483a463f8c94c97f9d8e81690  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-2646c6753d9c8158a87bbbfe0b60e7f97372040820cfbfb14a2b4767e8e146ea  sha256sums
+4208dac8453f813ed93d1a7ae5dd395213747a707cd93a7b6c22abaa41d1d9aa  sha256sums
 ```
 
 ## Publish

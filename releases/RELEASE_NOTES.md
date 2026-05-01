@@ -8,7 +8,7 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
 - **Release tag:** `v25.12.2-1-zbt8803be`
 - **OpenWrt base:** official `v25.12.2` / `r32802-f505120278`
-- **ZBT source commit:** `395adbe584`
+- **ZBT source commit:** `1684bdf309`
 - **Kernel:** `6.12.74`
 - **Target:** `mediatek/filogic`
 - **Default login:** `root` / `admin`
@@ -22,6 +22,8 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - **Fixed QModem soft reboot.** Manual LuCI soft reboot, QModem shutdown soft reboot, and the ZBT modem watchdog now route through `/usr/sbin/zbt-modem-soft-reboot`, which tries `sms_tool`, `sms_tool_q`, `tom_modem`, and QModem's AT helper with real success/failure reporting. A board-guarded uci-default overlays the patched QModem scripts on first boot/sysupgrade.
 - **Hardened no-SIM modem monitoring.** QModem monitor and the ZBT modem reboot guard now query `AT+CPIN?` and skip modem reboot actions when the modem reports no SIM inserted, preventing unnecessary USB/modem reset loops on deployments without a SIM card.
 - **Added QModem monitor action cooldown.** The patched monitor now skips reboot actions for the first 5 minutes after router boot and for 5 minutes after each monitor-triggered modem action, preventing immediate post-boot modem resets and repeated restart loops during carrier attach.
+- **Hardened QModem connectivity checks.** Firmware defaults now use direct-IP HTTP/204 probing at `http://142.250.23.94/generate_204`, a 30 second monitor interval, and a 10 failure threshold. The monitor curl path also has `--max-time 15`, so transient DNS/carrier hiccups are less likely to trigger unnecessary modem actions.
+- **Adjusted default WiFi channel plan for regulatory-safe separation.** Default channels are now 2.4 GHz ch11/EHT20, 5 GHz ch149/EHT80, and 6 GHz ch37/EHT160. For multi-AP deployments in the PH lower-6 GHz range, EHT160 enables three separated PSC blocks such as ch5, ch37, and ch69.
 - **Smoothed PWM fan policy.** The board fan cooling table now exposes 7 levels `<0 80 112 144 176 216 255>`, and the temperature logger drives them from the highest system/WiFi/modem temperature so 100% fan is reserved for hotter conditions. On the older 3-state runtime, the same governor now drops from 100% back to medium around the mid-50°C range instead of holding full speed below 60°C.
 - **Bumped feeds to latest compatible heads.** OpenWrt packages/LuCI/routing/video feeds are pinned to current compatible heads, while telephony remains at the stable 25.12 pin. ImmortalWrt overlay feeds and FUjr/QModem are also refreshed. Unused recursive Kconfig LuCI apps from the overlay are pruned by the build harness after feed install.
 - **Ported vendored `autocore` and `cpufreq`.** These keep the selected LuCI monitoring/governor packages buildable on the official 25.12.2 base without depending on the old setup-script tree.
@@ -33,23 +35,23 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - LuCI menu/ACL JSON files passed `python3 -m json.tool`.
 - `./.buildenv/build.sh feeds` and `./.buildenv/build.sh config` completed with selected ZBT packages present.
 - Full `./.buildenv/build.sh build` completed successfully.
-- Rebuilt sysupgrade rootfs was streamed from squashfs and verified to contain the QModem monitor cooldown code and `qmodem.main.zbt_monitor_cooldown=300` uci-default.
+- Rebuilt sysupgrade rootfs was streamed from squashfs and verified to contain the QModem monitor cooldown code, direct-IP `30s/10×` monitor defaults, curl `--max-time 15`, `qmodem.main.zbt_monitor_cooldown=300`, and the updated EHT160 WiFi channel defaults.
 - Extracted output has `stale_apks=0` and no stale testing-kernel package references in the final target package output.
 - Live router runtime patch verification was performed for the temperature UI and QModem soft-reboot path; only a harmless `AT` command was sent for AT-port/tool validation.
 
 ## Checksums
 
 ```text
-1bdbdf0dbdb5f59fd85df8b481fa8786d7bb5609731c30738fad3df4d7671690  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-da05844b3fc62cd5fdd263ad791c3d42a1e19a6399fc10aee7711823c72a6db5  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+82c478cda5d033b829e9445b7d1e54e167f2373d74856fb826a49418130ff963  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+0b33bc33be11bfb76045746194f781df4d7af4624b92cece56439b561488e0bc  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
 a1333b907c7c2f21924ea7d1aa3d5e9e6a48d1f483a463f8c94c97f9d8e81690  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-2646c6753d9c8158a87bbbfe0b60e7f97372040820cfbfb14a2b4767e8e146ea  sha256sums
+4208dac8453f813ed93d1a7ae5dd395213747a707cd93a7b6c22abaa41d1d9aa  sha256sums
 ```
 
 ## Included
 
 - Mainline OpenWrt 25.12.2 base, no MediaTek vendor feed required.
-- WiFi 7 tri-band with EHT320 and MLO support.
+- WiFi 7 tri-band with MLO support and EHT320 capability; defaults use EHT160 on 6 GHz for safer multi-AP separation.
 - LuCI HTTPS, Argon dark theme/config, package manager, **System → About this build**, MLO app, and ZBT temperature monitor.
 - QModem Next JS UI with SMS, Monitor, AT Debug, SIM Switch, watchdog defaults, and robust soft reboot.
 - QMI/MBIM/NCM/MHI/USB modem stack with `sms_tool_q`, `tom_modem`, and `quectel-CM-5G-M`.
