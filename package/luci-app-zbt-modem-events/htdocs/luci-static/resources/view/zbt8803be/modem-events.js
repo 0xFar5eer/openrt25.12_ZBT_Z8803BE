@@ -139,6 +139,16 @@ function recoveryEnds(ev) {
 	return false;
 }
 
+function eventLabel(ev) {
+	if (ev.type === 'internet_ok')
+		return _('OK');
+	if (ev.type === 'manual_reboot_completed')
+		return _('Completed');
+	if (recoveryEnds(ev))
+		return _('Recovered');
+	return severityInfo(ev.severity).label;
+}
+
 function estimatedDowntime(events) {
 	const asc = events.slice().sort(function(a, b) { return a.epoch - b.epoch; });
 	const ranges = [];
@@ -181,10 +191,10 @@ function counts(events) {
 	events.forEach(function(ev) {
 		if (ev.severity === 'danger') out.danger++;
 		else if (ev.severity === 'warning') out.warning++;
-		else if (ev.severity === 'ok' && ev.type !== 'internet_ok') out.ok++;
+		if (recoveryEnds(ev)) out.ok++;
 		if (ev.source === 'monitor') out.monitor++;
-		if (ev.type.indexOf('auto_reboot') === 0) out.auto++;
-		if (ev.type.indexOf('manual_reboot') === 0) out.manual++;
+		if (ev.type === 'auto_reboot') out.auto++;
+		if (ev.type === 'manual_reboot' || ev.type === 'manual_reboot_requested') out.manual++;
 	});
 	return out;
 }
@@ -235,7 +245,7 @@ function renderEvents(events) {
 				E('td', { 'class': 'td' }, [
 					E('span', { 'style': 'font-size:1.25em;margin-right:0.35em' }, eventEmoji(ev)),
 					E('strong', { 'style': 'color:' + sev.color }, ev.title || ev.type),
-					E('div', { 'style': 'opacity:0.72;font-size:0.9em' }, sev.label + ' · ' + ev.type)
+					E('div', { 'style': 'opacity:0.72;font-size:0.9em' }, eventLabel(ev) + ' · ' + ev.type)
 				]),
 				E('td', { 'class': 'td' }, ev.source || '-'),
 				E('td', { 'class': 'td' }, ev.modem || '-'),
