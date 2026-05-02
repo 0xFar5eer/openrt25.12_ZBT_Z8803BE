@@ -78,6 +78,10 @@ record_counter() {
 	detail=$5
 	case "$count" in *[!0-9]*|'') count=0 ;; esac
 	state_file=$STATE_DIR/$(printf '%s' "$key" | tr -c 'A-Za-z0-9_-' '_')
+	if [ ! -f "$state_file" ]; then
+		printf '%s\n' "$count" > "$state_file"
+		return 0
+	fi
 	old=$(cat "$state_file" 2>/dev/null || echo 0)
 	case "$old" in *[!0-9]*|'') old=0 ;; esac
 	printf '%s\n' "$count" > "$state_file"
@@ -128,7 +132,7 @@ sample_health() {
 	record_config_state qmodem_monitor_disabled "$qmon_bad" "$modem" 'QModem monitor disabled' "qmodem.4_1.monitor_enabled=${qmon:-unset}"
 	dmesg_usb=$(dmesg 2>/dev/null | grep -c 'usb 4-1: USB disconnect' || true)
 	dmesg_watchdog=$(dmesg 2>/dev/null | grep -c 'NETDEV WATCHDOG' || true)
-	log_errors=$(logread 2>/dev/null | grep -Eci 'QMUXError|PDN_REQUEST_REJECTED|call_end_reason|quectel.*fail|qmi.*fail|cdc-wdm.*error|wwan0.*down|modem.*disconnect' || true)
+	log_errors=$(logread 2>/dev/null | grep -v 'zbt-modem-events:' | grep -Eci 'QMUXError|PDN_REQUEST_REJECTED|call_end_reason|quectel.*fail|qmi.*fail|cdc-wdm.*error|wwan0.*down|modem.*disconnect' || true)
 	record_counter usb_disconnects "$dmesg_usb" "$modem" 'USB modem disconnect detected' 'Kernel reported usb 4-1 disconnect'
 	record_counter netdev_watchdog "$dmesg_watchdog" "$modem" 'NETDEV WATCHDOG detected' 'Kernel reported network transmit timeout'
 	record_counter modem_error_logs "$log_errors" "$modem" 'Modem error log pattern detected' 'Logread matched QMI/dial/disconnect error patterns'
