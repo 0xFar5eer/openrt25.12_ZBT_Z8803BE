@@ -136,3 +136,11 @@ PRs and issue reports are very welcome — this is a community build, so please 
 - [OneB1t/Z8803BE-research](https://github.com/OneB1t/Z8803BE-research) — vendor firmware research that documented the dead opkg feeds and phone-home tunnel in stock 21.02-SNAPSHOT.
 - [OpenWrt mainline](https://openwrt.org) — the underlying distribution this build is based on (no MediaTek vendor feed required).
 - [ImmortalWrt](https://github.com/immortalwrt) — additional package and LuCI overlays used during build.
+
+## More documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Configuration](docs/CONFIGURATION.md)
+- [Getting started](docs/GETTING-STARTED.md)
+- [Development](docs/DEVELOPMENT.md)
+- [Testing](docs/TESTING.md)
