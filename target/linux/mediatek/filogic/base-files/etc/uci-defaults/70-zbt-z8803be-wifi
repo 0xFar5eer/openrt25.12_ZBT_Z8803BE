@@ -28,6 +28,11 @@ mac6=""
 # Every wifi-device: pin country to PH and enable the radio.
 for radio in $(uci -q show wireless | sed -nE 's/^wireless\.([^.]+)=wifi-device$/\1/p'); do
 	uci -q set "wireless.${radio}.country=PH"
+	uci -q set "wireless.${radio}.cell_density=0"
+	uci -q delete "wireless.${radio}.txpower" 2>/dev/null
+	uci -q delete "wireless.${radio}.min_tx_power" 2>/dev/null
+	uci -q delete "wireless.${radio}.channels" 2>/dev/null
+	uci -q delete "wireless.${radio}.scan_list" 2>/dev/null
 	uci -q set "wireless.${radio}.disabled=0"
 done
 
