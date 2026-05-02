@@ -8,7 +8,7 @@
 
 这是面向 **ZBTLink ZBT-Z8803BE** WiFi 7 路由器的当前自定义 OpenWrt 固件。
 
-- **OpenWrt 基线:** `r32802-f505120278`
+- **OpenWrt 基线:** 官方 `v25.12.2` / `r32802-f505120278`
 - **内核:** Linux `6.12.74`
 - **目标平台:** `mediatek/filogic`
 - **设备:** MediaTek MT7988A / Filogic 880 + MT7996 系列三频 WiFi 7
@@ -38,7 +38,7 @@ f41ebb5fa5de5e6b2d890b482f2c9e0cf8e65dbe1423521eb265f319c806c0d0  openwrt-mediat
 
 ## 已包含功能
 
-- **主线 OpenWrt:** 不依赖 MediaTek vendor feed。
+- **主线 OpenWrt 25.12.2:** 不依赖 MediaTek vendor feed。
 - **WiFi 7 三频:** 2.4 GHz、5 GHz、6 GHz、EHT320、WPA3、支持 MLO。
 - **PH WiFi 默认值:** 国家码 `PH`，启用 PH 允许的完整信道集合，固件不再额外限制 txpower/channel，并由驱动按法规自动选择最大发射功率。
 - **LuCI:** HTTPS、Argon 深色主题、中文翻译、软件包管理器。

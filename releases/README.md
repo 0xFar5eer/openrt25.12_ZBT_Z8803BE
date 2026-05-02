@@ -3,7 +3,7 @@
 Local staging folder for the current **ZBTLink ZBT-Z8803BE** firmware release.
 
 - **Tag:** `v25.12.2-1-zbt8803be`
-- **OpenWrt base:** `r32802-f505120278`
+- **OpenWrt base:** official `v25.12.2` / `r32802-f505120278`
 - **ZBT source commit:** `af51d54e00`
 - **Kernel:** `6.12.74`
 

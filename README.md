@@ -8,7 +8,7 @@
 
 Current custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
-- **OpenWrt base:** `r32802-f505120278`
+- **OpenWrt base:** official `v25.12.2` / `r32802-f505120278`
 - **Kernel:** Linux `6.12.74`
 - **Target:** `mediatek/filogic`
 - **Device:** MediaTek MT7988A / Filogic 880 + MT7996-family tri-band WiFi 7
@@ -38,7 +38,7 @@ f41ebb5fa5de5e6b2d890b482f2c9e0cf8e65dbe1423521eb265f319c806c0d0  openwrt-mediat
 
 ## Included features
 
-- **Mainline OpenWrt base:** no MediaTek vendor feed required.
+- **Mainline OpenWrt 25.12.2 base:** no MediaTek vendor feed required.
 - **WiFi 7 tri-band:** 2.4 GHz, 5 GHz, 6 GHz, EHT320, WPA3, MLO-capable.
 - **PH WiFi defaults:** country `PH`, full PH-allowed channel set, no firmware txpower/channel clamps, and automatic regulatory max power.
 - **LuCI:** HTTPS, Argon dark theme, Chinese translations, package manager.
