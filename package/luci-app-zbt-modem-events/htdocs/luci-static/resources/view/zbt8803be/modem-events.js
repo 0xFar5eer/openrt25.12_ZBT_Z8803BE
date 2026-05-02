@@ -32,8 +32,11 @@ const TYPE_EMOJI = {
 	auto_reboot_failed: '❌',
 	manual_reboot: '🧑‍🔧',
 	manual_reboot_requested: '🧑‍🔧',
-	manual_reboot_completed: '🧑‍�',
+	manual_reboot_completed: '🧑‍🔧',
 	reboot_failed: '❌',
+	internet_ok: '🟢',
+	internet_down: '🔴',
+	internet_recovered: '🟢',
 	usb: '🔌',
 	health: '🩺'
 };
@@ -121,15 +124,19 @@ function eventStyle(ev) {
 }
 
 function issueStarts(ev) {
-	if (ev.severity === 'danger')
+	if (ev.type === 'internet_down' || ev.type === 'monitor_check_failed' || ev.type === 'monitor_threshold')
 		return true;
 	if (ev.type === 'issue')
-		return true;
-	return ev.type === 'monitor_check_failed' || ev.type === 'monitor_threshold' || ev.type === 'monitor_action' || ev.type === 'auto_reboot' || ev.type.indexOf('manual_reboot') === 0 || ev.type === 'reboot_failed';
+		return ev.title === 'wwan0 has no IPv4 address' || ev.title === 'network.interface.4_1 is not up';
+	return false;
 }
 
 function recoveryEnds(ev) {
-	return ev.severity === 'ok' || ev.type === 'recovered' || ev.type === 'monitor_recovered';
+	if (ev.type === 'internet_recovered' || ev.type === 'monitor_recovered')
+		return true;
+	if (ev.type === 'recovered')
+		return ev.title === 'wwan0 IPv4 returned' || ev.title === 'network.interface.4_1 recovered';
+	return false;
 }
 
 function estimatedDowntime(events) {
@@ -174,7 +181,7 @@ function counts(events) {
 	events.forEach(function(ev) {
 		if (ev.severity === 'danger') out.danger++;
 		else if (ev.severity === 'warning') out.warning++;
-		else if (ev.severity === 'ok') out.ok++;
+		else if (ev.severity === 'ok' && ev.type !== 'internet_ok') out.ok++;
 		if (ev.source === 'monitor') out.monitor++;
 		if (ev.type.indexOf('auto_reboot') === 0) out.auto++;
 		if (ev.type.indexOf('manual_reboot') === 0) out.manual++;

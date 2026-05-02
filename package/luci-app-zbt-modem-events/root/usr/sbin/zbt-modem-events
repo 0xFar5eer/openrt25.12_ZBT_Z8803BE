@@ -105,12 +105,58 @@ record_config_state() {
 	append_event health issue warning "$modem" "$title" "$detail"
 }
 
+record_internet_probe() {
+	local modem ok detail state_file old type severity title
+	modem=$1
+	ok=$2
+	detail=$3
+	state_file=$STATE_DIR/internet_probe
+	old=$(cat "$state_file" 2>/dev/null || true)
+	[ "$old" = "$ok" ] && return 0
+	printf '%s\n' "$ok" > "$state_file"
+	if [ "$ok" = "1" ]; then
+		severity=ok
+		if [ -n "$old" ]; then
+			type=internet_recovered
+			title='Internet probe recovered'
+		else
+			type=internet_ok
+			title='Internet probe OK'
+		fi
+	else
+		type=internet_down
+		severity=danger
+		title='Internet probe failed'
+	fi
+	append_event health "$type" "$severity" "$modem" "$title" "$detail"
+}
+
+probe_internet() {
+	local modem dev_ok ip_ok url out status code ok detail
+	modem=$1
+	dev_ok=$2
+	ip_ok=$3
+	url=$(uci -q get qmodem.4_1.monitor_http_url 2>/dev/null || true)
+	[ -n "$url" ] || url='http://142.250.23.94/generate_204'
+	ok=0
+	if [ "$dev_ok" = "1" ] && [ "$ip_ok" = "1" ]; then
+		out=$(curl -4 --interface wwan0 --connect-timeout 3 --max-time 8 -o /dev/null -sS -w ' http_code=%{http_code} time=%{time_total}' "$url" 2>&1)
+		status=$?
+		code=$(printf '%s\n' "$out" | sed -n 's/.*http_code=\([0-9][0-9][0-9]\).*/\1/p' | tail -n 1)
+		case "$code" in 2??|3??) [ "$status" -eq 0 ] && ok=1 ;; esac
+		detail="url=$url netdev=wwan0 code=${code:-unknown} status=$status output=$(printf '%s' "$out" | tr '\r\n' '  ')"
+	else
+		detail="url=$url netdev=wwan0 dev_ok=$dev_ok ip_ok=$ip_ok"
+	fi
+	record_internet_probe "$modem" "$ok" "$detail"
+}
+
 monitor_running() {
 	ps w 2>/dev/null | grep -F '/usr/share/qmodem/modem_monitor.sh' | grep -v grep >/dev/null 2>&1
 }
 
 sample_health() {
-	local modem monitor_ok dev_ok ip_ok if_ok qstate qmon dmesg_usb dmesg_watchdog log_errors
+	local modem monitor_ok dev_ok ip_ok if_ok qstate qmon qstate_bad qmon_bad dmesg_usb dmesg_watchdog log_errors
 	modem=4_1
 	monitor_ok=0
 	dev_ok=0
@@ -126,6 +172,7 @@ sample_health() {
 	record_state wwan0_device "$dev_ok" "$modem" 'wwan0 device missing' 'wwan0 device returned' 'Cellular netdev is absent' 'Cellular netdev is present again'
 	record_state wwan0_ipv4 "$ip_ok" "$modem" 'wwan0 has no IPv4 address' 'wwan0 IPv4 returned' 'Cellular data path may be down' 'Cellular data path has IPv4 again'
 	record_state netifd_4_1 "$if_ok" "$modem" 'network.interface.4_1 is not up' 'network.interface.4_1 recovered' 'Firewall zone may not include wwan0 until ifup succeeds' 'netifd reports 4_1 up again'
+	probe_internet "$modem" "$dev_ok" "$ip_ok"
 	[ "$qstate" = disabled ] && qstate_bad=1 || qstate_bad=0
 	[ "$qmon" = 1 ] && qmon_bad=0 || qmon_bad=1
 	record_config_state qmodem_state_disabled "$qstate_bad" "$modem" 'QModem section disabled' 'qmodem.4_1.state=disabled'
