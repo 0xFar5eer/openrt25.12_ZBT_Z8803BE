@@ -31,16 +31,16 @@ Use the latest GitHub release assets:
 ## Checksums
 
 ```text
-3534c9577281c03482fc77ee3d8ff2d4acff6c0fa2fc2f672c7c8ccb1374a386  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-1a7f43c881c8d5caa99c60cd1f2164ed382f6f91b02d167ea39c74f3e6fa4c2d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-2e88ffecfc99b0720f3664ec1cd4306e47bc39b925d64a12d812a4e052ab757c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+7920ca111cd83f09b84613ff204237887dd6e801175f8ea37421b9783ea1760b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+8574017bbdfd41ab4f52eec40645dab95e3dc9502056e7dd1197f85a242b9e83  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+f41ebb5fa5de5e6b2d890b482f2c9e0cf8e65dbe1423521eb265f319c806c0d0  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ```
 
 ## Included features
 
 - **Mainline OpenWrt base:** no MediaTek vendor feed required.
 - **WiFi 7 tri-band:** 2.4 GHz, 5 GHz, 6 GHz, EHT320, WPA3, MLO-capable.
-- **PH regdomain patch:** full 6 GHz range enabled for local testing.
+- **PH WiFi defaults:** country `PH`, full PH-allowed channel set, no firmware txpower/channel clamps, and automatic regulatory max power.
 - **LuCI:** HTTPS, Argon dark theme, Chinese translations, package manager.
 - **QModem Next:** modern JS modem UI with built-in SMS, Monitor, AT Debug, and SIM Switch.
 - **Modem stack:** QMI, MBIM, NCM, MHI, USB serial, QModem, `sms_tool_q`.
@@ -120,7 +120,7 @@ output/mediatek/filogic/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sy
 
 - SFP+ is included but not physically verified here.
 - Hardware NAT/offload is not enabled; this build stays on mainline OpenWrt.
-- The PH WiFi regulatory patch is for local/private testing. Use responsibly.
+- PH WiFi defaults follow `wireless-regdb` and remove only firmware-side txpower/channel clamps; confirm local compliance before changing country, channels, or antenna gain.
 
 ## Support / contact
 

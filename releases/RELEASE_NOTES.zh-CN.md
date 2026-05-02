@@ -8,7 +8,7 @@
 
 - **发布标签:** `v25.12.2-1-zbt8803be`
 - **OpenWrt 基线:** 官方 `v25.12.2` / `r32802-f505120278`
-- **ZBT 源码提交:** `6d558aa9e7`
+- **ZBT 源码提交:** `af51d54e00`
 - **内核:** `6.12.74`
 - **目标平台:** `mediatek/filogic`
 - **默认登录:** `root` / `admin`
@@ -25,6 +25,7 @@
 - **新增 QModem monitor 动作冷却时间。** 打补丁后的 monitor 会在路由器启动后的前 5 分钟跳过重启动作，并在每次 monitor 触发调制解调器动作后再次等待 5 分钟，避免开机后立即重启调制解调器，也避免运营商附着期间反复重启。
 - **增强 QModem 联网检测。** 固件默认值现在使用直连 IP 的 HTTP/204 探测 `http://142.250.23.94/generate_204`，监控间隔为 30 秒，连续失败阈值为 10 次；monitor 的 curl 路径也加入 `--max-time 15`，降低短暂 DNS/运营商链路抖动误触发调制解调器动作的概率。
 - **调整默认 WiFi 信道规划以便合规隔离。** 默认信道现在为 2.4 GHz ch11/EHT20、5 GHz ch149/EHT80、6 GHz ch37/EHT160。在 PH lower-6 GHz 范围内，多 AP 部署可用 EHT160 获得 ch5、ch37、ch69 这类相互分离的 PSC 区块。
+- **移除固件侧 WiFi 功率/信道额外限制。** 首次启动保持 `country=PH`，设置 `cell_density=0`，并清理 `txpower`、`min_tx_power`、`channels`、`scan_list`，让 `wireless-regdb` 和驱动暴露 PH 允许的完整信道集合，并自动使用法规允许的最大发射功率。
 - **优化风扇调速策略。** PWM 风扇从 3 档扩展为 7 档 `<0 80 112 144 176 216 255>`；温度记录服务按系统/WiFi/调制解调器最高温度进行分级调速，100% 只保留给更高温场景。旧 3 档固件上的运行期脚本也会在 55-60°C 附近从 100% 降回中档，避免低于 60°C 时长时间满速。
 - **Feeds 更新到最新兼容版本。** OpenWrt packages/LuCI/routing/video feeds 固定到当前兼容 head，telephony 保持 25.12 稳定 pin；ImmortalWrt overlay 和 FUjr/QModem 也已刷新。build harness 会在安装 feed 后移除未使用且会触发递归 Kconfig 的 overlay LuCI app。
 - **移植 vendored `autocore` 和 `cpufreq`。** 保持已选择的 LuCI 监控/CPU governor 包可在官方 25.12.2 基线上构建，不再依赖旧的 setup-script 目录。
@@ -36,17 +37,17 @@
 - LuCI menu/ACL JSON 文件通过 `python3 -m json.tool`。
 - `./.buildenv/build.sh feeds` 和 `./.buildenv/build.sh config` 完成，ZBT 相关包均被选中。
 - 完整 `./.buildenv/build.sh build` 构建成功。
-- 已从 squashfs 流式读取重建后的 sysupgrade rootfs，并确认其中包含 QModem monitor 冷却逻辑、直连 IP 的 `30s/10×` monitor 默认值、curl `--max-time 15`、`qmodem.main.zbt_monitor_cooldown=300`、更新后的 EHT160 WiFi 信道默认值，以及内置的 `luci-app-zbt-modem-events` 包文件和服务启动链接。
+- 已从 squashfs 流式读取重建后的 sysupgrade rootfs，并确认其中包含 QModem monitor 冷却逻辑、直连 IP 的 `30s/10×` monitor 默认值、curl `--max-time 15`、`qmodem.main.zbt_monitor_cooldown=300`、更新后的 EHT160 WiFi 信道默认值、PH WiFi no-clamp 默认值，以及内置的 `luci-app-zbt-modem-events` 包文件和服务启动链接。
 - 发布 manifest、校验文件和 buildinfo 中没有遗留测试内核包引用。
 - 已在在线路由器上验证 Modem Events UI、温度 UI 和 QModem 软重启路径的运行期补丁；AT 口/工具验证只发送了无害的 `AT` 命令，没有触发真实调制解调器重启。
 
 ## 校验值
 
 ```text
-6c93a578fa20b70c2928b22a65ae9efeae40dc83fe90d860f3b37cd61f7ac4e6  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-af82246f539fdbf682de69bfca86df5f1d3d660abdbdbbb7a29d6b1703f0bb62  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+7920ca111cd83f09b84613ff204237887dd6e801175f8ea37421b9783ea1760b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+8574017bbdfd41ab4f52eec40645dab95e3dc9502056e7dd1197f85a242b9e83  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
 f41ebb5fa5de5e6b2d890b482f2c9e0cf8e65dbe1423521eb265f319c806c0d0  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-9347720eb2bcacdc3dc94efa04b73015251d1acbfaa8c9f74fc41f0f0561a999  sha256sums
+ee41d729ac47cc419880e2347792eb5c42fbb201485431a9d7e284d69bc83f80  sha256sums
 ```
 
 ## 已包含

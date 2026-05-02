@@ -31,16 +31,16 @@
 ## 校验值
 
 ```text
-3534c9577281c03482fc77ee3d8ff2d4acff6c0fa2fc2f672c7c8ccb1374a386  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-1a7f43c881c8d5caa99c60cd1f2164ed382f6f91b02d167ea39c74f3e6fa4c2d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-2e88ffecfc99b0720f3664ec1cd4306e47bc39b925d64a12d812a4e052ab757c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+7920ca111cd83f09b84613ff204237887dd6e801175f8ea37421b9783ea1760b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+8574017bbdfd41ab4f52eec40645dab95e3dc9502056e7dd1197f85a242b9e83  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+f41ebb5fa5de5e6b2d890b482f2c9e0cf8e65dbe1423521eb265f319c806c0d0  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ```
 
 ## 已包含功能
 
 - **主线 OpenWrt:** 不依赖 MediaTek vendor feed。
 - **WiFi 7 三频:** 2.4 GHz、5 GHz、6 GHz、EHT320、WPA3、支持 MLO。
-- **PH 频率区域补丁:** 用于本地测试的完整 6 GHz 范围。
+- **PH WiFi 默认值:** 国家码 `PH`，启用 PH 允许的完整信道集合，固件不再额外限制 txpower/channel，并由驱动按法规自动选择最大发射功率。
 - **LuCI:** HTTPS、Argon 深色主题、中文翻译、软件包管理器。
 - **QModem Next:** 现代 JS 调制解调器界面，内置短信、监控、AT 调试、SIM 切换。
 - **调制解调器栈:** QMI、MBIM、NCM、MHI、USB serial、QModem、`sms_tool_q`。
@@ -120,7 +120,7 @@ output/mediatek/filogic/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sy
 
 - SFP+ 已包含，但此处未做实体硬件验证。
 - 未启用硬件 NAT/offload；本固件保持主线 OpenWrt 路线。
-- PH WiFi 频率区域补丁仅用于本地/私有测试，请自行确认合规性。
+- PH WiFi 默认值遵循 `wireless-regdb`，仅移除固件侧额外的 txpower/channel 限制；修改国家码、信道或天线增益前请自行确认当地合规性。
 
 ## 反馈与联系
 

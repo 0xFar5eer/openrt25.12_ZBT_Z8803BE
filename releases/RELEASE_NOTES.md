@@ -8,7 +8,7 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
 - **Release tag:** `v25.12.2-1-zbt8803be`
 - **OpenWrt base:** official `v25.12.2` / `r32802-f505120278`
-- **ZBT source commit:** `6d558aa9e7`
+- **ZBT source commit:** `af51d54e00`
 - **Kernel:** `6.12.74`
 - **Target:** `mediatek/filogic`
 - **Default login:** `root` / `admin`
@@ -25,6 +25,7 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - **Added QModem monitor action cooldown.** The patched monitor now skips reboot actions for the first 5 minutes after router boot and for 5 minutes after each monitor-triggered modem action, preventing immediate post-boot modem resets and repeated restart loops during carrier attach.
 - **Hardened QModem connectivity checks.** Firmware defaults now use direct-IP HTTP/204 probing at `http://142.250.23.94/generate_204`, a 30 second monitor interval, and a 10 failure threshold. The monitor curl path also has `--max-time 15`, so transient DNS/carrier hiccups are less likely to trigger unnecessary modem actions.
 - **Adjusted default WiFi channel plan for regulatory-safe separation.** Default channels are now 2.4 GHz ch11/EHT20, 5 GHz ch149/EHT80, and 6 GHz ch37/EHT160. For multi-AP deployments in the PH lower-6 GHz range, EHT160 enables three separated PSC blocks such as ch5, ch37, and ch69.
+- **Removed firmware-side WiFi power/channel clamps for PH.** First boot keeps `country=PH`, sets `cell_density=0`, and clears any `txpower`, `min_tx_power`, `channels`, or `scan_list` values so `wireless-regdb` and the driver expose the full PH-allowed channel set and automatic regulatory maximum transmit power.
 - **Smoothed PWM fan policy.** The board fan cooling table now exposes 7 levels `<0 80 112 144 176 216 255>`, and the temperature logger drives them from the highest system/WiFi/modem temperature so 100% fan is reserved for hotter conditions. On the older 3-state runtime, the same governor now drops from 100% back to medium around the mid-50°C range instead of holding full speed below 60°C.
 - **Bumped feeds to latest compatible heads.** OpenWrt packages/LuCI/routing/video feeds are pinned to current compatible heads, while telephony remains at the stable 25.12 pin. ImmortalWrt overlay feeds and FUjr/QModem are also refreshed. Unused recursive Kconfig LuCI apps from the overlay are pruned by the build harness after feed install.
 - **Ported vendored `autocore` and `cpufreq`.** These keep the selected LuCI monitoring/governor packages buildable on the official 25.12.2 base without depending on the old setup-script tree.
@@ -36,17 +37,17 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - LuCI menu/ACL JSON files passed `python3 -m json.tool`.
 - `./.buildenv/build.sh feeds` and `./.buildenv/build.sh config` completed with selected ZBT packages present.
 - Full `./.buildenv/build.sh build` completed successfully.
-- Rebuilt sysupgrade rootfs was streamed from squashfs and verified to contain the QModem monitor cooldown code, direct-IP `30s/10×` monitor defaults, curl `--max-time 15`, `qmodem.main.zbt_monitor_cooldown=300`, the updated EHT160 WiFi channel defaults, and the baked `luci-app-zbt-modem-events` package files/service symlinks.
+- Rebuilt sysupgrade rootfs was streamed from squashfs and verified to contain the QModem monitor cooldown code, direct-IP `30s/10×` monitor defaults, curl `--max-time 15`, `qmodem.main.zbt_monitor_cooldown=300`, the updated EHT160 WiFi channel defaults, the PH no-clamp WiFi defaults, and the baked `luci-app-zbt-modem-events` package files/service symlinks.
 - Release manifest, checksums, and buildinfo have no stale testing-kernel package references.
 - Live router runtime patch verification was performed for the Modem Events UI, temperature UI, and QModem soft-reboot path; only a harmless `AT` command was sent for AT-port/tool validation.
 
 ## Checksums
 
 ```text
-6c93a578fa20b70c2928b22a65ae9efeae40dc83fe90d860f3b37cd61f7ac4e6  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-af82246f539fdbf682de69bfca86df5f1d3d660abdbdbbb7a29d6b1703f0bb62  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+7920ca111cd83f09b84613ff204237887dd6e801175f8ea37421b9783ea1760b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+8574017bbdfd41ab4f52eec40645dab95e3dc9502056e7dd1197f85a242b9e83  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
 f41ebb5fa5de5e6b2d890b482f2c9e0cf8e65dbe1423521eb265f319c806c0d0  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-9347720eb2bcacdc3dc94efa04b73015251d1acbfaa8c9f74fc41f0f0561a999  sha256sums
+ee41d729ac47cc419880e2347792eb5c42fbb201485431a9d7e284d69bc83f80  sha256sums
 ```
 
 ## Included
