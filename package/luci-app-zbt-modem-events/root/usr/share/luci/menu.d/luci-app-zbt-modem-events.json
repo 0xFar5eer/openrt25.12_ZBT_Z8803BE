@@ -1,0 +1,13 @@
+{
+	"admin/services/zbt-modem-events": {
+		"title": "Modem Events",
+		"order": 86,
+		"action": {
+			"type": "view",
+			"path": "zbt8803be/modem-events"
+		},
+		"depends": {
+			"acl": [ "luci-app-zbt-modem-events" ]
+		}
+	}
+}

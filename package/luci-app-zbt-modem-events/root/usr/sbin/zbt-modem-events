@@ -1,0 +1,154 @@
+#!/bin/sh
+
+DATA_DIR=/var/log/zbt-modem-events
+DATA_FILE=$DATA_DIR/events.csv
+STATE_DIR=$DATA_DIR/state
+RETENTION_S=604800
+
+ensure_store() {
+	mkdir -p "$DATA_DIR" "$STATE_DIR"
+	[ -f "$DATA_FILE" ] || printf 'epoch,source,type,severity,modem,title,detail\n' > "$DATA_FILE"
+}
+
+csv_field() {
+	printf '"%s"' "$(printf '%s' "$1" | tr '\r\n' '  ' | sed 's/"/""/g')"
+}
+
+append_event() {
+	local source type severity modem title detail epoch tmp cutoff
+	source=$1
+	type=$2
+	severity=$3
+	modem=$4
+	title=$5
+	detail=$6
+	epoch=$(date +%s)
+	ensure_store
+	{
+		printf '%s,' "$epoch"
+		csv_field "$source"; printf ','
+		csv_field "$type"; printf ','
+		csv_field "$severity"; printf ','
+		csv_field "$modem"; printf ','
+		csv_field "$title"; printf ','
+		csv_field "$detail"; printf '\n'
+	} >> "$DATA_FILE"
+	logger -t zbt-modem-events "$severity $type modem=${modem:-unknown}: $title${detail:+ — $detail}"
+	cutoff=$(( epoch - RETENTION_S ))
+	tmp=$(mktemp /tmp/zbt-modem-events.XXXXXX)
+	awk -F, -v cutoff="$cutoff" 'NR == 1 || $1 >= cutoff' "$DATA_FILE" > "$tmp" 2>/dev/null || true
+	cat "$tmp" > "$DATA_FILE"
+	rm -f "$tmp"
+}
+
+record_state() {
+	local key ok modem bad_title ok_title bad_detail ok_detail state_file old title detail type severity
+	key=$1
+	ok=$2
+	modem=$3
+	bad_title=$4
+	ok_title=$5
+	bad_detail=$6
+	ok_detail=$7
+	state_file=$STATE_DIR/$(printf '%s' "$key" | tr -c 'A-Za-z0-9_-' '_')
+	old=$(cat "$state_file" 2>/dev/null || true)
+	[ "$old" = "$ok" ] && return 0
+	printf '%s\n' "$ok" > "$state_file"
+	if [ "$ok" = "1" ]; then
+		[ -n "$old" ] || return 0
+		title=$ok_title
+		detail=$ok_detail
+		type=recovered
+		severity=ok
+	else
+		title=$bad_title
+		detail=$bad_detail
+		type=issue
+		severity=warning
+	fi
+	append_event health "$type" "$severity" "$modem" "$title" "$detail"
+}
+
+record_counter() {
+	local key count modem title detail state_file old delta
+	key=$1
+	count=$2
+	modem=$3
+	title=$4
+	detail=$5
+	case "$count" in *[!0-9]*|'') count=0 ;; esac
+	state_file=$STATE_DIR/$(printf '%s' "$key" | tr -c 'A-Za-z0-9_-' '_')
+	old=$(cat "$state_file" 2>/dev/null || echo 0)
+	case "$old" in *[!0-9]*|'') old=0 ;; esac
+	printf '%s\n' "$count" > "$state_file"
+	[ "$count" -gt "$old" ] || return 0
+	delta=$(( count - old ))
+	append_event health issue warning "$modem" "$title" "$detail total=$count new=$delta"
+}
+
+record_config_state() {
+	local key bad modem title detail state_file old
+	key=$1
+	bad=$2
+	modem=$3
+	title=$4
+	detail=$5
+	state_file=$STATE_DIR/$(printf '%s' "$key" | tr -c 'A-Za-z0-9_-' '_')
+	old=$(cat "$state_file" 2>/dev/null || true)
+	[ "$old" = "$bad" ] && return 0
+	printf '%s\n' "$bad" > "$state_file"
+	[ "$bad" = "1" ] || return 0
+	append_event health issue warning "$modem" "$title" "$detail"
+}
+
+monitor_running() {
+	ps w 2>/dev/null | grep -F '/usr/share/qmodem/modem_monitor.sh' | grep -v grep >/dev/null 2>&1
+}
+
+sample_health() {
+	local modem monitor_ok dev_ok ip_ok if_ok qstate qmon dmesg_usb dmesg_watchdog log_errors
+	modem=4_1
+	monitor_ok=0
+	dev_ok=0
+	ip_ok=0
+	if_ok=0
+	monitor_running && monitor_ok=1
+	ip link show wwan0 >/dev/null 2>&1 && dev_ok=1
+	ip -4 addr show wwan0 2>/dev/null | grep -q 'inet ' && ip_ok=1
+	ubus call network.interface.4_1 status 2>/dev/null | grep -q '"up": true' && if_ok=1
+	qstate=$(uci -q get qmodem.4_1.state 2>/dev/null || true)
+	qmon=$(uci -q get qmodem.4_1.monitor_enabled 2>/dev/null || true)
+	record_state monitor_running "$monitor_ok" "$modem" 'QModem monitor is not running' 'QModem monitor recovered' 'No modem_monitor.sh process found' 'Monitor process is running again'
+	record_state wwan0_device "$dev_ok" "$modem" 'wwan0 device missing' 'wwan0 device returned' 'Cellular netdev is absent' 'Cellular netdev is present again'
+	record_state wwan0_ipv4 "$ip_ok" "$modem" 'wwan0 has no IPv4 address' 'wwan0 IPv4 returned' 'Cellular data path may be down' 'Cellular data path has IPv4 again'
+	record_state netifd_4_1 "$if_ok" "$modem" 'network.interface.4_1 is not up' 'network.interface.4_1 recovered' 'Firewall zone may not include wwan0 until ifup succeeds' 'netifd reports 4_1 up again'
+	[ "$qstate" = disabled ] && qstate_bad=1 || qstate_bad=0
+	[ "$qmon" = 1 ] && qmon_bad=0 || qmon_bad=1
+	record_config_state qmodem_state_disabled "$qstate_bad" "$modem" 'QModem section disabled' 'qmodem.4_1.state=disabled'
+	record_config_state qmodem_monitor_disabled "$qmon_bad" "$modem" 'QModem monitor disabled' "qmodem.4_1.monitor_enabled=${qmon:-unset}"
+	dmesg_usb=$(dmesg 2>/dev/null | grep -c 'usb 4-1: USB disconnect' || true)
+	dmesg_watchdog=$(dmesg 2>/dev/null | grep -c 'NETDEV WATCHDOG' || true)
+	log_errors=$(logread 2>/dev/null | grep -Eci 'QMUXError|PDN_REQUEST_REJECTED|call_end_reason|quectel.*fail|qmi.*fail|cdc-wdm.*error|wwan0.*down|modem.*disconnect' || true)
+	record_counter usb_disconnects "$dmesg_usb" "$modem" 'USB modem disconnect detected' 'Kernel reported usb 4-1 disconnect'
+	record_counter netdev_watchdog "$dmesg_watchdog" "$modem" 'NETDEV WATCHDOG detected' 'Kernel reported network transmit timeout'
+	record_counter modem_error_logs "$log_errors" "$modem" 'Modem error log pattern detected' 'Logread matched QMI/dial/disconnect error patterns'
+}
+
+case "$1" in
+	record)
+		shift
+		append_event "$1" "$2" "$3" "$4" "$5" "$6"
+		;;
+	sample)
+		ensure_store
+		sample_health
+		;;
+	prune)
+		ensure_store
+		append_event system prune info '' 'Retention check' 'Keeping last 7 days'
+		;;
+	*)
+		echo "usage: $0 record <source> <type> <severity> <modem> <title> <detail> | sample | prune" >&2
+		exit 1
+		;;
+esac

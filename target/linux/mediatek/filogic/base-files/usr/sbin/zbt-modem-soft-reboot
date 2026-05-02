@@ -3,9 +3,16 @@
 AT_CMD='AT+CFUN=1,1'
 PORT=''
 SECTION=''
+SOURCE='manual'
+REASON='manual_reboot'
 
 log() {
 	logger -t zbt-modem-soft-reboot "$1"
+}
+
+record_event() {
+	[ -x /usr/sbin/zbt-modem-events ] || return 0
+	/usr/sbin/zbt-modem-events record "$@" >/dev/null 2>&1 || true
 }
 
 while [ $# -gt 0 ]; do
@@ -20,6 +27,16 @@ while [ $# -gt 0 ]; do
 			SECTION=$2
 			shift 2
 			;;
+		--source)
+			[ $# -ge 2 ] || exit 1
+			SOURCE=$2
+			shift 2
+			;;
+		--reason)
+			[ $# -ge 2 ] || exit 1
+			REASON=$2
+			shift 2
+			;;
 		*)
 			shift
 			;;
@@ -29,6 +46,7 @@ done
 case "$SECTION" in
 	*[!A-Za-z0-9_]*)
 		log "failed: invalid qmodem section '${SECTION}'"
+		record_event "$SOURCE" reboot_failed danger "$SECTION" "Modem reboot failed" "invalid section"
 		exit 1
 		;;
 esac
@@ -54,12 +72,14 @@ case "$PORT" in
 	/dev/*) ;;
 	*)
 		log "failed: refused non-device AT port '${PORT:-empty}'"
+		record_event "$SOURCE" reboot_failed danger "$SECTION" "Modem reboot failed" "refused non-device AT port ${PORT:-empty}"
 		exit 1
 		;;
 esac
 
 if [ -z "$PORT" ] || [ ! -e "$PORT" ]; then
 	log "failed: no AT port available (section=${SECTION:-auto}, port=${PORT:-empty})"
+	record_event "$SOURCE" reboot_failed danger "$SECTION" "Modem reboot failed" "no AT port available port=${PORT:-empty}"
 	exit 1
 fi
 
@@ -99,6 +119,14 @@ for method in sms_tool sms_tool_q tom_modem qmodem_at; do
 	status=$?
 	if [ "$status" = "0" ] && printf '%s\n' "$out" | grep -Eiq '(^|[^A-Z])OK([^A-Z]|$)'; then
 		log "ok: ${method} dispatched ${AT_CMD} on ${PORT}"
+		case "$REASON" in
+			auto_reboot)
+				record_event "$SOURCE" auto_reboot danger "${SECTION:-auto}" "Monitor auto rebooted modem" "method=${method} port=${PORT} command=${AT_CMD}"
+				;;
+			*)
+				record_event "$SOURCE" manual_reboot warning "${SECTION:-auto}" "Manual modem reboot dispatched" "method=${method} port=${PORT} command=${AT_CMD}"
+				;;
+		esac
 		printf '%s\n' "$out"
 		exit 0
 	fi
@@ -106,4 +134,5 @@ for method in sms_tool sms_tool_q tom_modem qmodem_at; do
 done
 
 log "failed: unable to dispatch ${AT_CMD} on ${PORT}"
+record_event "$SOURCE" reboot_failed danger "${SECTION:-auto}" "Modem reboot failed" "all methods failed port=${PORT} command=${AT_CMD}"
 exit 1

@@ -559,7 +559,7 @@ get_info()
 
 soft_reboot()
 {
-    /usr/sbin/zbt-modem-soft-reboot -d "$at_port"
+    /usr/sbin/zbt-modem-soft-reboot -d "$at_port" --section "$config_section" --source qmodem --reason manual_reboot
 }
 
 hard_reboot()

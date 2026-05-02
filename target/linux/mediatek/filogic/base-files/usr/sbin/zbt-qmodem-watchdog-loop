@@ -59,6 +59,7 @@ reassert_qmodem_state() {
                 uci -q commit qmodem
                 /etc/init.d/qmodem_network restart >/dev/null 2>&1
                 logger -t "$NAME" "re-enabled ${QMODEM_SECTION}.state (was disabled)"
+                [ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record watchdog issue warning 4_1 "QModem state was disabled" "watchdog re-enabled ${QMODEM_SECTION}.state and restarted qmodem_network" >/dev/null 2>&1 || true
                 return 0
         fi
         return 1
@@ -85,6 +86,7 @@ reassert_network_stubs() {
         if [ $changed -eq 0 ]; then
                 uci -q commit network
                 logger -t "$NAME" "re-asserted network.4_1 / 4_1v6 stubs"
+                [ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record watchdog issue warning 4_1 "Network stubs were missing" "watchdog re-asserted network.4_1 / 4_1v6" >/dev/null 2>&1 || true
         fi
         return $changed
 }
@@ -105,6 +107,7 @@ reassert_firewall_zone() {
         if [ $changed -eq 0 ]; then
                 uci -q commit firewall
                 logger -t "$NAME" "re-added 4_1/4_1v6 to firewall ${zone} (wan)"
+                [ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record watchdog issue warning 4_1 "Firewall WAN zone missed modem interfaces" "watchdog re-added 4_1/4_1v6 to firewall ${zone}" >/dev/null 2>&1 || true
         fi
         return $changed
 }
@@ -143,6 +146,7 @@ reassert_iface_up() {
                 if printf '%s' "$ifup_out" | grep -q 'not found'; then
                         logger -t "$NAME" \
                                 "ifup 4_1 still 'not found' after network reload; UCI section may be missing"
+                        [ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record watchdog issue warning 4_1 "ifup 4_1 failed after network reload" "netifd could not find interface 4_1" >/dev/null 2>&1 || true
                         return 0   # 0 = reload firewall on next pass anyway
                 fi
         fi
@@ -157,6 +161,7 @@ reassert_iface_up() {
                 fi
         fi
         logger -t "$NAME" "brought up netifd interface 4_1 (wwan0 had IP, netifd was idle)"
+        [ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record watchdog recovered ok 4_1 "Brought modem interface up" "wwan0 had IPv4 while netifd 4_1 was idle" >/dev/null 2>&1 || true
         return 0
 }
 

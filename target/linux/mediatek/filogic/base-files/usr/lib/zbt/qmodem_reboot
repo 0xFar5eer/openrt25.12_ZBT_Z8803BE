@@ -21,7 +21,7 @@ _soft_reboot() {
 	[ -z "$at_port" ] && return 0
 
 	for i in $(seq 1 3); do
-		/usr/sbin/zbt-modem-soft-reboot -d "$at_port" && return 0
+		/usr/sbin/zbt-modem-soft-reboot -d "$at_port" --section "$1" --source qmodem_reboot --reason manual_reboot && return 0
 		sleep 1
 	done
 

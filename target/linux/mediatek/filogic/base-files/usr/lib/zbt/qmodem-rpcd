@@ -851,6 +851,7 @@ EOF
                 reboot_method=$(echo "$params" | jq -r '.method')
                 
                 reboot_status=0
+                [ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record qmodem manual_reboot_requested warning "$config_section" "Manual modem reboot requested" "method=${reboot_method}" >/dev/null 2>&1 || true
                 case "$reboot_method" in
                     "hard")
                         hard_reboot || reboot_status=$?
@@ -862,6 +863,13 @@ EOF
                         reboot_status=1
                         ;;
                 esac
+                if [ -x /usr/sbin/zbt-modem-events ]; then
+                    if [ "$reboot_status" = "0" ]; then
+                        /usr/sbin/zbt-modem-events record qmodem manual_reboot_completed warning "$config_section" "Manual modem reboot completed" "method=${reboot_method}" >/dev/null 2>&1 || true
+                    else
+                        /usr/sbin/zbt-modem-events record qmodem reboot_failed danger "$config_section" "Manual modem reboot failed" "method=${reboot_method} status=${reboot_status}" >/dev/null 2>&1 || true
+                    fi
+                fi
                 
                 json_init
                 json_add_object result

@@ -78,6 +78,11 @@ log(){
     #echo "$Modem_ID($Method): $@"
 }
 
+record_modem_event(){
+    [ -x /usr/sbin/zbt-modem-events ] || return 0
+    /usr/sbin/zbt-modem-events record "$@" >/dev/null 2>&1 || true
+}
+
 load_monitor_cooldown(){
     config_load qmodem 2>/dev/null || true
     config_get MONITOR_COOLDOWN_S main zbt_monitor_cooldown "$MONITOR_COOLDOWN_S_DEFAULT"
@@ -91,6 +96,7 @@ monitor_cooldown_active(){
     case "$uptime_s" in *[!0-9]*|"") uptime_s=0 ;; esac
     if [ "$uptime_s" -lt "$MONITOR_COOLDOWN_S" ]; then
         log "Cooldown active: router uptime ${uptime_s}s < ${MONITOR_COOLDOWN_S}s; skip monitor actions"
+        record_modem_event monitor monitor_cooldown warning "$Modem_ID" "Monitor action skipped by boot cooldown" "uptime=${uptime_s}s cooldown=${MONITOR_COOLDOWN_S}s"
         return 0
     fi
     [ -f "$MONITOR_COOLDOWN_FILE" ] || return 1
@@ -102,6 +108,7 @@ monitor_cooldown_active(){
     [ "$age" -ge 0 ] || age=0
     if [ "$age" -lt "$MONITOR_COOLDOWN_S" ]; then
         log "Cooldown active: last monitor action ${age}s ago < ${MONITOR_COOLDOWN_S}s; skip monitor actions"
+        record_modem_event monitor monitor_cooldown warning "$Modem_ID" "Monitor action skipped by action cooldown" "last_action_age=${age}s cooldown=${MONITOR_COOLDOWN_S}s"
         return 0
     fi
     return 1
@@ -435,7 +442,11 @@ while true; do
     if [ "$status" -ne 0 ]; then
         failed_count=$((failed_count + 1))
         log "Failed count: $failed_count Threshold: $Threshold"
+        record_modem_event monitor monitor_check_failed warning "$Modem_ID" "Monitor probe failed" "count=${failed_count}/${Threshold} method=${Method} netdev=${NET_DEV:-none} url=${Http_Url:-}"
     else
+        if [ "$failed_count" -gt 0 ]; then
+            record_modem_event monitor monitor_recovered ok "$Modem_ID" "Monitor probe recovered" "after_failed_checks=${failed_count} method=${Method} netdev=${NET_DEV:-none}"
+        fi
         failed_count=0
     fi
     sleep "$Interval"
@@ -443,12 +454,15 @@ while true; do
     if [ "$failed_count" -ge "$Threshold" ]; then
         # log last failure time
         log "$Method failed $failed_count times"
+        record_modem_event monitor monitor_threshold danger "$Modem_ID" "Monitor threshold reached" "failed_checks=${failed_count} threshold=${Threshold} method=${Method} netdev=${NET_DEV:-none} url=${Http_Url:-}"
         if no_sim_present; then
             log "No SIM present; skip monitor actions"
+            record_modem_event monitor monitor_no_sim warning "$Modem_ID" "Monitor action skipped because SIM is missing" "failed_checks=${failed_count} threshold=${Threshold}"
         elif monitor_cooldown_active; then
             :
         else
             mark_monitor_action
+            record_modem_event monitor monitor_action danger "$Modem_ID" "Monitor dispatching configured action" "failed_checks=${failed_count} action=run_scripts"
             run_actions
         fi
         failed_count=0

@@ -69,10 +69,12 @@ esac
 	done
 	if [ -z "$AT_PORT" ]; then
 		logger -t zbt-modem-reset "no AT port (ttyUSB2/3) appeared within 20s; aborting reset (marker preserved for next attempt)"
+		[ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record factory_reset reboot_failed danger 4_1 "Factory reset skipped" "AT port did not appear within 20s" >/dev/null 2>&1 || true
 		exit 0
 	fi
 
 	logger -t zbt-modem-reset "factory-resetting modem via ${AT_PORT} (post-flash one-shot)"
+	[ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record factory_reset factory_reset warning 4_1 "Factory-resetting modem" "post-flash one-shot port=${AT_PORT}" >/dev/null 2>&1 || true
 
 	# Default PDP context 1 to network-default (empty APN, dual-stack
 	# IPV4V6) so attach picks up the operator's per-PLMN auto APN.
@@ -94,6 +96,7 @@ esac
 
 	sms_tool_q -d "$AT_PORT" at "AT+CFUN=1,1" >/dev/null 2>&1
 	logger -t zbt-modem-reset "factory reset complete; modem rebooting (CFUN=1,1)"
+	[ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record factory_reset factory_reset warning 4_1 "Factory reset complete; modem rebooting" "port=${AT_PORT} command=AT+CFUN=1,1" >/dev/null 2>&1 || true
 ) &
 
 exit 0

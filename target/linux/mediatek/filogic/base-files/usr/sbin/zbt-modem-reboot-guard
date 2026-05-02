@@ -65,6 +65,11 @@ log() {
         logger -t zbt-modem-reboot-guard "$1"
 }
 
+record_event() {
+        [ -x /usr/sbin/zbt-modem-events ] || return 0
+        /usr/sbin/zbt-modem-events record "$@" >/dev/null 2>&1 || true
+}
+
 # --- read tunables (may be unset; use defaults) ----------------------------
 . /lib/functions.sh
 config_load qmodem 2>/dev/null || true
@@ -79,6 +84,7 @@ case "$LOCKOUT_S"    in *[!0-9]*|"") LOCKOUT_S=$LOCKOUT_S_DEFAULT       ;; esac
 UPTIME_S=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)
 if [ "$UPTIME_S" -lt "$BOOT_GRACE_S" ]; then
         log "skip: router uptime ${UPTIME_S}s < boot grace ${BOOT_GRACE_S}s"
+        record_event monitor auto_reboot_skipped warning "" "Monitor reboot skipped by boot grace" "uptime=${UPTIME_S}s boot_grace=${BOOT_GRACE_S}s"
         exit 0
 fi
 
@@ -90,6 +96,7 @@ if [ -f "$LOCK_FILE" ]; then
         AGE=$(( NOW - LOCK_MTIME ))
         if [ "$AGE" -lt "$LOCKOUT_S" ]; then
                 log "skip: last reboot ${AGE}s ago < lockout ${LOCKOUT_S}s"
+                record_event monitor auto_reboot_skipped warning "" "Monitor reboot skipped by lockout" "last_reboot_age=${AGE}s lockout=${LOCKOUT_S}s"
                 exit 0
         fi
 fi
@@ -116,6 +123,7 @@ config_get AT_PORT "$TARGET_SECTION" at_port
 
 if [ -z "$AT_PORT" ] || [ ! -e "$AT_PORT" ]; then
         log "skip: no AT port resolved for section ${TARGET_SECTION} (got '${AT_PORT:-empty}')"
+        record_event monitor auto_reboot_skipped warning "$TARGET_SECTION" "Monitor reboot skipped because AT port is missing" "at_port=${AT_PORT:-empty}"
         exit 0
 fi
 
@@ -146,6 +154,7 @@ CPIN_OUT=$(query_cpin || true)
 case "$CPIN_OUT" in
 	*"+CME ERROR: 10"*|*"SIM not inserted"*|*"SIM NOT INSERTED"*|*"NO SIM"*|*"No SIM"*)
 		log "skip: no SIM present on section ${TARGET_SECTION}; not rebooting modem"
+		record_event monitor auto_reboot_skipped warning "$TARGET_SECTION" "Monitor reboot skipped because SIM is missing" "at_port=${AT_PORT}"
 		exit 0
 		;;
 esac
@@ -161,11 +170,12 @@ touch "$LOCK_FILE"
 log "trigger: section=${TARGET_SECTION} at_port=${AT_PORT} uptime=${UPTIME_S}s — sending AT+CFUN=1,1"
 
 if [ -x /usr/sbin/zbt-modem-soft-reboot ]; then
-	/usr/sbin/zbt-modem-soft-reboot -d "$AT_PORT" >/dev/null 2>&1 \
+	/usr/sbin/zbt-modem-soft-reboot -d "$AT_PORT" --section "$TARGET_SECTION" --source monitor --reason auto_reboot >/dev/null 2>&1 \
 		&& log "AT+CFUN=1,1 dispatched OK" \
-		|| log "WARN: AT+CFUN=1,1 dispatch failed (soft reboot helper exit non-zero)"
+		|| { log "WARN: AT+CFUN=1,1 dispatch failed (soft reboot helper exit non-zero)"; record_event monitor auto_reboot_failed danger "$TARGET_SECTION" "Monitor auto reboot failed" "at_port=${AT_PORT}"; }
 else
 	log "WARN: soft reboot helper missing; cannot send reset"
+	record_event monitor auto_reboot_failed danger "$TARGET_SECTION" "Monitor auto reboot failed" "soft reboot helper missing"
 	exit 1
 fi
 
