@@ -8,7 +8,7 @@
 
 - **发布标签:** `v25.12.2-1-zbt8803be`
 - **OpenWrt 基线:** 官方 `v25.12.2` / `r32802-f505120278`
-- **ZBT 源码提交:** `af51d54e00`
+- **ZBT 源码提交:** `ac82dfb52a`
 - **内核:** `6.12.74`
 - **目标平台:** `mediatek/filogic`
 - **默认登录:** `root` / `admin`
@@ -18,7 +18,10 @@
 - **切换到官方 OpenWrt `v25.12.2`。** 当前分支以稳定标签为干净基线，再叠加 ZBT-Z8803BE 板级支持和固件定制；内核使用 OpenWrt 25.12.2 自带的稳定 `6.12.74`。
 - **移植 ZBT-Z8803BE 板级支持。** 包含 DTS/镜像 profile、LED/网络/GPIO switch 配置、NAND 升级支持、base-files overlay、调制解调器 LED 服务、QModem 默认值、WAN/WWAN metric 默认值、APK 软件源、LuCI 默认值以及 shell/banner 默认项。
 - **内置 ZBT 温度监控和风扇策略。** 固件自带 `luci-app-zbt-temperature`、`/usr/sbin/zbt-temperature-log`、cron/tmpfs 历史记录、CPU/WiFi/调制解调器/风扇采样，以及之前优化过的用户态风扇调速逻辑。
+- **新增内置 ZBT Health 页面。** 固件自带 `luci-app-zbt-health`、`/usr/sbin/zbt-health-json`、只读 LuCI **服务 → Health** 页面，以及后加载的 Services 菜单排序覆盖，用于快速查看路由器健康状态、overlay/存储、RAM、conntrack、uptime 和写入热点。
+- **重新整理 LuCI Services/服务菜单。** 服务菜单优先显示 Health、WiFi Clients、WiFi Client History、Traffic Statistics、System Statistics、Temperature、Modem Events、youtubeUnblock 和 AdGuard Home。WiFi Client History 与 System Statistics 现在是 Services 下的直接视图，不再通过 alias 跳回 Status/Statistics。
 - **内置 ZBT 调制解调器事件历史。** 固件自带 `luci-app-zbt-modem-events`、`/usr/sbin/zbt-modem-events`、cron/tmpfs 事件历史、USB/netifd/看门狗/QModem 事件 hook、明确的 `wwan0` 互联网探测状态，以及 LuCI **服务 → Modem Events** 页面；页面显示 7 天事件卡片、恢复计数，并且只基于 down/recovered 成对事件估算停机时间。
+- **减少 Modem Events 开机噪声。** Modem Events 现在会把路由器重启记录为停机边界，在启动宽限期内抑制低层 health 噪声，并让 UI 聚焦互联网 down/recovered/OK、monitor 动作、路由器重启和调制解调器重启事件。
 - **温度图表新增避让温度线。** 不同传感器族使用不同阈值：SDR/mmWave 调制解调器传感器 75°C，调制解调器系统传感器 80°C，调制解调器 CPU/DSP/PHY 传感器 85°C，WiFi 传感器 85°C，系统 CPU/SoC 传感器 90°C。悬浮提示和汇总表会显示每个传感器的 limit/headroom。
 - **修复 QModem 软重启。** LuCI 手动软重启、QModem 关机软重启和 ZBT 调制解调器看门狗现在统一调用 `/usr/sbin/zbt-modem-soft-reboot`；该 helper 会依次尝试 `sms_tool`、`sms_tool_q`、`tom_modem` 和 QModem AT helper，并返回真实成功/失败状态。板级 uci-default 会在首次启动/sysupgrade 后覆盖安装打过补丁的 QModem 脚本。
 - **增强无 SIM 卡场景的调制解调器监控。** QModem monitor 和 ZBT 调制解调器重启守卫现在会查询 `AT+CPIN?`，当调制解调器报告未插入 SIM 卡时跳过重启动作，避免无 SIM 部署中反复 USB/调制解调器复位。
@@ -37,24 +40,24 @@
 - LuCI menu/ACL JSON 文件通过 `python3 -m json.tool`。
 - `./.buildenv/build.sh feeds` 和 `./.buildenv/build.sh config` 完成，ZBT 相关包均被选中。
 - 完整 `./.buildenv/build.sh build` 构建成功。
-- 已从 squashfs 流式读取重建后的 sysupgrade rootfs，并确认其中包含 QModem monitor 冷却逻辑、直连 IP 的 `30s/10×` monitor 默认值、curl `--max-time 15`、`qmodem.main.zbt_monitor_cooldown=300`、更新后的 EHT160 WiFi 信道默认值、PH WiFi no-clamp 默认值，以及内置的 `luci-app-zbt-modem-events` 包文件和服务启动链接。
+- 已从 squashfs 流式读取重建后的 sysupgrade rootfs，并确认其中包含 QModem monitor 冷却逻辑、直连 IP 的 `30s/10×` monitor 默认值、curl `--max-time 15`、`qmodem.main.zbt_monitor_cooldown=300`、更新后的 EHT160 WiFi 信道默认值、PH WiFi no-clamp 默认值，以及内置的 `luci-app-zbt-health` 和 `luci-app-zbt-modem-events` 包文件。
 - 发布 manifest、校验文件和 buildinfo 中没有遗留测试内核包引用。
 - 已在在线路由器上验证 Modem Events UI、温度 UI 和 QModem 软重启路径的运行期补丁；AT 口/工具验证只发送了无害的 `AT` 命令，没有触发真实调制解调器重启。
 
 ## 校验值
 
 ```text
-7920ca111cd83f09b84613ff204237887dd6e801175f8ea37421b9783ea1760b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-8574017bbdfd41ab4f52eec40645dab95e3dc9502056e7dd1197f85a242b9e83  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-f41ebb5fa5de5e6b2d890b482f2c9e0cf8e65dbe1423521eb265f319c806c0d0  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-ee41d729ac47cc419880e2347792eb5c42fbb201485431a9d7e284d69bc83f80  sha256sums
+5f48b4146e1715363bacbe260dd566aaf1c3c637a5b75192085cec5eccca3f0c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+5aadce77d747d3de905d8bf2dd9f416ea04917602b722000a041cad96f1c88bf  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+dce37b7ad0489a3785cb2bbab54f4922049bcea978e20ab54fd2b080e2bb1806  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+424da7175ed3728e7482b1c2233d9751d1102328f36ee79f9afe842d6d30747f  sha256sums
 ```
 
 ## 已包含
 
 - 主线 OpenWrt 25.12.2 基线，不依赖 MediaTek vendor feed。
 - WiFi 7 三频，支持 MLO 和 EHT320 能力；默认 6 GHz 使用 EHT160，便于多 AP 场景下更安全地隔离。
-- LuCI HTTPS、Argon 深色主题/配置、软件包管理器、**系统 → 关于此构建**、MLO app、ZBT 温度监控和 ZBT 调制解调器事件历史。
+- LuCI HTTPS、Argon 深色主题/配置、软件包管理器、**系统 → 关于此构建**、MLO app、ZBT Health、ZBT 温度监控、ZBT 调制解调器事件历史，以及整理后的 Services/服务菜单顺序。
 - QModem Next JS 界面，包含 SMS、Monitor、AT Debug、SIM Switch、看门狗默认值和可靠软重启。
 - QMI/MBIM/NCM/MHI/USB 调制解调器栈，包含 `sms_tool_q`、`tom_modem` 和 `quectel-CM-5G-M`。
 - 固件默认启用调制解调器 LED 服务和状态轮询。

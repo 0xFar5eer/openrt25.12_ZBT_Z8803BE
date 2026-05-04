@@ -31,9 +31,9 @@
 ## 校验值
 
 ```text
-7920ca111cd83f09b84613ff204237887dd6e801175f8ea37421b9783ea1760b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-8574017bbdfd41ab4f52eec40645dab95e3dc9502056e7dd1197f85a242b9e83  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-f41ebb5fa5de5e6b2d890b482f2c9e0cf8e65dbe1423521eb265f319c806c0d0  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+5f48b4146e1715363bacbe260dd566aaf1c3c637a5b75192085cec5eccca3f0c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+5aadce77d747d3de905d8bf2dd9f416ea04917602b722000a041cad96f1c88bf  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+dce37b7ad0489a3785cb2bbab54f4922049bcea978e20ab54fd2b080e2bb1806  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ```
 
 ## 已包含功能
@@ -41,7 +41,7 @@ f41ebb5fa5de5e6b2d890b482f2c9e0cf8e65dbe1423521eb265f319c806c0d0  openwrt-mediat
 - **主线 OpenWrt 25.12.2:** 不依赖 MediaTek vendor feed。
 - **WiFi 7 三频:** 2.4 GHz、5 GHz、6 GHz、EHT320、WPA3、支持 MLO。
 - **PH WiFi 默认值:** 国家码 `PH`，启用 PH 允许的完整信道集合，固件不再额外限制 txpower/channel，并由驱动按法规自动选择最大发射功率。
-- **LuCI:** HTTPS、Argon 深色主题、中文翻译、软件包管理器。
+- **LuCI:** HTTPS、Argon 深色主题、中文翻译、软件包管理器，并整理 Services/服务菜单顺序。
 - **QModem Next:** 现代 JS 调制解调器界面，内置短信、监控、AT 调试、SIM 切换。
 - **调制解调器栈:** QMI、MBIM、NCM、MHI、USB serial、QModem、`sms_tool_q`。
 - **内置 SIM 切换:** QModem Next 通过 `AT+QUIMSLOT` 控制 SIM 卡槽。
@@ -50,8 +50,9 @@ f41ebb5fa5de5e6b2d890b482f2c9e0cf8e65dbe1423521eb265f319c806c0d0  openwrt-mediat
 - **网络:** WireGuard、SQM/CAKE、DDNS、firewall4/nftables。
 - **WAN 故障切换默认值:** 首次启动即写入 WAN metric `10` 与 WWAN/QModem metric `20`，支持拔网线自动切换。
 - **存储:** USB 3.0、ext4、vfat、exfat、ntfs3、Samba 4、SFTP。
-- **监控:** autocore、cpufreq、collectd/statistics、WiFi history。
+- **监控:** 路由器健康状态、autocore、cpufreq、collectd/statistics、WiFi 客户端/历史。
 - **温度监控:** 内置 ZBT 温度图表，支持不同模块的避让温度线和风扇 PWM 记录。
+- **路由器健康页面:** 内置 ZBT Health 页面，显示 overlay/存储、RAM、conntrack、uptime 和写入热点。
 - **Shell 默认项:** banner、彩色提示符、常用别名和工具。
 - **软件源:** 已配置 OpenWrt + ImmortalWrt overlay APK 源。
 

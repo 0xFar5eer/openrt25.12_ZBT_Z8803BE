@@ -31,9 +31,9 @@ Use the latest GitHub release assets:
 ## Checksums
 
 ```text
-7920ca111cd83f09b84613ff204237887dd6e801175f8ea37421b9783ea1760b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-8574017bbdfd41ab4f52eec40645dab95e3dc9502056e7dd1197f85a242b9e83  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-f41ebb5fa5de5e6b2d890b482f2c9e0cf8e65dbe1423521eb265f319c806c0d0  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+5f48b4146e1715363bacbe260dd566aaf1c3c637a5b75192085cec5eccca3f0c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+5aadce77d747d3de905d8bf2dd9f416ea04917602b722000a041cad96f1c88bf  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+dce37b7ad0489a3785cb2bbab54f4922049bcea978e20ab54fd2b080e2bb1806  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ```
 
 ## Included features
@@ -41,7 +41,7 @@ f41ebb5fa5de5e6b2d890b482f2c9e0cf8e65dbe1423521eb265f319c806c0d0  openwrt-mediat
 - **Mainline OpenWrt 25.12.2 base:** no MediaTek vendor feed required.
 - **WiFi 7 tri-band:** 2.4 GHz, 5 GHz, 6 GHz, EHT320, WPA3, MLO-capable.
 - **PH WiFi defaults:** country `PH`, full PH-allowed channel set, no firmware txpower/channel clamps, and automatic regulatory max power.
-- **LuCI:** HTTPS, Argon dark theme, Chinese translations, package manager.
+- **LuCI:** HTTPS, Argon dark theme, Chinese translations, package manager, and curated Services menu ordering.
 - **QModem Next:** modern JS modem UI with built-in SMS, Monitor, AT Debug, and SIM Switch.
 - **Modem stack:** QMI, MBIM, NCM, MHI, USB serial, QModem, `sms_tool_q`.
 - **Built-in SIM Switch:** QModem Next controls SIM slots through `AT+QUIMSLOT`.
@@ -50,8 +50,9 @@ f41ebb5fa5de5e6b2d890b482f2c9e0cf8e65dbe1423521eb265f319c806c0d0  openwrt-mediat
 - **Networking:** WireGuard, SQM/CAKE, DDNS, firewall4/nftables.
 - **WAN failover defaults:** first boot seeds WAN metric `10` and WWAN/QModem metric `20` for carrier-driven cable-unplug failover.
 - **Storage:** USB 3.0, ext4, vfat, exfat, ntfs3, Samba 4, SFTP.
-- **Monitoring:** autocore, cpufreq, collectd/statistics, WiFi history.
+- **Monitoring:** router health, autocore, cpufreq, collectd/statistics, WiFi clients/history.
 - **Temperature monitor:** built-in ZBT temperature charts with per-module avoid-limit overlays and fan PWM logging.
+- **Router health page:** built-in ZBT Health page for overlay/storage, RAM, conntrack, uptime, and write-hotspot checks.
 - **Shell defaults:** banner, color prompt, useful aliases/tools.
 - **Package feeds:** OpenWrt + ImmortalWrt overlay feeds configured for APK.
 

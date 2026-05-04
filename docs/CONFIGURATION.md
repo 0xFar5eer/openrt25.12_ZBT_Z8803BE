@@ -36,10 +36,10 @@ It also selects the local and feed packages that define the feature set.
 | Diagnostics | `nano`, `curl`, `ip-full`, `htop`, `tcpdump-mini`, `ethtool`, `bind-dig`, `bind-host`, `lsof`, `strace`, `screen`, `socat`, `iputils-arping` |
 | File sharing | `samba4-server`, `wsdd2`, `luci-app-samba4`, `openssh-sftp-server` |
 | VPN and traffic shaping | WireGuard packages and SQM/CAKE packages |
-| Monitoring | `autocore`, `cpufreq`, `luci-app-statistics`, collectd modules, RRDTool |
+| Monitoring | `luci-app-zbt-health`, `autocore`, `cpufreq`, `luci-app-statistics`, collectd modules, RRDTool |
 | UI theme | `luci-theme-argon`, `luci-app-argon-config` |
 | MLO | `luci-app-mlo` |
-| ZBT LuCI apps | `luci-app-zbt-about`, `luci-app-zbt-modem-events`, `luci-app-zbt-temperature` |
+| ZBT LuCI apps | `luci-app-zbt-about`, `luci-app-zbt-health`, `luci-app-zbt-modem-events`, `luci-app-zbt-temperature` |
 | Cellular modem | QMI, MBIM, NCM, MHI, USB serial, QModem Next, QModem monitor, `sms-tool_q`, `tom_modem`, `qfirehose`, `quectel-CM-5G-M` |
 | DPI bypass tooling | `youtubeUnblock`, `luci-app-youtubeUnblock`, NFQUEUE kernel modules |
 | Translation | `CONFIG_LUCI_LANG_zh_Hans=y` |

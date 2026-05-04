@@ -8,7 +8,7 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
 - **Release tag:** `v25.12.2-1-zbt8803be`
 - **OpenWrt base:** official `v25.12.2` / `r32802-f505120278`
-- **ZBT source commit:** `af51d54e00`
+- **ZBT source commit:** `ac82dfb52a`
 - **Kernel:** `6.12.74`
 - **Target:** `mediatek/filogic`
 - **Default login:** `root` / `admin`
@@ -18,7 +18,10 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - **Rebased to official OpenWrt `v25.12.2`.** The branch is now a clean stable-tag base with the ZBT-Z8803BE board support and firmware customizations ported on top. The build uses the stable `6.12.74` kernel from OpenWrt 25.12.2.
 - **Ported ZBT-Z8803BE board support.** Includes DTS/image profile, board LED/network/GPIO switch setup, NAND upgrade support, base-files overlays, modem LED services, QModem defaults, WAN/WWAN metric defaults, APK feed defaults, LuCI defaults, and ZBT shell/banner defaults.
 - **Integrated the built-in ZBT temperature monitor and fan policy.** The firmware ships `luci-app-zbt-temperature`, `/usr/sbin/zbt-temperature-log`, cron-backed tmpfs history, CPU/WiFi/modem/fan sampling, and the userspace fan governor from the previous build work.
+- **Added the built-in ZBT Health page.** The firmware ships `luci-app-zbt-health`, `/usr/sbin/zbt-health-json`, a read-only LuCI **Services → Health** page, and a late-loading Services menu override for quick router health, overlay/storage, RAM, conntrack, uptime, and write-hotspot checks.
+- **Reordered the LuCI Services menu.** Services now prioritizes Health, WiFi Clients, WiFi Client History, Traffic Statistics, System Statistics, Temperature, Modem Events, youtubeUnblock, and AdGuard Home. WiFi Client History and System Statistics are direct Services views, not aliases that redirect back to Status/Statistics.
 - **Added the built-in ZBT modem event history.** The firmware ships `luci-app-zbt-modem-events`, `/usr/sbin/zbt-modem-events`, cron-backed tmpfs event history, USB/netifd/watchdog/QModem hooks, explicit `wwan0` internet probe state, and a LuCI **Services → Modem Events** page with 7-day event cards, recovery counters, and downtime estimated only from down/recovered pairs.
+- **Reduced Modem Events startup noise.** Modem Events now records router restarts as downtime boundaries, suppresses low-level startup health noise during the grace period, and focuses the UI on internet down/recovered/OK, monitor actions, router restarts, and modem reboot events.
 - **Added max-temperature avoid-limit overlays to the temperature charts.** Different sensor families now get different limit lines: SDR/mmWave modem sensors at 75°C, modem system sensors at 80°C, modem CPU/DSP/PHY sensors at 85°C, WiFi sensors at 85°C, and system CPU/SoC sensors at 90°C. Tooltips and the summary table show limit/headroom per sensor.
 - **Fixed QModem soft reboot.** Manual LuCI soft reboot, QModem shutdown soft reboot, and the ZBT modem watchdog now route through `/usr/sbin/zbt-modem-soft-reboot`, which tries `sms_tool`, `sms_tool_q`, `tom_modem`, and QModem's AT helper with real success/failure reporting. A board-guarded uci-default overlays the patched QModem scripts on first boot/sysupgrade.
 - **Hardened no-SIM modem monitoring.** QModem monitor and the ZBT modem reboot guard now query `AT+CPIN?` and skip modem reboot actions when the modem reports no SIM inserted, preventing unnecessary USB/modem reset loops on deployments without a SIM card.
@@ -37,24 +40,24 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - LuCI menu/ACL JSON files passed `python3 -m json.tool`.
 - `./.buildenv/build.sh feeds` and `./.buildenv/build.sh config` completed with selected ZBT packages present.
 - Full `./.buildenv/build.sh build` completed successfully.
-- Rebuilt sysupgrade rootfs was streamed from squashfs and verified to contain the QModem monitor cooldown code, direct-IP `30s/10×` monitor defaults, curl `--max-time 15`, `qmodem.main.zbt_monitor_cooldown=300`, the updated EHT160 WiFi channel defaults, the PH no-clamp WiFi defaults, and the baked `luci-app-zbt-modem-events` package files/service symlinks.
+- Rebuilt sysupgrade rootfs was streamed from squashfs and verified to contain the QModem monitor cooldown code, direct-IP `30s/10×` monitor defaults, curl `--max-time 15`, `qmodem.main.zbt_monitor_cooldown=300`, the updated EHT160 WiFi channel defaults, the PH no-clamp WiFi defaults, and the baked `luci-app-zbt-health` and `luci-app-zbt-modem-events` package files.
 - Release manifest, checksums, and buildinfo have no stale testing-kernel package references.
 - Live router runtime patch verification was performed for the Modem Events UI, temperature UI, and QModem soft-reboot path; only a harmless `AT` command was sent for AT-port/tool validation.
 
 ## Checksums
 
 ```text
-7920ca111cd83f09b84613ff204237887dd6e801175f8ea37421b9783ea1760b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-8574017bbdfd41ab4f52eec40645dab95e3dc9502056e7dd1197f85a242b9e83  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-f41ebb5fa5de5e6b2d890b482f2c9e0cf8e65dbe1423521eb265f319c806c0d0  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-ee41d729ac47cc419880e2347792eb5c42fbb201485431a9d7e284d69bc83f80  sha256sums
+5f48b4146e1715363bacbe260dd566aaf1c3c637a5b75192085cec5eccca3f0c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+5aadce77d747d3de905d8bf2dd9f416ea04917602b722000a041cad96f1c88bf  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+dce37b7ad0489a3785cb2bbab54f4922049bcea978e20ab54fd2b080e2bb1806  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+424da7175ed3728e7482b1c2233d9751d1102328f36ee79f9afe842d6d30747f  sha256sums
 ```
 
 ## Included
 
 - Mainline OpenWrt 25.12.2 base, no MediaTek vendor feed required.
 - WiFi 7 tri-band with MLO support and EHT320 capability; defaults use EHT160 on 6 GHz for safer multi-AP separation.
-- LuCI HTTPS, Argon dark theme/config, package manager, **System → About this build**, MLO app, ZBT temperature monitor, and ZBT modem event history.
+- LuCI HTTPS, Argon dark theme/config, package manager, **System → About this build**, MLO app, ZBT Health, ZBT temperature monitor, ZBT modem event history, and curated Services menu ordering.
 - QModem Next JS UI with SMS, Monitor, AT Debug, SIM Switch, watchdog defaults, and robust soft reboot.
 - QMI/MBIM/NCM/MHI/USB modem stack with `sms_tool_q`, `tom_modem`, and `quectel-CM-5G-M`.
 - Firmware-enabled modem LED services and state poller.
