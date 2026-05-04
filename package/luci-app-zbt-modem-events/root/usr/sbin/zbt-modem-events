@@ -4,6 +4,7 @@ DATA_DIR=/var/log/zbt-modem-events
 DATA_FILE=$DATA_DIR/events.csv
 STATE_DIR=$DATA_DIR/state
 RETENTION_S=604800
+STARTUP_GRACE_S=${ZBT_MODEM_EVENTS_STARTUP_GRACE_S:-300}
 
 ensure_store() {
 	mkdir -p "$DATA_DIR" "$STATE_DIR"
@@ -69,6 +70,34 @@ record_state() {
 	append_event health "$type" "$severity" "$modem" "$title" "$detail"
 }
 
+remember_state() {
+	local key value state_file
+	key=$1
+	value=$2
+	state_file=$STATE_DIR/$(printf '%s' "$key" | tr -c 'A-Za-z0-9_-' '_')
+	printf '%s\n' "$value" > "$state_file"
+}
+
+record_router_start() {
+	local modem boot_id state_file old uptime
+	modem=${1:-4_1}
+	ensure_store
+	boot_id=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)
+	state_file=$STATE_DIR/router_boot_id
+	old=$(cat "$state_file" 2>/dev/null || true)
+	[ "$old" = "$boot_id" ] && return 0
+	printf '%s\n' "$boot_id" > "$state_file"
+	uptime=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)
+	append_event system router_restart info "$modem" 'Router restarted' "boot_id=$boot_id uptime=${uptime}s startup_grace=${STARTUP_GRACE_S}s"
+}
+
+startup_grace_active() {
+	local uptime
+	uptime=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)
+	case "$uptime" in *[!0-9]*|'') uptime=0 ;; esac
+	[ "$uptime" -lt "$STARTUP_GRACE_S" ]
+}
+
 record_counter() {
 	local key count modem title detail state_file old delta
 	key=$1
@@ -106,13 +135,17 @@ record_config_state() {
 }
 
 record_internet_probe() {
-	local modem ok detail state_file old type severity title
+	local modem ok detail startup_grace state_file old type severity title
 	modem=$1
 	ok=$2
 	detail=$3
+	startup_grace=${4:-0}
 	state_file=$STATE_DIR/internet_probe
 	old=$(cat "$state_file" 2>/dev/null || true)
 	[ "$old" = "$ok" ] && return 0
+	if [ "$ok" != "1" ] && [ "$startup_grace" = "1" ]; then
+		return 0
+	fi
 	printf '%s\n' "$ok" > "$state_file"
 	if [ "$ok" = "1" ]; then
 		severity=ok
@@ -132,10 +165,11 @@ record_internet_probe() {
 }
 
 probe_internet() {
-	local modem dev_ok ip_ok url out status code ok detail
+	local modem dev_ok ip_ok startup_grace url out status code ok detail
 	modem=$1
 	dev_ok=$2
 	ip_ok=$3
+	startup_grace=${4:-0}
 	url=$(uci -q get qmodem.4_1.monitor_http_url 2>/dev/null || true)
 	[ -n "$url" ] || url='http://142.250.23.94/generate_204'
 	ok=0
@@ -148,7 +182,7 @@ probe_internet() {
 	else
 		detail="url=$url netdev=wwan0 dev_ok=$dev_ok ip_ok=$ip_ok"
 	fi
-	record_internet_probe "$modem" "$ok" "$detail"
+	record_internet_probe "$modem" "$ok" "$detail" "$startup_grace"
 }
 
 monitor_running() {
@@ -156,7 +190,7 @@ monitor_running() {
 }
 
 sample_health() {
-	local modem monitor_ok dev_ok ip_ok if_ok qstate qmon qstate_bad qmon_bad dmesg_usb dmesg_watchdog log_errors
+	local modem monitor_ok dev_ok ip_ok if_ok qstate qmon qstate_bad qmon_bad dmesg_usb dmesg_watchdog log_errors startup_grace
 	modem=4_1
 	monitor_ok=0
 	dev_ok=0
@@ -168,21 +202,41 @@ sample_health() {
 	ubus call network.interface.4_1 status 2>/dev/null | grep -q '"up": true' && if_ok=1
 	qstate=$(uci -q get qmodem.4_1.state 2>/dev/null || true)
 	qmon=$(uci -q get qmodem.4_1.monitor_enabled 2>/dev/null || true)
-	record_state monitor_running "$monitor_ok" "$modem" 'QModem monitor is not running' 'QModem monitor recovered' 'No modem_monitor.sh process found' 'Monitor process is running again'
-	record_state wwan0_device "$dev_ok" "$modem" 'wwan0 device missing' 'wwan0 device returned' 'Cellular netdev is absent' 'Cellular netdev is present again'
-	record_state wwan0_ipv4 "$ip_ok" "$modem" 'wwan0 has no IPv4 address' 'wwan0 IPv4 returned' 'Cellular data path may be down' 'Cellular data path has IPv4 again'
-	record_state netifd_4_1 "$if_ok" "$modem" 'network.interface.4_1 is not up' 'network.interface.4_1 recovered' 'Firewall zone may not include wwan0 until ifup succeeds' 'netifd reports 4_1 up again'
-	probe_internet "$modem" "$dev_ok" "$ip_ok"
+	startup_grace=0
+	startup_grace_active && startup_grace=1
+	if [ "$startup_grace" = "1" ]; then
+		remember_state monitor_running "$monitor_ok"
+		remember_state wwan0_device "$dev_ok"
+		remember_state wwan0_ipv4 "$ip_ok"
+		remember_state netifd_4_1 "$if_ok"
+	else
+		record_state monitor_running "$monitor_ok" "$modem" 'QModem monitor is not running' 'QModem monitor recovered' 'No modem_monitor.sh process found' 'Monitor process is running again'
+		record_state wwan0_device "$dev_ok" "$modem" 'wwan0 device missing' 'wwan0 device returned' 'Cellular netdev is absent' 'Cellular netdev is present again'
+		record_state wwan0_ipv4 "$ip_ok" "$modem" 'wwan0 has no IPv4 address' 'wwan0 IPv4 returned' 'Cellular data path may be down' 'Cellular data path has IPv4 again'
+		record_state netifd_4_1 "$if_ok" "$modem" 'network.interface.4_1 is not up' 'network.interface.4_1 recovered' 'Firewall zone may not include wwan0 until ifup succeeds' 'netifd reports 4_1 up again'
+	fi
+	probe_internet "$modem" "$dev_ok" "$ip_ok" "$startup_grace"
 	[ "$qstate" = disabled ] && qstate_bad=1 || qstate_bad=0
 	[ "$qmon" = 1 ] && qmon_bad=0 || qmon_bad=1
-	record_config_state qmodem_state_disabled "$qstate_bad" "$modem" 'QModem section disabled' 'qmodem.4_1.state=disabled'
-	record_config_state qmodem_monitor_disabled "$qmon_bad" "$modem" 'QModem monitor disabled' "qmodem.4_1.monitor_enabled=${qmon:-unset}"
+	if [ "$startup_grace" = "1" ]; then
+		remember_state qmodem_state_disabled "$qstate_bad"
+		remember_state qmodem_monitor_disabled "$qmon_bad"
+	else
+		record_config_state qmodem_state_disabled "$qstate_bad" "$modem" 'QModem section disabled' 'qmodem.4_1.state=disabled'
+		record_config_state qmodem_monitor_disabled "$qmon_bad" "$modem" 'QModem monitor disabled' "qmodem.4_1.monitor_enabled=${qmon:-unset}"
+	fi
 	dmesg_usb=$(dmesg 2>/dev/null | grep -c 'usb 4-1: USB disconnect' || true)
 	dmesg_watchdog=$(dmesg 2>/dev/null | grep -c 'NETDEV WATCHDOG' || true)
 	log_errors=$(logread 2>/dev/null | grep -v 'zbt-modem-events:' | grep -Eci 'QMUXError|PDN_REQUEST_REJECTED|call_end_reason|quectel.*fail|qmi.*fail|cdc-wdm.*error|wwan0.*down|modem.*disconnect' || true)
-	record_counter usb_disconnects "$dmesg_usb" "$modem" 'USB modem disconnect detected' 'Kernel reported usb 4-1 disconnect'
-	record_counter netdev_watchdog "$dmesg_watchdog" "$modem" 'NETDEV WATCHDOG detected' 'Kernel reported network transmit timeout'
-	record_counter modem_error_logs "$log_errors" "$modem" 'Modem error log pattern detected' 'Logread matched QMI/dial/disconnect error patterns'
+	if [ "$startup_grace" = "1" ]; then
+		remember_state usb_disconnects "$dmesg_usb"
+		remember_state netdev_watchdog "$dmesg_watchdog"
+		remember_state modem_error_logs "$log_errors"
+	else
+		record_counter usb_disconnects "$dmesg_usb" "$modem" 'USB modem disconnect detected' 'Kernel reported usb 4-1 disconnect'
+		record_counter netdev_watchdog "$dmesg_watchdog" "$modem" 'NETDEV WATCHDOG detected' 'Kernel reported network transmit timeout'
+		record_counter modem_error_logs "$log_errors" "$modem" 'Modem error log pattern detected' 'Logread matched QMI/dial/disconnect error patterns'
+	fi
 }
 
 case "$1" in
@@ -190,8 +244,12 @@ case "$1" in
 		shift
 		append_event "$1" "$2" "$3" "$4" "$5" "$6"
 		;;
+	boot)
+		record_router_start "${2:-4_1}"
+		;;
 	sample)
 		ensure_store
+		record_router_start 4_1
 		sample_health
 		;;
 	prune)

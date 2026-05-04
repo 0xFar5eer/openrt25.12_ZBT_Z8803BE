@@ -34,6 +34,7 @@ const TYPE_EMOJI = {
 	manual_reboot_requested: '🧑‍🔧',
 	manual_reboot_completed: '🧑‍🔧',
 	reboot_failed: '❌',
+	router_restart: '🔄',
 	internet_ok: '🟢',
 	internet_down: '🔴',
 	internet_recovered: '🟢',
@@ -80,6 +81,31 @@ function csvSplit(line) {
 	return out;
 }
 
+function isInternetEvent(ev) {
+	switch (ev.type) {
+	case 'router_restart':
+	case 'internet_ok':
+	case 'internet_down':
+	case 'internet_recovered':
+	case 'monitor_check_failed':
+	case 'monitor_recovered':
+	case 'monitor_threshold':
+	case 'monitor_action':
+	case 'monitor_cooldown':
+	case 'monitor_no_sim':
+	case 'auto_reboot':
+	case 'auto_reboot_skipped':
+	case 'auto_reboot_failed':
+	case 'manual_reboot':
+	case 'manual_reboot_requested':
+	case 'manual_reboot_completed':
+	case 'reboot_failed':
+		return true;
+	default:
+		return false;
+	}
+}
+
 function parseEvents(text) {
 	const now = Math.floor(Date.now() / 1000);
 	const cutoff = now - RANGE_S;
@@ -96,7 +122,7 @@ function parseEvents(text) {
 		const epoch = parseInt(p[0], 10);
 		if (!epoch || epoch < cutoff)
 			continue;
-		events.push({
+		const ev = {
 			epoch: epoch,
 			source: p[1] || '',
 			type: p[2] || '',
@@ -104,7 +130,10 @@ function parseEvents(text) {
 			modem: p[4] || '',
 			title: p[5] || '',
 			detail: p[6] || ''
-		});
+		};
+		if (!isInternetEvent(ev))
+			continue;
+		events.push(ev);
 	}
 
 	return events.sort(function(a, b) { return b.epoch - a.epoch; }).slice(0, LIMIT);
@@ -126,22 +155,20 @@ function eventStyle(ev) {
 function issueStarts(ev) {
 	if (ev.type === 'internet_down' || ev.type === 'monitor_check_failed' || ev.type === 'monitor_threshold')
 		return true;
-	if (ev.type === 'issue')
-		return ev.title === 'wwan0 has no IPv4 address' || ev.title === 'network.interface.4_1 is not up';
 	return false;
 }
 
 function recoveryEnds(ev) {
-	if (ev.type === 'internet_recovered' || ev.type === 'monitor_recovered')
+	if (ev.type === 'internet_ok' || ev.type === 'internet_recovered' || ev.type === 'monitor_recovered')
 		return true;
-	if (ev.type === 'recovered')
-		return ev.title === 'wwan0 IPv4 returned' || ev.title === 'network.interface.4_1 recovered';
 	return false;
 }
 
 function eventLabel(ev) {
 	if (ev.type === 'internet_ok')
 		return _('OK');
+	if (ev.type === 'router_restart')
+		return _('Router restart');
 	if (ev.type === 'manual_reboot_completed')
 		return _('Completed');
 	if (recoveryEnds(ev))
@@ -156,7 +183,9 @@ function estimatedDowntime(events) {
 	const now = Math.floor(Date.now() / 1000);
 
 	asc.forEach(function(ev) {
-		if (issueStarts(ev) && start === null)
+		if (ev.type === 'router_restart')
+			start = null;
+		else if (issueStarts(ev) && start === null)
 			start = ev.epoch;
 		else if (recoveryEnds(ev) && start !== null) {
 			ranges.push([ start, ev.epoch ]);
@@ -191,7 +220,7 @@ function counts(events) {
 	events.forEach(function(ev) {
 		if (ev.severity === 'danger') out.danger++;
 		else if (ev.severity === 'warning') out.warning++;
-		if (recoveryEnds(ev)) out.ok++;
+		if (ev.type === 'internet_ok' || ev.type === 'internet_recovered' || ev.type === 'monitor_recovered') out.ok++;
 		if (ev.source === 'monitor') out.monitor++;
 		if (ev.type === 'auto_reboot') out.auto++;
 		if (ev.type === 'manual_reboot' || ev.type === 'manual_reboot_requested') out.manual++;
@@ -219,7 +248,7 @@ function renderSummary(events) {
 			renderCard(_('Critical'), c.danger, '🔴', '#c62828'),
 			renderCard(_('Auto reboots'), c.auto, '🤖', '#6a1b9a'),
 			renderCard(_('Manual reboots'), c.manual, '🧑‍🔧', '#00838f'),
-			renderCard(_('Recovered'), c.ok, '🟢', '#2e7d32')
+			renderCard(_('OK / recovered'), c.ok, '🟢', '#2e7d32')
 		])
 	]);
 }
@@ -235,7 +264,7 @@ function renderEvents(events) {
 
 	if (!events.length) {
 		rows.push(E('tr', { 'class': 'tr placeholder' }, [
-			E('td', { 'class': 'td', 'colspan': 5, 'style': 'text-align:center;padding:1.5em' }, E('em', {}, _('No modem events recorded in the last 7 days.')))
+			E('td', { 'class': 'td', 'colspan': 5, 'style': 'text-align:center;padding:1.5em' }, E('em', {}, _('No modem internet events recorded in the last 7 days.')))
 		]));
 	} else {
 		events.forEach(function(ev) {
@@ -262,7 +291,7 @@ function renderEvents(events) {
 
 function renderContent(events) {
 	return E([], [
-		E('p', { 'class': 'cbi-section-descr' }, _('This page shows modem downtime and recovery events recorded in the last 7 days. Monitor probe failures are logged individually, before they reach the reboot threshold.')),
+		E('p', { 'class': 'cbi-section-descr' }, _('This page shows modem internet downtime, recovery, monitor action, and router restart events recorded in the last 7 days. Low-level USB, driver, and startup health noise is hidden from this view.')),
 		renderSummary(events),
 		renderEvents(events)
 	]);
