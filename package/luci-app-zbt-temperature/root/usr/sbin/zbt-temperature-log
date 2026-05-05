@@ -140,7 +140,7 @@ sample_modem() {
 }
 
 adjust_fan() {
-	local now max_temp cur max target c
+	local now max_temp pwm cur delta h name max target c
 	now=$1
 	max_temp=$(awk -F, -v now="$now" '
 		$1 == now && $5 == "C" && ($2 == "system" || $2 == "wifi" || $2 == "modem") {
@@ -149,6 +149,44 @@ adjust_fan() {
 		END { if (max > 0) printf "%.1f", max }
 	' "$DATA_FILE" 2>/dev/null || true)
 	[ -n "$max_temp" ] || return 0
+	pwm=$(awk \
+		-v t="$max_temp" \
+		-v tmin="${ZBT_FAN_TMIN:-35}" \
+		-v tmax="${ZBT_FAN_TMAX:-75}" \
+		-v pmin="${ZBT_FAN_PMIN:-70}" \
+		-v pmax="${ZBT_FAN_PMAX:-255}" \
+		'BEGIN {
+			t += 0; tmin += 0; tmax += 0; pmin += 0; pmax += 0;
+			if (tmax <= tmin) tmax = tmin + 1;
+			if (pmin < 0) pmin = 0;
+			if (pmin > 255) pmin = 255;
+			if (pmax < 0) pmax = 0;
+			if (pmax > 255) pmax = 255;
+			if (pmax < pmin) pmax = pmin;
+			if (t <= tmin) { printf "%d", pmin; exit }
+			if (t >= tmax) { printf "%d", pmax; exit }
+			ratio = (t - tmin) / (tmax - tmin);
+			curved = ratio ^ 3;
+			printf "%d", pmin + curved * (pmax - pmin);
+		}')
+	[ -n "$pwm" ] || return 0
+	for h in /sys/class/hwmon/hwmon*; do
+		[ -d "$h" ] || continue
+		name=$(cat "$h/name" 2>/dev/null || true)
+		[ "$name" = "pwmfan" ] || continue
+		[ -w "$h/pwm1" ] || continue
+		cur=$(cat "$h/pwm1" 2>/dev/null || echo 0)
+		delta=$(awk -v a="$pwm" -v b="$cur" -v db="${ZBT_FAN_PWM_DEADBAND:-4}" 'BEGIN {
+			a += 0; b += 0; db += 0;
+			if (db < 0) db = 0;
+			d = a - b;
+			if (d < 0) d = -d;
+			print d < db ? 0 : d;
+		}')
+		[ "${delta:-0}" = 0 ] && return 0
+		printf '%s\n' "$pwm" > "$h/pwm1" 2>/dev/null || true
+		return 0
+	done
 	for c in /sys/class/thermal/cooling_device*; do
 		[ -d "$c" ] || continue
 		[ "$(cat "$c/type" 2>/dev/null)" = "pwm-fan" ] || continue

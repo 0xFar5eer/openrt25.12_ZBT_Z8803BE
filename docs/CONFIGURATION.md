@@ -121,6 +121,14 @@ It models:
 - GPIO watchdog.
 - SPI-NAND fixed partitions and UBI firmware volume.
 
+The Factory partition exposes wired MAC cells used by the board DTS:
+
+| Interface | Factory offset |
+|-----------|----------------|
+| `gmac0` | `0xffff4` |
+| `gmac1` | `0xffffa` |
+| `gmac2` | `0xfffee` |
+
 ## Network defaults
 
 The board network mapping is in:
