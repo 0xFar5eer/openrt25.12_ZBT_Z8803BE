@@ -133,6 +133,7 @@ output/mediatek/filogic/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sy
 ## 致谢
 
 - [@pttuan](https://github.com/pttuan) —— OpenWrt 主线板级支持 [openwrt#23053](https://github.com/openwrt/openwrt/pull/23053)：DT 原生风扇、GPIO 看门狗、热管理冷却映射、现代 LED 绑定。
+- [@sjanulonoks](https://github.com/sjanulonoks) —— 建议加入风扇控制优化，并参与本版本的整体测试，帮助调校和验证这版 ZBT-Z8803BE 固件。
 - [FUjr/QModem](https://github.com/FUjr/QModem) —— 本固件采用的 QModem Next 现代 JS 界面；此精确 Z8803BE-T 版本中 SIM1/SIM2 分别接到两个 M.2 调制解调器，因此已禁用 SIM 切换。
 - [OneB1t/Z8803BE-research](https://github.com/OneB1t/Z8803BE-research) —— 对原厂 21.02-SNAPSHOT 固件的研究，揭示了失效的 opkg 软件源以及内置的回传通道。
 - [OpenWrt mainline](https://openwrt.org) —— 本固件的基础发行版，不依赖联发科 vendor feed。

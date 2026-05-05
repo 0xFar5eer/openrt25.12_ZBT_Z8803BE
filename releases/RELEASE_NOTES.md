@@ -71,6 +71,15 @@ c4898a1a2760b72c6eab640c5bfba9b08c5cf239571212b2011e815be4fa1db0  sha256sums
 - **Modem and WAN resilience:** QModem Next JS UI, QMI/MBIM/NCM/MHI/USB modem stack, `sms_tool_q`, `tom_modem`, `quectel-CM-5G-M`, no-SIM guard, direct-IP monitor probe, cooldowns, and robust soft reboot.
 - **Storage and LAN services:** WireGuard, DDNS, Samba, Diskman, statistics, autocore, cpufreq, diagnostics, `git`, `git-http`, BusyBox-compatible `install`, and CLI utilities.
 
+## Credits
+
+- [@pttuan](https://github.com/pttuan) — upstream OpenWrt board port via [openwrt#23053](https://github.com/openwrt/openwrt/pull/23053): DT-native fan, GPIO watchdog, thermal cooling maps, modern LED bindings.
+- [@sjanulonoks](https://github.com/sjanulonoks) — fan-control suggestion and general release testing that helped tune and validate this ZBT-Z8803BE build.
+- [FUjr/QModem](https://github.com/FUjr/QModem) — QModem Next modern JS UI shipped with this build; SIM switching is disabled for this exact Z8803BE-T variant because SIM1/SIM2 are wired to separate M.2 modems.
+- [OneB1t/Z8803BE-research](https://github.com/OneB1t/Z8803BE-research) — vendor firmware research that documented the dead opkg feeds and phone-home tunnel in stock 21.02-SNAPSHOT.
+- [OpenWrt mainline](https://openwrt.org) — the underlying distribution this build is based on (no MediaTek vendor feed required).
+- [ImmortalWrt](https://github.com/immortalwrt) — additional package and LuCI overlays used during build.
+
 ## Flash
 
 Existing OpenWrt:

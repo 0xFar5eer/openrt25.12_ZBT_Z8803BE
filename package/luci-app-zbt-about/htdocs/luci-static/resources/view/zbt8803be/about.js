@@ -157,6 +157,8 @@ return view.extend({
 			  [ _('upstream OpenWrt board port'), ' (',
 			  link('https://github.com/openwrt/openwrt/pull/23053', 'openwrt#23053'),
 			  '): ', _('DT-native fan, GPIO watchdog, thermal cooling maps, modern LED bindings.') ] ],
+			[ link('https://github.com/sjanulonoks', '@sjanulonoks'),
+			  _('fan-control suggestion and general release testing that helped tune and validate this ZBT-Z8803BE build.') ],
 			[ link('https://github.com/FUjr/QModem', 'FUjr/QModem'),
 			  _('QModem Next modern JS UI shipped with this build; on this exact Z8803BE-T variant SIM1 is wired to modem1 and SIM2 is wired to modem2, so SIM switching is disabled.') ],
 			[ link('https://github.com/OneB1t/Z8803BE-research', 'OneB1t/Z8803BE-research'),
