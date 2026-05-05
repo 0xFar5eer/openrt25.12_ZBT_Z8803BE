@@ -1,0 +1,59 @@
+#!/bin/sh
+# Hotplug script to reinitialize wrtbwmon after firewall reload
+# Place in /etc/hotplug.d/iface/
+
+[ "$ACTION" = "ifup" ] || exit 0
+
+# Only act on interface up events
+[ -n "$INTERFACE" ] || exit 0
+
+# Source core libraries
+LIB_DIR="/usr/lib/wrtbwmon"
+[ -d "/etc/hotplug.d/../lib/wrtbwmon" ] && LIB_DIR="/etc/hotplug.d/../lib/wrtbwmon"
+
+. "$LIB_DIR/config.sh" || exit 1
+
+. "$LIB_DIR/logger.sh" || exit 1
+. "$LIB_DIR/error_handler.sh" || exit 1
+. "$LIB_DIR/chain_manager.sh" || exit 1
+
+# Initialize logging
+log_init "wrtbwmon-hotplug" "${LOG_LEVEL:-info}"
+
+# Load configuration
+config_load
+[ "$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] || exit 0
+table=$(config_get "NFT_TABLE")
+
+# Wait a bit for firewall to finish reloading
+sleep 2
+
+# Check if wrtbwmon verdict maps exist
+if ! nft list maps "$table" 2>/dev/null | grep -q wrtbwmon_dispatch; then
+    log_info "Firewall reloaded, reinitializing wrtbwmon"
+
+    # Ensure database has domain tracking tables
+    if [ "$DOMAIN_TRACKING_ENABLED" = "1" ] && [ -x /usr/sbin/wrtbwmon-domain-manager.py ]; then
+        /usr/sbin/wrtbwmon-domain-manager.py init 2>/dev/null
+    fi
+
+    # Invalidate dispatch stamp so ensure-dispatch re-checks immediately
+    # (stamp cache is 5 min; fw4 reload wipes dispatch rules)
+    rm -f /tmp/wrtbwmon-dispatch-ok
+
+    /etc/init.d/wrtbwmon start
+
+    # Run update to recreate device chains and re-populate dispatch maps
+    /usr/sbin/wrtbwmon-update.py 2>/dev/null &
+    exit 0
+fi
+
+# Check if domain tracking chains exist
+if [ "$DOMAIN_TRACKING_ENABLED" = "1" ] && ! nft list table "$table" 2>/dev/null | grep -q wrtbwmon_domains; then
+    log_info "Domain tracking chains missing, reinitializing"
+    rm -f /tmp/wrtbwmon-dispatch-ok
+
+    if [ -x /usr/sbin/wrtbwmon-domain-manager.py ]; then
+        /usr/sbin/wrtbwmon-domain-manager.py init 2>/dev/null
+    fi
+fi

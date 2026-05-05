@@ -1,0 +1,67 @@
+#!/bin/sh
+# Hotplug script for firewall reload events
+# Recreates dispatch rules when firewall is reloaded
+
+[ "$ACTION" = "reload" ] || exit 0
+
+# Source core libraries
+LIB_DIR="/usr/lib/wrtbwmon"
+[ -d "/etc/hotplug.d/../lib/wrtbwmon" ] && LIB_DIR="/etc/hotplug.d/../lib/wrtbwmon"
+
+. "$LIB_DIR/logger.sh" || exit 1
+. "$LIB_DIR/error_handler.sh" || exit 1
+. "$LIB_DIR/config.sh" || exit 1
+. "$LIB_DIR/chain_manager.sh" || exit 1
+
+# Initialize logging
+log_init "wrtbwmon-hotplug" "${LOG_LEVEL:-info}"
+
+# Load configuration
+config_load
+[ "$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] || exit 0
+table=$(config_get "NFT_TABLE")
+
+log_info "Firewall reloaded, checking dispatch rules..."
+
+# Wait a moment for firewall to finish initializing
+sleep 2
+
+# Check if all 4 dispatch rules exist
+forward_chain=$(nft list chain "$table" forward 2>/dev/null)
+
+rules_ok=1
+echo "$forward_chain" | grep -q "wrtbwmon-dispatch-v4-up" || rules_ok=0
+echo "$forward_chain" | grep -q "wrtbwmon-dispatch-v4-down" || rules_ok=0
+echo "$forward_chain" | grep -q "wrtbwmon-dispatch-v6-up" || rules_ok=0
+echo "$forward_chain" | grep -q "wrtbwmon-dispatch-v6-down" || rules_ok=0
+
+if [ "$rules_ok" -eq 0 ]; then
+    log_warn "Dispatch rules incomplete or missing after firewall reload, recreating..."
+
+    # Remove any existing dispatch rules first
+    nft list chain "$table" forward -a 2>/dev/null | \
+    grep "wrtbwmon-dispatch" | \
+    awk '{print $NF}' | \
+    while read -r handle; do
+        nft delete rule "$table" forward handle "$handle" 2>/dev/null || true
+    done
+
+    if nft_init; then
+        log_info "All 4 dispatch rules recreated successfully"
+    else
+        log_error "Failed to recreate dispatch rules"
+    fi
+else
+    log_debug "All 4 dispatch rules present, no action needed"
+fi
+
+# Always rebuild domain tracking chains after fw4 reload.
+# fw4 flushes the entire inet fw4 table, wiping all custom domain chains/sets.
+# repopulate_rules_from_cache() restores per-device domain chains + nft sets
+# from ip_domain_cache, so domain traffic tracking resumes immediately.
+if [ "$DOMAIN_TRACKING_ENABLED" = "1" ] && [ -x /usr/sbin/wrtbwmon-domain-manager.py ]; then
+    log_info "Rebuilding domain tracking chains after fw4 reload..."
+    /usr/sbin/wrtbwmon-domain-manager.py init 2>/dev/null &
+fi
+
+exit 0

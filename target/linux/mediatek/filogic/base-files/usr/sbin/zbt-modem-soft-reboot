@@ -117,7 +117,7 @@ for method in sms_tool sms_tool_q tom_modem qmodem_at; do
 			;;
 	esac
 	status=$?
-	if [ "$status" = "0" ] && printf '%s\n' "$out" | grep -Eiq '(^|[^A-Z])OK([^A-Z]|$)'; then
+	if printf '%s\n' "$out" | grep -Eiq '(^|[^A-Z])OK([^A-Z]|$)'; then
 		log "ok: ${method} dispatched ${AT_CMD} on ${PORT}"
 		case "$REASON" in
 			auto_reboot)

@@ -1,0 +1,394 @@
+#!/bin/sh
+
+. "$IPKG_INSTROOT/usr/share/libubox/jshn.sh"
+
+renamefile() {
+	local base=$(basename -- "$1")
+	local ext=$([ -z "${base/*.*/}"  ] && echo ".${base##*.}" || echo '')
+	local base="${base%.*}"
+	echo "$(dirname $1)/${base}$2$ext" && return
+}
+
+_db_file() {
+	uci -q get wrtbwmon.general.db_file 2>/dev/null || echo /etc/wrtbwmon/traffic.db
+}
+
+_limit() {
+	local value max
+	value="${1:-${2:-50}}"
+	max="${3:-1000}"
+	case "$1" in
+		''|*[!0-9]*) value="${2:-50}" ;;
+	esac
+	[ "$value" -gt "$max" ] 2>/dev/null && value="$max"
+	echo "$value"
+}
+
+_valid_mac() {
+	echo "$1" | grep -qiE '^([0-9a-f]{2}:){5}[0-9a-f]{2}$'
+}
+
+_json_bool() {
+	[ "$1" = "1" ] && echo true || echo false
+}
+
+_json_escape() {
+	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+_monitor_enabled() {
+	local value
+	value="$(uci -q get wrtbwmon.general.enabled 2>/dev/null || echo 0)"
+	[ "$value" = "1" ] && echo 1 || echo 0
+}
+
+_domain_tracking_enabled() {
+	local value
+	value="$(uci -q get wrtbwmon.general.domain_tracking 2>/dev/null || echo 0)"
+	[ "$value" = "1" ] && echo 1 || echo 0
+}
+
+_traffic_warning() {
+	local db_file="$1"
+	if [ "$(_monitor_enabled)" != "1" ]; then
+		echo "Traffic monitoring is disabled. To see device details, enable Traffic Statistics in Setup and wait for clients to generate traffic."
+	elif [ ! -f "$db_file" ]; then
+		echo "No traffic database exists yet. To see device details, enable Traffic Statistics in Setup and wait for clients to generate traffic."
+	fi
+}
+
+_domain_warning() {
+	local db_file="$1"
+	if [ "$(_monitor_enabled)" != "1" ]; then
+		echo "Traffic monitoring is disabled. To see domain details, enable Traffic Statistics in Setup and wait for clients to generate traffic."
+	elif [ "$(_domain_tracking_enabled)" != "1" ]; then
+		echo "Domain tracking is disabled. To see domain details, enable Domain tracking in Setup and wait for DNS and traffic data."
+	elif [ ! -f "$db_file" ]; then
+		echo "No traffic database exists yet. To see domain details, enable Traffic Statistics and Domain tracking in Setup, then wait for clients to generate traffic."
+	elif ! sqlite3 "$db_file" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='domain_traffic_daily' LIMIT 1;" 2>/dev/null | grep -q 1; then
+		echo "Domain tracking tables are not initialized yet. Open Setup, save/apply, then wait for DNS and traffic data."
+	fi
+}
+
+_get_db_path() {
+	local db db_4 db_6 db_46
+	db="$(_db_file)"
+	db_4=$(renamefile "$db" "")
+	db_6=$(renamefile "$db" ".6")
+	db_46=$(renamefile "$db" ".46")
+	json_init
+	json_add_string file_4 "$db_4"
+	json_add_string file_6 "$db_6"
+	json_add_string file_46 "$db_46"
+	json_dump
+	json_cleanup
+}
+
+_get_db_raw() {
+	local db_file="${1:-$(_db_file)}"
+	local date_filter="$2"
+	local enabled domain_tracking warning db_json
+	enabled="$(_monitor_enabled)"
+	domain_tracking="$(_domain_tracking_enabled)"
+	warning="$(_traffic_warning "$db_file")"
+	db_json="$(_json_escape "$db_file")"
+
+	if [ ! -f "$db_file" ]; then
+		echo "{\"file\":\"$db_json\",\"data\":[],\"enabled\":$(_json_bool "$enabled"),\"domain_tracking\":$(_json_bool "$domain_tracking"),\"warning\":\"$(_json_escape "$warning")\"}"
+		return
+	fi
+
+	if ! sqlite3 "$db_file" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='traffic_daily' LIMIT 1;" 2>/dev/null | grep -q 1; then
+		[ -n "$warning" ] || warning="Traffic tables are not initialized yet. Open Setup, save/apply, then wait for clients to generate traffic."
+		echo "{\"file\":\"$db_json\",\"data\":[],\"enabled\":$(_json_bool "$enabled"),\"domain_tracking\":$(_json_bool "$domain_tracking"),\"warning\":\"$(_json_escape "$warning")\"}"
+		return
+	fi
+
+	local where_clause="WHERE td.date >= date('now', 'localtime', '-90 days')"
+	case "$date_filter" in
+		today)
+			where_clause="WHERE td.date = date('now', 'localtime')"
+			;;
+		yesterday)
+			where_clause="WHERE td.date = date('now', 'localtime', '-1 day')"
+			;;
+		last7days)
+			where_clause="WHERE td.date >= date('now', 'localtime', '-7 days')"
+			;;
+		thismonth)
+			where_clause="WHERE td.date >= date('now', 'localtime', 'start of month')"
+			;;
+		lastmonth)
+			where_clause="WHERE td.date >= date('now', 'localtime', 'start of month', '-1 month') AND td.date < date('now', 'localtime', 'start of month')"
+			;;
+		*)
+			where_clause="WHERE td.date >= date('now', 'localtime', '-90 days')"
+			;;
+	esac
+
+	local data=$(sqlite3 "$db_file" "SELECT json_group_array(json_object('mac', mac, 'ip', ip, 'download', download, 'upload', upload, 'total', total, 'first_seen', first_seen, 'last_seen', last_seen, 'hostname', hostname)) FROM (SELECT d.mac, COALESCE(d.ip, '') AS ip, SUM(COALESCE(td.bytes_down, 0)) AS download, SUM(COALESCE(td.bytes_up, 0)) AS upload, SUM(COALESCE(td.bytes_down, 0) + COALESCE(td.bytes_up, 0)) AS total, COALESCE(d.first_seen, 0) AS first_seen, COALESCE(MAX(td.last_seen), d.updated_at, d.first_seen, 0) AS last_seen, COALESCE(d.hostname, '') AS hostname FROM devices d JOIN traffic_daily td ON td.device_id = d.id $where_clause GROUP BY d.id, d.mac, d.ip, d.hostname, d.first_seen, d.updated_at ORDER BY total DESC);")
+	[ -n "$data" ] || data="[]"
+	if [ "$data" = "[]" ] && [ -z "$warning" ]; then
+		warning="No device traffic recorded for this date range yet. To see details, keep Traffic Statistics enabled in Setup and wait for clients to generate traffic."
+	fi
+
+	echo "{\"file\":\"$db_json\",\"data\":$data,\"enabled\":$(_json_bool "$enabled"),\"domain_tracking\":$(_json_bool "$domain_tracking"),\"warning\":\"$(_json_escape "$warning")\"}"
+}
+
+_remove_db() {
+	local db_file result
+	db_file="$(_db_file)"
+	case "$db_file" in
+		/etc/wrtbwmon/*.db|/tmp/*.db) ;;
+		*) result=0 ;;
+	esac
+	if [ -z "$result" ]; then
+		rm -f "$db_file" "$db_file-wal" "$db_file-shm" && result=1 || result=0
+	fi
+	json_init
+	json_add_boolean result "$result"
+	json_dump
+	json_cleanup
+}
+
+_get_top_domains() {
+	local date_filter="$1"
+	local limit="$(_limit "$2" 50 1000)"
+	local db_file="$(_db_file)"
+	local enabled domain_tracking warning
+	enabled="$(_monitor_enabled)"
+	domain_tracking="$(_domain_tracking_enabled)"
+	warning="$(_domain_warning "$db_file")"
+
+	if [ ! -f "$db_file" ]; then
+		echo "{\"domains\":[],\"enabled\":$(_json_bool "$enabled"),\"domain_tracking\":$(_json_bool "$domain_tracking"),\"warning\":\"$(_json_escape "$warning")\"}"
+		return
+	fi
+
+	if ! sqlite3 "$db_file" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='domain_traffic_daily' LIMIT 1;" 2>/dev/null | grep -q 1; then
+		[ -n "$warning" ] || warning="Domain tracking tables are not initialized yet. Open Setup, save/apply, then wait for DNS and traffic data."
+		echo "{\"domains\":[],\"enabled\":$(_json_bool "$enabled"),\"domain_tracking\":$(_json_bool "$domain_tracking"),\"warning\":\"$(_json_escape "$warning")\"}"
+		return
+	fi
+
+	local where_clause=""
+	case "$date_filter" in
+		today)
+			where_clause="WHERE date = date('now', 'localtime')"
+			;;
+		yesterday)
+			where_clause="WHERE date = date('now', 'localtime', '-1 day')"
+			;;
+		last7days)
+			where_clause="WHERE date >= date('now', 'localtime', '-7 days')"
+			;;
+		thismonth)
+			where_clause="WHERE date >= date('now', 'localtime', 'start of month')"
+			;;
+		lastmonth)
+			where_clause="WHERE date >= date('now', 'localtime', 'start of month', '-1 month') AND date < date('now', 'localtime', 'start of month')"
+			;;
+		*)
+			where_clause=""
+			;;
+	esac
+
+	local data=$(sqlite3 "$db_file" "SELECT json_group_array(json_object('domain', domain, 'download', download, 'upload', upload, 'total', total, 'last_seen', last_seen)) FROM (SELECT domain, SUM(bytes_down) AS download, SUM(bytes_up) AS upload, SUM(bytes_down + bytes_up) AS total, MAX(COALESCE(last_seen, 0)) AS last_seen FROM domain_traffic_daily $where_clause GROUP BY domain HAVING total > 0 ORDER BY total DESC LIMIT $limit);")
+	[ -n "$data" ] && [ "$data" != "null" ] || data="[]"
+	if [ "$data" = "[]" ] && [ -z "$warning" ]; then
+		warning="No domain traffic recorded for this date range yet. To see domain details, keep Domain tracking enabled in Setup and wait for clients to generate DNS and traffic data."
+	fi
+
+	echo "{\"domains\":$data,\"enabled\":$(_json_bool "$enabled"),\"domain_tracking\":$(_json_bool "$domain_tracking"),\"warning\":\"$(_json_escape "$warning")\"}"
+}
+
+_get_device_info() {
+	# Get device info from devices table
+	local mac="$1"
+	local db_file="$(_db_file)"
+	_valid_mac "$mac" || {
+		echo "{\"mac\":\"\",\"hostname\":\"Unknown\",\"ip\":\"\"}"
+		return
+	}
+
+	if [ ! -f "$db_file" ]; then
+		echo "{\"mac\":\"$mac\",\"hostname\":\"Unknown\",\"ip\":\"\"}"
+		return
+	fi
+
+	# Query devices table
+	local result=$(sqlite3 "$db_file" "SELECT json_object('mac', mac, 'hostname', COALESCE(hostname, 'Unknown'), 'ip', COALESCE(ip, '')) FROM devices WHERE mac='$mac' LIMIT 1;")
+
+	if [ -z "$result" ]; then
+		echo "{\"mac\":\"$mac\",\"hostname\":\"Unknown\",\"ip\":\"\"}"
+	else
+		echo "$result"
+	fi
+}
+
+_get_device_domains() {
+	local mac="$1"
+	local date_filter="$2"
+	local limit="$(_limit "$3" 50 1000)"
+	local db_file="$(_db_file)"
+	local enabled domain_tracking warning
+	enabled="$(_monitor_enabled)"
+	domain_tracking="$(_domain_tracking_enabled)"
+	warning="$(_domain_warning "$db_file")"
+	_valid_mac "$mac" || {
+		echo "{\"domains\":[],\"enabled\":$(_json_bool "$enabled"),\"domain_tracking\":$(_json_bool "$domain_tracking"),\"warning\":\"Invalid device MAC address.\"}"
+		return
+	}
+
+	if [ ! -f "$db_file" ]; then
+		echo "{\"domains\":[],\"enabled\":$(_json_bool "$enabled"),\"domain_tracking\":$(_json_bool "$domain_tracking"),\"warning\":\"$(_json_escape "$warning")\"}"
+		return
+	fi
+
+	if ! sqlite3 "$db_file" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='domain_traffic_daily' LIMIT 1;" 2>/dev/null | grep -q 1; then
+		[ -n "$warning" ] || warning="Domain tracking tables are not initialized yet. Open Setup, save/apply, then wait for DNS and traffic data."
+		echo "{\"domains\":[],\"enabled\":$(_json_bool "$enabled"),\"domain_tracking\":$(_json_bool "$domain_tracking"),\"warning\":\"$(_json_escape "$warning")\"}"
+		return
+	fi
+
+	local where_clause="WHERE mac='$mac'"
+	case "$date_filter" in
+		today)
+			where_clause="$where_clause AND date = date('now', 'localtime')"
+			;;
+		yesterday)
+			where_clause="$where_clause AND date = date('now', 'localtime', '-1 day')"
+			;;
+		last7days)
+			where_clause="$where_clause AND date >= date('now', 'localtime', '-7 days')"
+			;;
+		thismonth)
+			where_clause="$where_clause AND date >= date('now', 'localtime', 'start of month')"
+			;;
+		lastmonth)
+			where_clause="$where_clause AND date >= date('now', 'localtime', 'start of month', '-1 month') AND date < date('now', 'localtime', 'start of month')"
+			;;
+	esac
+
+	local data=$(sqlite3 "$db_file" "SELECT json_group_array(json_object('domain', domain, 'download', download, 'upload', upload, 'total', total, 'last_seen', last_seen)) FROM (SELECT domain, SUM(bytes_down) AS download, SUM(bytes_up) AS upload, SUM(bytes_down + bytes_up) AS total, MAX(COALESCE(last_seen, 0)) AS last_seen FROM domain_traffic_daily $where_clause GROUP BY domain HAVING total > 0 ORDER BY total DESC LIMIT $limit);")
+	[ -n "$data" ] && [ "$data" != "null" ] || data="[]"
+	if [ "$data" = "[]" ] && [ -z "$warning" ]; then
+		warning="No domain traffic recorded for this device and date range yet. To see domain details, keep Domain tracking enabled in Setup and wait for this client to generate DNS and traffic data."
+	fi
+
+	echo "{\"domains\":$data,\"enabled\":$(_json_bool "$enabled"),\"domain_tracking\":$(_json_bool "$domain_tracking"),\"warning\":\"$(_json_escape "$warning")\"}"
+}
+
+_get_speed_stats() {
+	# Read speed stats from JSON file
+	local speed_file="/tmp/wrtbwmon-speed.json"
+
+	if [ -f "$speed_file" ]; then
+		cat "$speed_file"
+	else
+		echo '{"download_speed":0,"upload_speed":0,"total_speed":0,"last_update":0}'
+	fi
+}
+
+_apply_config() {
+	/usr/sbin/wrtbwmon-control apply >/dev/null 2>&1
+	local result=$?
+	json_init
+	json_add_boolean result $([ "$result" = 0 ] && echo 1 || echo 0)
+	json_dump
+	json_cleanup
+}
+
+case "$1" in
+	list)
+		json_init
+		json_add_object remove_db
+		json_add_string protocol "protocol"
+		json_close_object
+		json_add_object get_db_raw
+		json_add_string protocol "protocol"
+		json_add_string date_filter "date_filter"
+		json_close_object
+		json_add_object get_db_path
+		json_close_object
+		json_add_object get_top_domains
+		json_add_string date_filter "date_filter"
+		json_add_int limit "limit"
+		json_close_object
+		json_add_object get_device_info
+		json_add_string mac "mac"
+		json_close_object
+		json_add_object get_device_domains
+		json_add_string mac "mac"
+		json_add_string date_filter "date_filter"
+		json_add_int limit "limit"
+		json_close_object
+		json_add_object get_speed_stats
+		json_close_object
+		json_add_object apply_config
+		json_close_object
+		json_dump
+		json_cleanup
+	;;
+	call)
+		case "$2" in
+			remove_db)
+				read -r input
+				_remove_db
+			;;
+			get_db_raw)
+				read -r input
+				json_init
+				json_load "$input"
+				json_get_var protocol 'protocol'
+				json_get_var date_filter 'date_filter'
+				json_cleanup
+				json_load "$(_get_db_path)"
+				json_get_var db_s $([ "$protocol" = "ipv4" ] && echo file_4 || echo file_6)
+				json_cleanup
+				_get_db_raw "$db_s" "$date_filter"
+			;;
+			get_db_path)
+				read -r input
+				json_init
+				json_load "$input"
+				json_get_var protocol 'protocol'
+				json_cleanup
+				_get_db_path
+			;;
+			get_top_domains)
+				read -r input
+				json_init
+				json_load "$input"
+				json_get_var date_filter 'date_filter'
+				json_get_var limit 'limit'
+				json_cleanup
+				_get_top_domains "$date_filter" "$limit"
+			;;
+			get_device_info)
+				read -r input
+				json_init
+				json_load "$input"
+				json_get_var mac 'mac'
+				json_cleanup
+				_get_device_info "$mac"
+			;;
+			get_device_domains)
+				read -r input
+				json_init
+				json_load "$input"
+				json_get_var mac 'mac'
+				json_get_var date_filter 'date_filter'
+				json_get_var limit 'limit'
+				json_cleanup
+				_get_device_domains "$mac" "$date_filter" "$limit"
+			;;
+			get_speed_stats)
+				_get_speed_stats
+			;;
+			apply_config)
+				_apply_config
+			;;
+		esac
+	;;
+esac

@@ -13,6 +13,16 @@ const LIMIT = 500;
 let contentNode = null;
 let statusNode = null;
 
+function loadCss(path) {
+	const head = document.head || document.getElementsByTagName('head')[0];
+	const link = E('link', {
+		'rel': 'stylesheet',
+		'href': path,
+		'type': 'text/css'
+	});
+	head.appendChild(link);
+}
+
 const SEVERITY = {
 	ok: { emoji: '🟢', color: '#2e7d32', bg: 'rgba(46,125,50,0.12)', label: _('Recovered') },
 	info: { emoji: '🔵', color: '#1565c0', bg: 'rgba(21,101,192,0.12)', label: _('Info') },
@@ -321,6 +331,7 @@ function refresh(runSample) {
 
 return view.extend({
 	load: function() {
+		loadCss(L.resource('view/zbt8803be/zbt-theme.css'));
 		return loadData(true);
 	},
 
@@ -330,7 +341,7 @@ return view.extend({
 		poll.add(function() {
 			return refresh(true);
 		}, 60);
-		return E('div', { 'class': 'cbi-map' }, [
+		return E('div', { 'class': 'cbi-map zbt-app zbt-modem-events' }, [
 			E('h2', _('Modem Events')),
 			E('div', { 'class': 'cbi-section' }, [
 				E('div', { 'style': 'display:flex;flex-wrap:wrap;align-items:center;gap:0.75em' }, [

@@ -8,6 +8,16 @@ const HEALTH_CMD = '/usr/sbin/zbt-health-json';
 let contentNode = null;
 let statusNode = null;
 
+function loadCss(path) {
+	const head = document.head || document.getElementsByTagName('head')[0];
+	const link = E('link', {
+		'rel': 'stylesheet',
+		'href': path,
+		'type': 'text/css'
+	});
+	head.appendChild(link);
+}
+
 function pctValue(v) {
 	const n = parseInt(String(v || '0').replace('%', ''), 10);
 	return isNaN(n) ? 0 : n;
@@ -126,6 +136,11 @@ function renderHealth(h) {
 		table(_('Overlay write hotspots'), [
 			row(_('/var/log'), fmtKiB(hotspots.var_log_kb)),
 			row(_('AdGuardHome work directory'), fmtKiB(hotspots.adguard_work_kb)),
+			row(_('AdGuardHome statistics database'), fmtKiB(hotspots.adguard_stats_kb)),
+			row(_('AdGuardHome disk query log'), fmtKiB(hotspots.adguard_querylog_kb)),
+			row(_('AdGuardHome log files'), fmtKiB(hotspots.adguard_log_kb)),
+			row(_('Traffic Statistics database'), fmtKiB(hotspots.wrtbwmon_db_kb)),
+			row(_('Traffic Statistics directory'), fmtKiB(hotspots.wrtbwmon_dir_kb)),
 			row(_('Modem Events logs'), fmtKiB(hotspots.modem_events_kb)),
 			row(_('Temperature logs'), fmtKiB(hotspots.temperature_kb))
 		])
@@ -151,6 +166,7 @@ return view.extend({
 	handleReset: null,
 
 	load: function() {
+		loadCss(L.resource('view/zbt8803be/zbt-theme.css'));
 		return loadHealth();
 	},
 
@@ -158,7 +174,7 @@ return view.extend({
 		statusNode = E('span', {}, _('OK'));
 		contentNode = E('div', {}, renderHealth(data));
 		poll.add(refresh, 15);
-		return E('div', { 'class': 'cbi-map' }, [
+		return E('div', { 'class': 'cbi-map zbt-app zbt-health' }, [
 			E('h2', _('Router Health')),
 			E('p', { 'class': 'cbi-section-descr' }, [ _('Status: '), statusNode ]),
 			contentNode

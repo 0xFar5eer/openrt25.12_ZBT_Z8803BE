@@ -140,7 +140,7 @@ set_3g_cell_info() {
     local ecio="${12}"
     local rxlev="${13}"
     local rac="${14}"
-    
+
     add_plain_info_entry "MCC" "$mcc" "Mobile Country Code"
     add_plain_info_entry "MNC" "$mnc" "Mobile Network Code"
     add_plain_info_entry "LAC" "$lac" "Location Area Code"
@@ -155,7 +155,7 @@ set_3g_cell_info() {
     add_plain_info_entry "Ec/Io" "$ecio" "Ec/Io"
     add_bar_info_entry "RxLev" "$rxlev" "Received Signal Level" -120 -25 dBm
     add_plain_info_entry "RAC" "$rac" "Routing Area Code"
-    
+
     unset extra_info
 }
 
@@ -176,7 +176,7 @@ set_4g_cell_info() {
     local sinr="${12}"
     local rssnr="${13}"
     local rxlev="${14}"
-    
+
     add_plain_info_entry "MCC" "$mcc" "Mobile Country Code"
     add_plain_info_entry "MNC" "$mnc" "Mobile Network Code"
     add_plain_info_entry "TAC" "$tac" "Tracking Area Code"
@@ -191,7 +191,7 @@ set_4g_cell_info() {
     add_bar_info_entry "SINR" "$sinr" "Signal to Interference plus Noise Ratio" 0 30 dB
     add_plain_info_entry "RSSNR" "$rssnr" "Radio Signal Strength Noise Ratio"
     add_bar_info_entry "RxLev" "$rxlev" "Received Signal Level" -120 -25 dBm
-    
+
     unset extra_info
 }
 
@@ -212,7 +212,7 @@ set_5g_cell_info() {
     local sinr="${12}"
     local rssnr="${13}"
     local rxlev="${14}"
-    
+
     add_plain_info_entry "MCC" "$mcc" "Mobile Country Code"
     add_plain_info_entry "MNC" "$mnc" "Mobile Network Code"
     add_plain_info_entry "TAC" "$tac" "Tracking Area Code"
@@ -227,7 +227,7 @@ set_5g_cell_info() {
     add_bar_info_entry "SINR" "$sinr" "Signal to Interference plus Noise Ratio" 0 30 dB
     add_plain_info_entry "RSSNR" "$rssnr" "Radio Signal Strength Noise Ratio"
     add_bar_info_entry "RxLev" "$rxlev" "Received Signal Level" -120 -25 dBm
-    
+
     unset extra_info
 }
 
@@ -241,9 +241,9 @@ add_ca_info() {
     local ca_band="$4"
     local ca_ul_bw="$5"
     local ca_dl_bw="$6"
-    
+
     [ -z "$ca_arfcn" ] && [ -z "$ca_pci" ] && [ -z "$ca_band" ] && return
-    
+
     case "$rat" in
         "4G")
             extra_info="CA-LTE"
@@ -257,13 +257,13 @@ add_ca_info() {
             return
             ;;
     esac
-    
+
     add_plain_info_entry "Physical Cell ID (CA)" "$ca_pci" "Physical Cell ID (CA)"
     add_plain_info_entry "$arfcn_label" "$ca_arfcn" "$arfcn_label"
     add_plain_info_entry "Band (CA)" "$ca_band" "Band (CA)"
     add_plain_info_entry "UL Bandwidth (CA)" "$ca_ul_bw" "UL Bandwidth (CA)"
     add_plain_info_entry "DL Bandwidth (CA)" "$ca_dl_bw" "DL Bandwidth (CA)"
-    
+
     unset extra_info
 }
 
@@ -279,7 +279,7 @@ get_driver()
                     mode="mtk_pcie"
                     break
                     ;;
-                "qmi_wwan"*) 
+                "qmi_wwan"*)
                     mode="qmi"
                     break
                 ;;
@@ -360,23 +360,23 @@ get_sim_status()
 {
     local sim_status
     case $1 in
-        "") 
+        "")
             sim_status="miss"
             sim_state_code=0
             ;;
-        *"ERROR"*) 
+        *"ERROR"*)
             sim_status="miss"
             sim_state_code=0
             ;;
-        *"READY"*) 
-            sim_status="ready" 
+        *"READY"*)
+            sim_status="ready"
             sim_state_code=1
             ;;
-        *"SIM PIN"*) 
+        *"SIM PIN"*)
             sim_status="MT is waiting SIM PIN to be given"
             sim_state_code=2
              ;;
-        *"SIM PUK"*) 
+        *"SIM PUK"*)
             sim_status="MT is waiting SIM PUK to be given"
             sim_state_code=3
             ;;
@@ -384,57 +384,57 @@ get_sim_status()
             sim_status="MT is waiting phone-to-SIM card password to be given"
             sim_state_code=4
             ;;
-        *"PH-FSIM PIN"*) 
+        *"PH-FSIM PIN"*)
             sim_status="MT is waiting phone-to-very first SIM card password to be given"
             sim_state_code=5
             ;;
-        *"PH-FSIM PUK"*) 
+        *"PH-FSIM PUK"*)
             sim_status="MT is waiting phone-to-very first SIM card unblocking password to be given"
             sim_state_code=6
             ;;
-        *"SIM PIN2"*) 
+        *"SIM PIN2"*)
             sim_status="MT is waiting SIM PIN2 to be given"
             sim_state_code=7
             ;;
-        *"SIM PUK2"*) 
-            sim_status="MT is waiting SIM PUK2 to be given" 
+        *"SIM PUK2"*)
+            sim_status="MT is waiting SIM PUK2 to be given"
             sim_state_code=8
             ;;
-        *"PH-NET PIN"*) 
-            sim_status="MT is waiting network personalization password to be given" 
+        *"PH-NET PIN"*)
+            sim_status="MT is waiting network personalization password to be given"
             sim_state_code=9
             ;;
-        *"PH-NET PUK"*) 
-            sim_status="MT is waiting network personalization unblocking password to be given" 
+        *"PH-NET PUK"*)
+            sim_status="MT is waiting network personalization unblocking password to be given"
             sim_state_code=10
             ;;
-        *"PH-NETSUB PIN"*) 
-            sim_status="MT is waiting network subset personalization password to be given" 
+        *"PH-NETSUB PIN"*)
+            sim_status="MT is waiting network subset personalization password to be given"
             sim_state_code=11
             ;;
-        *"PH-NETSUB PUK"*) 
-            sim_status="MT is waiting network subset personalization unblocking password to be given" 
+        *"PH-NETSUB PUK"*)
+            sim_status="MT is waiting network subset personalization unblocking password to be given"
             sim_state_code=12
             ;;
-        *"PH-SP PIN"*) 
-            sim_status="MT is waiting service provider personalization password to be given" 
+        *"PH-SP PIN"*)
+            sim_status="MT is waiting service provider personalization password to be given"
             sim_state_code=13
             ;;
         *"PH-SP PUK"*)
             sim_status="MT is waiting service provider personalization unblocking password to be given"
             sim_state_code=14
             ;;
-        *"PH-CORP PIN"*) 
-            sim_status="MT is waiting corporate personalization password to be given" 
+        *"PH-CORP PIN"*)
+            sim_status="MT is waiting corporate personalization password to be given"
             sim_state_code=16
             ;;
 
-        *"PH-CORP PUK"*) 
-            sim_status="MT is waiting corporate personalization unblocking password to be given" 
+        *"PH-CORP PUK"*)
+            sim_status="MT is waiting corporate personalization unblocking password to be given"
             sim_state_code=17
             ;;
-        *) 
-            sim_status="unknown" 
+        *)
+            sim_status="unknown"
             sim_state_code=99
             ;;
     esac
@@ -500,7 +500,7 @@ get_connect_status()
                     ;;
                 esac
         fi
-        
+
         for pdp_index in `echo  "$result" | tr -d "\r" | awk -F'[,:]' '$3 == 1 {print $2}'`; do
             at_cmd="AT+CGPADDR=%s"
             at_cmd=$(printf "$at_cmd" "$pdp_index")
@@ -577,7 +577,7 @@ hard_reboot()
     echo $gpio_down > $gpio
     sleep 1
     echo $gpio_up > $gpio
-    
+
 }
 
 get_gpio_by_slot()
@@ -600,7 +600,7 @@ get_reboot_caps()
     json_add_object "reboot_caps"
     json_add_int "soft_reboot_caps" "1"
     if [ -n "$gpio" ] && [ -n "$gpio_up" ] && [ -n "$gpio_down" ];then
-         json_add_int "hard_reboot_caps" "1" 
+         json_add_int "hard_reboot_caps" "1"
     else
         json_add_int "hard_reboot_caps" "0"
     fi
@@ -635,7 +635,7 @@ rate_convert()
 get_modem_disabled_features()
 {
     . /lib/functions.sh
-    config_load qmodem 
+    config_load qmodem
     config_list_foreach $config_section disabled_features _add_disabled_features
 }
 
@@ -698,13 +698,16 @@ set_sms_storage()
     else
         res=$(at $at_port "AT+CPMS=\"$mem1\",\"$mem2\",\"$mem3\"")
     fi
-    
+
     json_select "result"
     json_add_string "result" "$res"
 }
 
 get_sim_switch_capabilities(){
     json_add_string "supportSwitch" "0"
+    json_add_string "reason" "This Z8803BE-T variant has SIM1 wired to modem1 and SIM2 wired to modem2; one module cannot control both SIM cards"
+    json_add_string "sim1" "modem1"
+    json_add_string "sim2" "modem2"
 }
 
 get_usage_stats()
@@ -728,7 +731,7 @@ clear_usage_stats()
 get_global_disabled_features()
 {
     . /lib/functions.sh
-    config_load qmodem 
+    config_load qmodem
     config_list_foreach main disabled_features _add_disabled_features
 }
 

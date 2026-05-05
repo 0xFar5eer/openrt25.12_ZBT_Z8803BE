@@ -6,12 +6,12 @@
 
 面向 **ZBTLink ZBT-Z8803BE** WiFi 7 路由器的自定义 OpenWrt 固件。
 
-- **发布标签:** `v25.12.2-1-zbt8803be`
+- **发布标签:** `v25.12.2-2-zbt8803be`
 - **OpenWrt 基线:** 官方 `v25.12.2` / `r32802-f505120278`
-- **ZBT 源码提交:** `ac82dfb52a`
 - **内核:** `6.12.74`
 - **目标平台:** `mediatek/filogic`
 - **默认登录:** `root` / `admin`
+- **固件内摘要:** **About** (`/cgi-bin/luci/admin/about`) 是功能/软件包/修复说明的固件内主摘要；本发布说明沿用同一组分类，并补充验证、校验值和刷机步骤。
 
 ## 本次更新
 
@@ -20,6 +20,12 @@
 - **内置 ZBT 温度监控和风扇策略。** 固件自带 `luci-app-zbt-temperature`、`/usr/sbin/zbt-temperature-log`、cron/tmpfs 历史记录、CPU/WiFi/调制解调器/风扇采样，以及之前优化过的用户态风扇调速逻辑。
 - **新增内置 ZBT Health 页面。** 固件自带 `luci-app-zbt-health`、`/usr/sbin/zbt-health-json`、只读 LuCI **服务 → Health** 页面，以及后加载的 Services 菜单排序覆盖，用于快速查看路由器健康状态、overlay/存储、RAM、conntrack、uptime 和写入热点。
 - **重新整理 LuCI Services/服务菜单。** 服务菜单优先显示 Health、WiFi Clients、WiFi Client History、Traffic Statistics、System Statistics、Temperature、Modem Events、youtubeUnblock 和 AdGuard Home。WiFi Client History 与 System Statistics 现在是 Services 下的直接视图，不再通过 alias 跳回 Status/Statistics。
+- **调整 QoSmate 在 Services 菜单中的位置。** QoSmate 现在位于 Modem Events 之后，让观测与调制解调器恢复相关页面排在调优/流量整形工具之前。
+- **扩展顶层 About 页面。** 固件现在会在 LuCI 内展示发布标识、OpenWrt 基线、功能分组、相对 stock/vendor 固件的修复、已包含的软件包族、支持链接和致谢。
+- **统一自定义 LuCI 应用样式。** About、Health、Temperature、Modem Events、WiFi Clients、Traffic Statistics 和 MLO 现在共用 ZBT 主题 CSS，卡片、表格、按钮、筛选控件和 About 致谢间距更加一致。
+- **改进 Traffic Statistics 界面细节。** 日期筛选和表格操作按钮现在使用共享 ZBT 主题，不再沿用旧的蓝色/紫色按钮样式；表格行高和操作按钮对齐也已统一。
+- **增强 BusyBox 部署兼容性。** 固件包含小型 `/usr/bin/install` 兼容 shim，setup 脚本通过 `cp`/`chmod` 避免依赖 GNU `install`，并选中 `git`/`git-http` 方便运行期和开发调试。
+- **移除重复的 System About alias。** About 现在只保留顶层 **About** 页面 `/admin/about`。
 - **内置 ZBT 调制解调器事件历史。** 固件自带 `luci-app-zbt-modem-events`、`/usr/sbin/zbt-modem-events`、cron/tmpfs 事件历史、USB/netifd/看门狗/QModem 事件 hook、明确的 `wwan0` 互联网探测状态，以及 LuCI **服务 → Modem Events** 页面；页面显示 7 天事件卡片、恢复计数，并且只基于 down/recovered 成对事件估算停机时间。
 - **减少 Modem Events 开机噪声。** Modem Events 现在会把路由器重启记录为停机边界，在启动宽限期内抑制低层 health 噪声，并让 UI 聚焦互联网 down/recovered/OK、monitor 动作、路由器重启和调制解调器重启事件。
 - **温度图表新增避让温度线。** 不同传感器族使用不同阈值：SDR/mmWave 调制解调器传感器 75°C，调制解调器系统传感器 80°C，调制解调器 CPU/DSP/PHY 传感器 85°C，WiFi 传感器 85°C，系统 CPU/SoC 传感器 90°C。悬浮提示和汇总表会显示每个传感器的 limit/headroom。
@@ -29,6 +35,9 @@
 - **增强 QModem 联网检测。** 固件默认值现在使用直连 IP 的 HTTP/204 探测 `http://142.250.23.94/generate_204`，监控间隔为 30 秒，连续失败阈值为 10 次；monitor 的 curl 路径也加入 `--max-time 15`，降低短暂 DNS/运营商链路抖动误触发调制解调器动作的概率。
 - **调整默认 WiFi 信道规划以便合规隔离。** 默认信道现在为 2.4 GHz ch11/EHT20、5 GHz ch149/EHT80、6 GHz ch37/EHT160。在 PH lower-6 GHz 范围内，多 AP 部署可用 EHT160 获得 ch5、ch37、ch69 这类相互分离的 PSC 区块。
 - **移除固件侧 WiFi 功率/信道额外限制。** 首次启动保持 `country=PH`，设置 `cell_density=0`，并清理 `txpower`、`min_tx_power`、`channels`、`scan_list`，让 `wireless-regdb` 和驱动暴露 PH 允许的完整信道集合，并自动使用法规允许的最大发射功率。
+- **改进 Traffic Statistics 默认值和空状态提示。** Setup 中 Domain tracking 默认启用，同时预设数据库路径、90 天保留、每日清理、90 天 inactive 设备清理、604800 秒 domain cache TTL、Auto DNS backend 和 Info log level。设备/域名视图会在监控或域名跟踪关闭、表未初始化或暂无数据时给出明确提示。
+- **修复域名表可见性。** Top Domains 与 Device Domains 不再隐藏小于 1 KiB 的记录，因此任何已记录的域名流量都可以查看。
+- **修复 WiFi Clients 递归 iframe。** LuCI app 现在直接渲染生成的 WiFi Clients HTML，并用隔离样式和轮询刷新替代 iframe 嵌套。
 - **优化风扇调速策略。** PWM 风扇从 3 档扩展为 7 档 `<0 80 112 144 176 216 255>`；温度记录服务按系统/WiFi/调制解调器最高温度进行分级调速，100% 只保留给更高温场景。旧 3 档固件上的运行期脚本也会在 55-60°C 附近从 100% 降回中档，避免低于 60°C 时长时间满速。
 - **Feeds 更新到最新兼容版本。** OpenWrt packages/LuCI/routing/video feeds 固定到当前兼容 head，telephony 保持 25.12 稳定 pin；ImmortalWrt overlay 和 FUjr/QModem 也已刷新。build harness 会在安装 feed 后移除未使用且会触发递归 Kconfig 的 overlay LuCI app。
 - **移植 vendored `autocore` 和 `cpufreq`。** 保持已选择的 LuCI 监控/CPU governor 包可在官方 25.12.2 基线上构建，不再依赖旧的 setup-script 目录。
@@ -36,6 +45,7 @@
 ## 验证
 
 - 自定义 LuCI JavaScript 视图通过 `node --check`。
+- 重建前已针对本次触及的 LuCI/theme/文档/setup 文件运行 3 轮工程代码审查。
 - ZBT base-files 脚本、init 脚本、hotplug 脚本、uci-defaults 和 package 脚本通过 shell 语法检查。
 - LuCI menu/ACL JSON 文件通过 `python3 -m json.tool`。
 - `./.buildenv/build.sh feeds` 和 `./.buildenv/build.sh config` 完成，ZBT 相关包均被选中。
@@ -47,23 +57,19 @@
 ## 校验值
 
 ```text
-5f48b4146e1715363bacbe260dd566aaf1c3c637a5b75192085cec5eccca3f0c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-5aadce77d747d3de905d8bf2dd9f416ea04917602b722000a041cad96f1c88bf  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-dce37b7ad0489a3785cb2bbab54f4922049bcea978e20ab54fd2b080e2bb1806  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-424da7175ed3728e7482b1c2233d9751d1102328f36ee79f9afe842d6d30747f  sha256sums
+45dfdda0204eb549a1dc127c3ef3ef2ef4c0be1ea3a048fca6925937641e5281  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+ccc242c1a7fb3ab4b2864f7b87654a7d1576aeec90791f5c72ed9b5b95ed7970  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+f2f4454deafb186712bf11a153dbb43694f0d6bd3d5c215313d670acff300df1  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+c4898a1a2760b72c6eab640c5bfba9b08c5cf239571212b2011e815be4fa1db0  sha256sums
 ```
 
 ## 已包含
 
-- 主线 OpenWrt 25.12.2 基线，不依赖 MediaTek vendor feed。
-- WiFi 7 三频，支持 MLO 和 EHT320 能力；默认 6 GHz 使用 EHT160，便于多 AP 场景下更安全地隔离。
-- LuCI HTTPS、Argon 深色主题/配置、软件包管理器、**系统 → 关于此构建**、MLO app、ZBT Health、ZBT 温度监控、ZBT 调制解调器事件历史，以及整理后的 Services/服务菜单顺序。
-- QModem Next JS 界面，包含 SMS、Monitor、AT Debug、SIM Switch、看门狗默认值和可靠软重启。
-- QMI/MBIM/NCM/MHI/USB 调制解调器栈，包含 `sms_tool_q`、`tom_modem` 和 `quectel-CM-5G-M`。
-- 固件默认启用调制解调器 LED 服务和状态轮询。
-- 首次启动 WAN 故障切换默认值：WAN metric `10`，WWAN/QModem metric `20`。
-- youtubeUnblock + LuCI 应用用于 SNI 分片式 DPI 绕过，默认关闭，并由固件默认值限定作用范围。
-- WireGuard、SQM/CAKE、DDNS、Samba、Diskman、statistics、autocore、cpufreq、WiFi history 和诊断 CLI 工具。
+- **平台/板级支持:** 主线 OpenWrt 25.12.2 基线、ZBT-Z8803BE 板级支持、NAND sysupgrade profile、WiFi 7 三频/MLO 默认值、调制解调器 LED 服务，以及 WAN/WWAN 故障切换默认值。
+- **LuCI/可观测性:** HTTPS LuCI、Argon 深色主题/配置、软件包管理器、共享 ZBT 自定义应用主题、顶层 About、MLO app、ZBT Health、ZBT 温度监控、ZBT 调制解调器事件历史、WiFi Clients、WiFi history、System Statistics，以及整理后的 Services 菜单顺序。
+- **流量、DNS 与 QoS:** wrtbwmon Traffic Statistics 设备/域名跟踪、AdGuard Home 集成、受限 query/statistics 默认值、youtubeUnblock，以及作为主要 QoS/调优界面的 QoSmate。
+- **调制解调器与 WAN 韧性:** QModem Next JS 界面、QMI/MBIM/NCM/MHI/USB 调制解调器栈、`sms_tool_q`、`tom_modem`、`quectel-CM-5G-M`、无 SIM 守卫、直连 IP monitor 探测、冷却时间和可靠软重启。
+- **存储与 LAN 服务:** WireGuard、DDNS、Samba、Diskman、statistics、autocore、cpufreq、诊断工具、`git`、`git-http`、BusyBox 兼容 `install` 和 CLI 工具。
 
 ## 刷机
 

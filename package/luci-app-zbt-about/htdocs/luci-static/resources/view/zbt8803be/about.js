@@ -14,6 +14,18 @@ const RELEASES_URL = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/rele
 const REPO_URL     = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE';
 const ISSUES_URL   = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/issues';
 const CONTACT_URL  = 'https://t.me/Far5eer';
+const RELEASE_TAG  = 'v25.12.2-2-zbt8803be';
+const OPENWRT_BASE = 'OpenWrt v25.12.2 / r32802-f505120278';
+
+function loadCss(path) {
+	const head = document.head || document.getElementsByTagName('head')[0];
+	const link = E('link', {
+		'rel': 'stylesheet',
+		'href': path,
+		'type': 'text/css'
+	});
+	head.appendChild(link);
+}
 
 const callSystemBoard = rpc.declare({
 	object: 'system',
@@ -42,12 +54,39 @@ function link(href, text) {
 	}, text || href);
 }
 
+function list(items) {
+	return E('ul', { 'style': 'margin:0.75em 0 0 1.25em;padding-left:1.25em;max-width:100%' },
+		items.map(function(item) {
+			return E('li', { 'style': 'margin:0.35em 0;line-height:1.45;overflow-wrap:anywhere' }, item);
+		}));
+}
+
+function card(title, items) {
+	return E('div', { 'class': 'cbi-section', 'style': 'overflow-wrap:anywhere' }, [
+		E('h3', title),
+		list(items)
+	]);
+}
+
+function creditGrid(items) {
+	const rows = [];
+	items.forEach(function(item) {
+		rows.push(E('div', { 'class': 'zbt-credit-row' }, [
+			E('span', { 'class': 'zbt-credits-name' }, item[0]),
+			E('span', { 'class': 'zbt-credit-separator' }, ' - '),
+			E('span', { 'class': 'zbt-credits-text' }, item[1])
+		]));
+	});
+	return E('div', { 'class': 'zbt-credits-list' }, rows);
+}
+
 return view.extend({
 	handleSaveApply: null,
 	handleSave: null,
 	handleReset: null,
 
 	load: function() {
+		loadCss(L.resource('view/zbt8803be/zbt-theme.css'));
 		return Promise.all([
 			callSystemBoard().catch(function() { return {}; }),
 			callSystemInfo().catch(function() { return {}; }),
@@ -72,26 +111,63 @@ return view.extend({
 
 		const branch = '25.12.2 stable';
 
+		const featureGroups = [
+			[ _('Platform / board support'), [
+				_('Mainline OpenWrt 25.12.2 base for ZBTLink ZBT-Z8803BE, target mediatek/filogic, kernel 6.12.74, no MediaTek vendor feed required.'),
+				_('Board DTS/image profile, NAND sysupgrade support, LED/network/GPIO switch defaults, modem LED services, APK feed defaults, shell/banner defaults, and first-boot LuCI defaults.'),
+				_('WiFi 7 tri-band defaults: 2.4 GHz ch11/EHT20, 5 GHz ch149/EHT80, 6 GHz ch37/EHT160, country PH, no firmware-side txpower/channel clamps.')
+			] ],
+			[ _('LuCI / observability'), [
+				_('Top-level About page, Argon dark theme/config, HTTPS LuCI, package manager, curated Services menu ordering, and direct Services views for WiFi history and System Statistics.'),
+				_('Shared ZBT LuCI theme applied across custom firmware apps with consistent cards, tables, buttons, Traffic Statistics filters, and inset About credits.'),
+				_('ZBT Health page with overlay/storage/RAM/conntrack/uptime checks plus write-hotspot visibility for wrtbwmon and AdGuard Home data.'),
+				_('Temperature monitor with tmpfs history, max-temperature avoid-limit overlays, 7-level fan policy, and modem/WiFi/SoC sensor summaries.'),
+				_('Modem Events history with router restart boundaries, recovery counters, downtime estimates, qmodem monitor actions, and internet probe state.')
+			] ],
+			[ _('Traffic, DNS, and QoS'), [
+				_('wrtbwmon Traffic Statistics with daily SQLite schema, device traffic, live speed stats, per-device domain views, top domains, domain tracking defaults, and warning messages when monitoring/domain data is disabled or empty.'),
+				_('AdGuard Home integration with bounded memory query log/statistics settings and robust query-log parsing for current answer/value/client_info formats.'),
+				_('QoSmate replaces SQM as the primary QoS/tinkering UI and is placed in Services after Modem Events.')
+			] ],
+			[ _('Modem and WAN resilience'), [
+				_('QModem Next JS UI with SMS, Monitor, AT Debug, watchdog defaults, no-SIM guard, startup/action cooldown, direct-IP HTTP/204 probe, and robust soft reboot helper.'),
+				_('QMI/MBIM/NCM/MHI/USB modem stack with sms_tool_q, tom_modem, quectel-CM-5G-M, modem event hooks, and WAN/WWAN failover defaults: WAN metric 10, WWAN/QModem metric 20.'),
+				_('On this exact Z8803BE-T variant SIM1 is wired to modem1 and SIM2 is wired to modem2, so SIM switching is intentionally disabled.')
+			] ],
+			[ _('Included package families'), [
+				_('Network services: WireGuard, DDNS, AdGuard Home, youtubeUnblock, Samba, Diskman, statistics, wifihistory, MLO tooling, diagnostics, and CLI utilities.'),
+				_('Developer/runtime convenience: git, git-http, and a BusyBox-compatible install shim for setup scripts and ad-hoc deployments.'),
+				_('Custom ZBT LuCI apps: About, Health, Temperature, Modem Events, WiFi Clients, and Traffic Statistics.'),
+				_('Build overlays: FUjr/QModem, selected ImmortalWrt packages/LuCI overlays, vendored autocore/cpufreq, and board-specific base-files customizations.')
+			] ],
+			[ _('Fixes and hardening vs stock/vendor firmware'), [
+				_('Moves away from old vendor 21.02-SNAPSHOT behavior and dead vendor feeds toward a current OpenWrt stable base.'),
+				_('Hardened modem monitoring to avoid no-SIM reset loops, early boot restart storms, and DNS-dependent false failures.'),
+				_('BusyBox-compatible deployments avoid GNU install assumptions; setup scripts copy files with cp/chmod and firmware includes an install compatibility shim.'),
+				_('Improved LuCI UX: no duplicate About alias under System, no recursive WiFi Clients iframe, clear Traffic Statistics warnings, and safer direct Services menu placement.')
+			] ]
+		];
+
 		const memTotalMiB = info.memory && info.memory.total
 			? Math.round(info.memory.total / 1048576)
 			: null;
 
 		const credits = [
 			[ '@pttuan',
-			  ' - upstream OpenWrt board port (',
+			  [ _('upstream OpenWrt board port'), ' (',
 			  link('https://github.com/openwrt/openwrt/pull/23053', 'openwrt#23053'),
-			  '): DT-native fan, GPIO watchdog, thermal cooling maps, modern LED bindings.' ],
+			  '): ', _('DT-native fan, GPIO watchdog, thermal cooling maps, modern LED bindings.') ] ],
 			[ link('https://github.com/FUjr/QModem', 'FUjr/QModem'),
-			  ' - QModem Next modern JS UI shipped with this build, including the built-in SIM Switch page (', E('code', {}, 'AT+QUIMSLOT'), ').' ],
+			  _('QModem Next modern JS UI shipped with this build; on this exact Z8803BE-T variant SIM1 is wired to modem1 and SIM2 is wired to modem2, so SIM switching is disabled.') ],
 			[ link('https://github.com/OneB1t/Z8803BE-research', 'OneB1t/Z8803BE-research'),
-			  ' - vendor firmware research that documented the dead opkg feeds and phone-home tunnel in stock 21.02-SNAPSHOT.' ],
+			  _('vendor firmware research that documented the dead opkg feeds and phone-home tunnel in stock 21.02-SNAPSHOT.') ],
 			[ link('https://openwrt.org', 'OpenWrt mainline'),
-			  ' - the underlying distribution this build is based on (no MediaTek vendor feed required).' ],
+			  _('the underlying distribution this build is based on (no MediaTek vendor feed required).') ],
 			[ link('https://github.com/immortalwrt/packages', 'ImmortalWrt'),
-			  ' - additional package and LuCI overlays used during build.' ]
+			  _('additional package and LuCI overlays used during build.') ]
 		];
 
-		return E('div', { 'class': 'cbi-map' }, [
+		const sections = [
 			E('h2', _('About this build')),
 			E('p', _('Custom OpenWrt build for the ZBTLink ZBT-Z8803BE WiFi 7 router.')),
 			E('div', { 'class': 'alert-message warning' }, [
@@ -106,6 +182,8 @@ return view.extend({
 				row(_('Model'),       board.model || '?'),
 				row(_('Board'),       (board.board_name || '?')),
 				row(_('Distribution'), distrib || '?'),
+				row(_('Release'),      RELEASE_TAG),
+				row(_('OpenWrt base'), OPENWRT_BASE),
 				row(_('Branch'),       branch),
 				row(_('Kernel'),      board.kernel || '?'),
 				row(_('System'),      board.system || '?'),
@@ -113,6 +191,13 @@ return view.extend({
 				row(_('RAM (total)'), memTotalMiB ? memTotalMiB + ' MiB' : '?')
 			]),
 
+			E('div', { 'class': 'cbi-section' }, [
+				E('h3', _('What is added vs stock OpenWrt')),
+				E('p', _('This page is the canonical in-firmware summary. Release notes use the same categories and add image checksums, flash instructions, and per-release validation.'))
+			])
+		].concat(featureGroups.map(function(group) {
+			return card(group[0], group[1]);
+		}), [
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', _('Releases')),
 				E('p', [
@@ -134,17 +219,15 @@ return view.extend({
 				row(_('Telegram'), link(CONTACT_URL, '@Far5eer'))
 			]),
 
-			E('div', { 'class': 'cbi-section' }, [
+			E('div', { 'class': 'cbi-section', 'style': 'overflow-wrap:anywhere' }, [
 				E('h3', _('Credits')),
 				E('p', _('This build is a curated package list and small base-files overlay layered on top of mainline OpenWrt. Massive thanks to:')),
-				E('ul', {},
-					credits.map(function(parts) {
-						return E('li', {}, parts);
-					})
-				),
+				creditGrid(credits),
 				E('p', { 'class': 'cbi-section-descr' },
 					_('Issues and pull requests welcome on the GitHub repository.'))
 			])
 		]);
+
+		return E('div', { 'class': 'cbi-map zbt-app zbt-about' }, sections);
 	}
 });

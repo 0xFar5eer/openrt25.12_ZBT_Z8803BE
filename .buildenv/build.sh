@@ -100,6 +100,12 @@ case "$cmd" in
             if [ -s .buildenv/zbt8803be.config ]; then
                 while IFS= read -r line; do
                     case "$line" in
+                    "# CONFIG_"*" is not set")
+                        key="${line#"# "}"
+                        key="${key%" is not set"}"
+                        sed -i "/^${key}=\|^# ${key} is not set/d" .config
+                        printf "%s\n" "$line" >> .config
+                        ;;
                     "#"*|"") printf "%s\n" "$line" >> .config ;;
                     CONFIG_*)
                         key="${line%%=*}"

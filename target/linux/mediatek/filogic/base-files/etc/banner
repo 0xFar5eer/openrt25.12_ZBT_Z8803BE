@@ -11,7 +11,7 @@
  Issues   : https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/issues  (PRs welcome)
  Contact  : https://t.me/Far5eer
  Credits  : @pttuan (openwrt#23053) - upstream board port
-            FUjr/QModem            - QModem Next UI + SIM Switch
+            FUjr/QModem            - QModem Next UI
             OneB1t/Z8803BE-research - vendor firmware research
  -----------------------------------------------------
  Community build - expect rough edges; report bugs via Issues or Telegram.

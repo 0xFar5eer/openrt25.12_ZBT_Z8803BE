@@ -12,7 +12,7 @@ Current custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - **Kernel:** Linux `6.12.74`
 - **Target:** `mediatek/filogic`
 - **Device:** MediaTek MT7988A / Filogic 880 + MT7996-family tri-band WiFi 7
-- **Release tag:** `v25.12.2-1-zbt8803be`
+- **Release tag:** `v25.12.2-2-zbt8803be`
 
 ## Download
 
@@ -31,9 +31,9 @@ Use the latest GitHub release assets:
 ## Checksums
 
 ```text
-5f48b4146e1715363bacbe260dd566aaf1c3c637a5b75192085cec5eccca3f0c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-5aadce77d747d3de905d8bf2dd9f416ea04917602b722000a041cad96f1c88bf  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-dce37b7ad0489a3785cb2bbab54f4922049bcea978e20ab54fd2b080e2bb1806  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+45dfdda0204eb549a1dc127c3ef3ef2ef4c0be1ea3a048fca6925937641e5281  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+ccc242c1a7fb3ab4b2864f7b87654a7d1576aeec90791f5c72ed9b5b95ed7970  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+f2f4454deafb186712bf11a153dbb43694f0d6bd3d5c215313d670acff300df1  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ```
 
 ## Included features
@@ -41,19 +41,19 @@ dce37b7ad0489a3785cb2bbab54f4922049bcea978e20ab54fd2b080e2bb1806  openwrt-mediat
 - **Mainline OpenWrt 25.12.2 base:** no MediaTek vendor feed required.
 - **WiFi 7 tri-band:** 2.4 GHz, 5 GHz, 6 GHz, EHT320, WPA3, MLO-capable.
 - **PH WiFi defaults:** country `PH`, full PH-allowed channel set, no firmware txpower/channel clamps, and automatic regulatory max power.
-- **LuCI:** HTTPS, Argon dark theme, Chinese translations, package manager, and curated Services menu ordering.
-- **QModem Next:** modern JS modem UI with built-in SMS, Monitor, AT Debug, and SIM Switch.
+- **LuCI:** HTTPS, Argon dark theme, Chinese translations, package manager, curated Services menu ordering, and shared ZBT styling across custom firmware apps.
+- **QModem Next:** modern JS modem UI with built-in SMS, Monitor, AT Debug, and modem controls.
 - **Modem stack:** QMI, MBIM, NCM, MHI, USB serial, QModem, `sms_tool_q`.
-- **Built-in SIM Switch:** QModem Next controls SIM slots through `AT+QUIMSLOT`.
+- **Z8803BE-T SIM wiring note:** on this exact model/variant, SIM1 is wired to modem1 and SIM2 is wired to modem2; one module cannot control both SIM cards, so SIM switching is not supported. Supplier notes that another Z8803BE-T version does support one module controlling two SIM cards.
 - **Modem LEDs:** firmware-enabled LED services and state poller.
 - **Default modem power:** slot 1 on (`5g1=1`), slot 2 off (`5g2=0`).
 - **Networking:** WireGuard, SQM/CAKE, DDNS, firewall4/nftables.
 - **WAN failover defaults:** first boot seeds WAN metric `10` and WWAN/QModem metric `20` for carrier-driven cable-unplug failover.
 - **Storage:** USB 3.0, ext4, vfat, exfat, ntfs3, Samba 4, SFTP.
-- **Monitoring:** router health, autocore, cpufreq, collectd/statistics, WiFi clients/history.
+- **Monitoring:** router health, autocore, cpufreq, collectd/statistics, WiFi clients/history, and wrtbwmon Traffic Statistics device/domain views.
 - **Temperature monitor:** built-in ZBT temperature charts with per-module avoid-limit overlays and fan PWM logging.
 - **Router health page:** built-in ZBT Health page for overlay/storage, RAM, conntrack, uptime, and write-hotspot checks.
-- **Shell defaults:** banner, color prompt, useful aliases/tools.
+- **Shell defaults:** banner, color prompt, useful aliases/tools, `git`, `git-http`, and a BusyBox-compatible `install` shim.
 - **Package feeds:** OpenWrt + ImmortalWrt overlay feeds configured for APK.
 
 ## Verified setup
@@ -65,7 +65,7 @@ Validated:
 - failover metrics persist correctly after reboot
 - DNS/internet OK
 - WiFi/MLO active
-- QModem Next and SIM Switch working
+- QModem Next modem controls working; SIM1 is fixed to modem1 and SIM2 is fixed to modem2 on this exact unit
 - modem LED services active
 
 ## Install
@@ -133,7 +133,7 @@ PRs and issue reports are very welcome — this is a community build, so please 
 ## Credits
 
 - [@pttuan](https://github.com/pttuan) — upstream OpenWrt board port via [openwrt#23053](https://github.com/openwrt/openwrt/pull/23053): DT-native fan, GPIO watchdog, thermal cooling maps, modern LED bindings.
-- [FUjr/QModem](https://github.com/FUjr/QModem) — QModem Next modern JS UI shipped with this build, including the built-in SIM Switch page (`AT+QUIMSLOT`).
+- [FUjr/QModem](https://github.com/FUjr/QModem) — QModem Next modern JS UI shipped with this build; SIM switching is disabled for this exact Z8803BE-T variant because SIM1/SIM2 are wired to separate M.2 modems.
 - [OneB1t/Z8803BE-research](https://github.com/OneB1t/Z8803BE-research) — vendor firmware research that documented the dead opkg feeds and phone-home tunnel in stock 21.02-SNAPSHOT.
 - [OpenWrt mainline](https://openwrt.org) — the underlying distribution this build is based on (no MediaTek vendor feed required).
 - [ImmortalWrt](https://github.com/immortalwrt) — additional package and LuCI overlays used during build.

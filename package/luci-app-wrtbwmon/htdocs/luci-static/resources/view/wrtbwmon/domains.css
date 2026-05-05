@@ -1,0 +1,189 @@
+/* Date filter buttons - Dark mode */
+.date-filter-buttons {
+    display: flex;
+    gap: 8px;
+    margin: 16px 0;
+    flex-wrap: wrap;
+}
+
+.date-filter-btn,
+.btn.cbi-button.date-filter-btn {
+    padding: 8px 16px;
+    border: 1px solid #444 !important;
+    background: #2a2a2a !important;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 14px;
+    transition: all 0.2s;
+    color: #ddd !important;
+}
+
+.date-filter-btn:hover,
+.btn.cbi-button.date-filter-btn:hover {
+    background: #333 !important;
+    border-color: #0088cc !important;
+}
+
+.date-filter-btn.active,
+.btn.cbi-button.date-filter-btn.active {
+    background: #0088cc !important;
+    color: #fff !important;
+    border-color: #0088cc !important;
+    font-weight: 500;
+}
+
+/* Speed stats display */
+.speed-stats {
+    display: flex;
+    gap: 32px;
+    margin: 16px 0;
+    padding: 16px 20px;
+    background: linear-gradient(135deg, #2a2a2a 0%, #1f1f1f 100%);
+    border-radius: 8px;
+    border: 1px solid #444;
+    flex-wrap: wrap;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.speed-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.speed-label {
+    color: #999;
+    font-size: 16px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.speed-label::before {
+    font-size: 20px;
+}
+
+.speed-item:nth-child(1) .speed-label::before {
+    content: '⬇️';
+}
+
+.speed-item:nth-child(2) .speed-label::before {
+    content: '⬆️';
+}
+
+.speed-item:nth-child(3) .speed-label::before {
+    content: '🌐';
+}
+
+.speed-value {
+    font-size: 18px;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    text-shadow: 0 0 10px rgba(0, 136, 204, 0.3);
+}
+
+/* Different colors for each speed type */
+.speed-item:nth-child(1) .speed-value {
+    color: #00cc66; /* Green for download */
+    text-shadow: 0 0 10px rgba(0, 204, 102, 0.3);
+}
+
+.speed-item:nth-child(2) .speed-value {
+    color: #ff4444; /* Red for upload */
+    text-shadow: 0 0 10px rgba(255, 68, 68, 0.3);
+}
+
+.speed-item:nth-child(3) .speed-value {
+    color: #0088cc; /* Blue for total */
+    text-shadow: 0 0 10px rgba(0, 136, 204, 0.3);
+}
+
+/* Device header */
+.device-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.device-header h2 {
+    margin: 0;
+}
+
+/* Dark mode button styling */
+.btn.cbi-button,
+.btn.cbi-button-action {
+    background: #2a2a2a;
+    color: #ddd;
+    border: 1px solid #444;
+}
+
+.btn.cbi-button:hover,
+.btn.cbi-button-action:hover {
+    background: #333;
+    border-color: #0088cc;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .date-filter-buttons {
+        flex-direction: column;
+    }
+
+    .date-filter-btn,
+    .btn.cbi-button.date-filter-btn {
+        width: 100%;
+    }
+
+    .speed-stats {
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .speed-label {
+        font-size: 15px;
+    }
+
+    .speed-value {
+        font-size: 16px;
+    }
+}
+/* Totals row styling */
+.table-totals {
+    background-color: #2a2a2a !important;
+    border-top: 2px solid #444 !important;
+}
+
+.table-totals td {
+    font-weight: bold !important;
+    padding: 12px 8px !important;
+    color: #fff !important;
+}
+
+/* Center align all table cells */
+.table th,
+.table td {
+    text-align: center !important;
+}
+
+/* Last updated label */
+.last-updated {
+    color: #999;
+    font-size: 13px;
+    margin: 8px 0;
+    font-style: italic;
+}
+
+/* Sortable table headers - matching devices table style */
+.th.sorted::after {
+    content: '\25bc';
+}
+.th.sorted.ascent::after {
+    content: '\25b2';
+}
+
+.th {
+    cursor: pointer;
+    user-select: none;
+}

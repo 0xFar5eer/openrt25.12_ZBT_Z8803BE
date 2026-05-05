@@ -30,6 +30,16 @@ let selectedRange = 604800;
 let contentNode = null;
 let statusNode = null;
 
+function loadCss(path) {
+	const head = document.head || document.getElementsByTagName('head')[0];
+	const link = E('link', {
+		'rel': 'stylesheet',
+		'href': path,
+		'type': 'text/css'
+	});
+	head.appendChild(link);
+}
+
 function pad2(v) {
 	return (v < 10 ? '0' : '') + v;
 }
@@ -530,6 +540,7 @@ function refresh(runSample) {
 
 return view.extend({
 	load: function() {
+		loadCss(L.resource('view/zbt8803be/zbt-theme.css'));
 		return loadData(true);
 	},
 
@@ -550,7 +561,7 @@ return view.extend({
 			return refresh(true);
 		}, 60);
 
-		return E('div', { 'class': 'cbi-map' }, [
+		return E('div', { 'class': 'cbi-map zbt-app zbt-temperature' }, [
 			E('h2', _('Temperature Monitor')),
 			E('div', { 'class': 'cbi-section' }, [
 				E('div', { 'style': 'display:flex;flex-wrap:wrap;align-items:center;gap:0.75em' }, [

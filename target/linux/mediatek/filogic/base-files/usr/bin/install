@@ -1,0 +1,93 @@
+#!/bin/sh
+
+mode=
+target_dir=
+make_dirs=0
+parents=0
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-m)
+			mode="$2"
+			shift 2
+			;;
+		-m*)
+			mode="${1#-m}"
+			shift
+			;;
+		-t)
+			target_dir="$2"
+			shift 2
+			;;
+		-d)
+			make_dirs=1
+			shift
+			;;
+		-D)
+			parents=1
+			shift
+			;;
+		-p|-s|-v)
+			shift
+			;;
+		--)
+			shift
+			break
+			;;
+		-*)
+			echo "install: unsupported option $1" >&2
+			exit 1
+			;;
+		*)
+			break
+			;;
+	esac
+done
+
+if [ "$make_dirs" = "1" ]; then
+	[ $# -gt 0 ] || exit 0
+	mkdir -p "$@"
+	[ -n "$mode" ] && chmod "$mode" "$@"
+	exit 0
+fi
+
+if [ -n "$target_dir" ]; then
+	mkdir -p "$target_dir"
+	for src in "$@"; do
+		cp -f "$src" "$target_dir/"
+		[ -n "$mode" ] && chmod "$mode" "$target_dir/$(basename "$src")"
+	done
+	exit 0
+fi
+
+[ $# -ge 2 ] || {
+	echo "usage: install [-m MODE] [-D] SRC DEST" >&2
+	exit 1
+}
+
+if [ $# -gt 2 ]; then
+	i=1
+	for arg in "$@"; do
+		if [ "$i" -eq "$#" ]; then
+			dst="$arg"
+		fi
+		i=$((i + 1))
+	done
+	[ -d "$dst" ] || {
+		echo "install: target '$dst' is not a directory" >&2
+		exit 1
+	}
+	while [ $# -gt 1 ]; do
+		src="$1"
+		cp -f "$src" "$dst/"
+		[ -n "$mode" ] && chmod "$mode" "$dst/$(basename "$src")"
+		shift
+	done
+	exit 0
+fi
+
+src="$1"
+dst="$2"
+[ "$parents" = "1" ] && mkdir -p "$(dirname "$dst")"
+cp -f "$src" "$dst"
+[ -n "$mode" ] && chmod "$mode" "$dst"

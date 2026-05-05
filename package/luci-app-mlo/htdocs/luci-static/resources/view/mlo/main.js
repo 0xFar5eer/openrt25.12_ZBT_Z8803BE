@@ -38,6 +38,16 @@ const ENC_LABEL = {
 	'sae-mixed': 'WPA2/WPA3 mixed'
 };
 
+function loadCss(path) {
+	const head = document.head || document.getElementsByTagName('head')[0];
+	const link = E('link', {
+		'rel': 'stylesheet',
+		'href': path,
+		'type': 'text/css'
+	});
+	head.appendChild(link);
+}
+
 function radiosByBand() {
 	/* returns { '2g': 'radio0', '5g': 'radio1', '6g': 'radio2' } */
 	const out = {};
@@ -416,11 +426,12 @@ function deleteMld(ssid_key) {
 
 return view.extend({
 	load: function () {
+		loadCss(L.resource('view/zbt8803be/zbt-theme.css'));
 		return uci.load('wireless');
 	},
 
 	render: function () {
-		const container = E('div', { 'id': 'mlo-root' });
+		const container = E('div', { 'id': 'mlo-root', 'class': 'zbt-app zbt-mlo' });
 
 		const self = this;
 		function refresh() {
@@ -451,7 +462,7 @@ return view.extend({
 		}
 
 		setTimeout(refresh, 0);
-		return E([], [
+		return E('div', { 'class': 'cbi-map zbt-app zbt-mlo' }, [
 			container,
 			E('div', { 'class': 'cbi-page-actions', 'style': 'margin-top:1.5em' }, [
 				E('button', {
