@@ -153,7 +153,7 @@ return view.extend({
 			: null;
 
 		const credits = [
-			[ '@pttuan',
+			[ link('https://github.com/pttuan', '@pttuan'),
 			  [ _('upstream OpenWrt board port'), ' (',
 			  link('https://github.com/openwrt/openwrt/pull/23053', 'openwrt#23053'),
 			  '): ', _('DT-native fan, GPIO watchdog, thermal cooling maps, modern LED bindings.') ] ],
