@@ -1,14 +1,45 @@
 #!/bin/sh
 
-DATA_DIR=/var/log/zbt-modem-events
+DATA_DIR=/etc/zbt-modem-events
 DATA_FILE=$DATA_DIR/events.csv
 STATE_DIR=$DATA_DIR/state
+OLD_DATA_DIR=/var/log/zbt-modem-events
+OLD_DATA_FILE=$OLD_DATA_DIR/events.csv
+OLD_STATE_DIR=$OLD_DATA_DIR/state
 RETENTION_S=604800
 STARTUP_GRACE_S=${ZBT_MODEM_EVENTS_STARTUP_GRACE_S:-300}
 
 ensure_store() {
 	mkdir -p "$DATA_DIR" "$STATE_DIR"
+	migrate_legacy
 	[ -f "$DATA_FILE" ] || printf 'epoch,source,type,severity,modem,title,detail\n' > "$DATA_FILE"
+}
+
+migrate_legacy() {
+	[ -f "$DATA_FILE" ] || {
+		[ -f "$OLD_DATA_FILE" ] && cp "$OLD_DATA_FILE" "$DATA_FILE" 2>/dev/null || true
+	}
+	if [ -d "$OLD_STATE_DIR" ] && [ -z "$(ls -A "$STATE_DIR" 2>/dev/null)" ]; then
+		cp -p "$OLD_STATE_DIR"/* "$STATE_DIR"/ 2>/dev/null || true
+	fi
+}
+
+prune_store() {
+	local force epoch marker last cutoff tmp
+	force=${1:-0}
+	epoch=$(date +%s)
+	marker=$DATA_DIR/.last-prune
+	last=$(cat "$marker" 2>/dev/null || echo 0)
+	case "$last" in *[!0-9]*|'') last=0 ;; esac
+	if [ "$force" != "1" ] && [ $((epoch - last)) -lt 3600 ]; then
+		return 0
+	fi
+	cutoff=$(( epoch - RETENTION_S ))
+	tmp=$(mktemp /tmp/zbt-modem-events.XXXXXX)
+	awk -F, -v cutoff="$cutoff" 'NR == 1 || $1 >= cutoff' "$DATA_FILE" > "$tmp" 2>/dev/null || true
+	[ -s "$tmp" ] && cat "$tmp" > "$DATA_FILE"
+	rm -f "$tmp"
+	printf '%s\n' "$epoch" > "$marker"
 }
 
 csv_field() {
@@ -16,7 +47,7 @@ csv_field() {
 }
 
 append_event() {
-	local source type severity modem title detail epoch tmp cutoff
+	local source type severity modem title detail epoch
 	source=$1
 	type=$2
 	severity=$3
@@ -35,11 +66,7 @@ append_event() {
 		csv_field "$detail"; printf '\n'
 	} >> "$DATA_FILE"
 	logger -t zbt-modem-events "$severity $type modem=${modem:-unknown}: $title${detail:+ — $detail}"
-	cutoff=$(( epoch - RETENTION_S ))
-	tmp=$(mktemp /tmp/zbt-modem-events.XXXXXX)
-	awk -F, -v cutoff="$cutoff" 'NR == 1 || $1 >= cutoff' "$DATA_FILE" > "$tmp" 2>/dev/null || true
-	cat "$tmp" > "$DATA_FILE"
-	rm -f "$tmp"
+	prune_store 0
 }
 
 record_state() {
@@ -251,10 +278,11 @@ case "$1" in
 		ensure_store
 		record_router_start 4_1
 		sample_health
+		prune_store 0
 		;;
 	prune)
 		ensure_store
-		append_event system prune info '' 'Retention check' 'Keeping last 7 days'
+		prune_store 1
 		;;
 	*)
 		echo "usage: $0 record <source> <type> <severity> <modem> <title> <detail> | sample | prune" >&2

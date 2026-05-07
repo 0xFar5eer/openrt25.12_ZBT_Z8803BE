@@ -2,7 +2,7 @@
 
 Local staging folder for the current **ZBTLink ZBT-Z8803BE** firmware release.
 
-- **Tag:** `v25.12.2-2-zbt8803be`
+- **Tag:** `v25.12.2-3-zbt8803be`
 - **OpenWrt base:** official `v25.12.2` / `r32802-f505120278`
 - **Kernel:** `6.12.74`
 
@@ -38,11 +38,11 @@ c4898a1a2760b72c6eab640c5bfba9b08c5cf239571212b2011e815be4fa1db0  sha256sums
 ## Publish
 
 ```sh
-git tag -a v25.12.2-2-zbt8803be -m "ZBT-Z8803BE OpenWrt 25.12.2 maintenance release"
+git tag -a v25.12.2-3-zbt8803be -m "ZBT-Z8803BE OpenWrt 25.12.2 maintenance release"
 git push origin 25.12
-git push origin v25.12.2-2-zbt8803be
+git push origin v25.12.2-3-zbt8803be
 
-gh release create v25.12.2-2-zbt8803be \
+gh release create v25.12.2-3-zbt8803be \
   releases/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin \
   releases/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin \
   releases/openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest \

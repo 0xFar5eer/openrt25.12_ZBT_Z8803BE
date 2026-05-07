@@ -5,7 +5,7 @@
 'require dom';
 'require ui';
 
-const DATA_FILE = '/var/log/zbt-temperature/readings.csv';
+const DATA_FILE = '/etc/zbt-temperature/readings.csv';
 const LOGGER = '/usr/sbin/zbt-temperature-log';
 const COLORS = [ '#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa', '#00acc1', '#6d4c41', '#3949ab', '#7cb342', '#d81b60', '#00897b', '#f4511e', '#5e35b1', '#039be5', '#c0ca33', '#757575' ];
 const CHART_HEIGHT = 320;

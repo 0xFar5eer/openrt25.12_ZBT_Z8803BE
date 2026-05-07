@@ -37,8 +37,8 @@ case "$wrtbwmon_db" in
 esac
 wrtbwmon_db_kb=$(du -sk "$wrtbwmon_db" "$wrtbwmon_db-wal" "$wrtbwmon_db-shm" 2>/dev/null | awk '{s += $1} END {print s + 0}')
 wrtbwmon_dir_kb=$(du -sk /etc/wrtbwmon 2>/dev/null | awk '{print $1}')
-modem_events_kb=$(du -sk /var/log/zbt-modem-events 2>/dev/null | awk '{print $1}')
-temperature_kb=$(du -sk /var/log/zbt-temperature 2>/dev/null | awk '{print $1}')
+modem_events_kb=$(du -sk /etc/zbt-modem-events 2>/dev/null | awk '{print $1}')
+temperature_kb=$(du -sk /etc/zbt-temperature 2>/dev/null | awk '{print $1}')
 
 set -- $root_line
 root_total=${1:-0}; root_used=${2:-0}; root_avail=${3:-0}; root_pct=${4:-0%}

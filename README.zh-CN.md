@@ -12,7 +12,7 @@
 - **内核:** Linux `6.12.74`
 - **目标平台:** `mediatek/filogic`
 - **设备:** MediaTek MT7988A / Filogic 880 + MT7996 系列三频 WiFi 7
-- **发布标签:** `v25.12.2-2-zbt8803be`
+- **发布标签:** `v25.12.2-3-zbt8803be`
 
 ## 下载
 

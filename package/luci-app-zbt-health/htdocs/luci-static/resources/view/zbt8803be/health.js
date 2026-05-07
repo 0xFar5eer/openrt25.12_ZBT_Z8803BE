@@ -141,8 +141,8 @@ function renderHealth(h) {
 			row(_('AdGuardHome log files'), fmtKiB(hotspots.adguard_log_kb)),
 			row(_('Traffic Statistics database'), fmtKiB(hotspots.wrtbwmon_db_kb)),
 			row(_('Traffic Statistics directory'), fmtKiB(hotspots.wrtbwmon_dir_kb)),
-			row(_('Modem Events logs'), fmtKiB(hotspots.modem_events_kb)),
-			row(_('Temperature logs'), fmtKiB(hotspots.temperature_kb))
+			row(_('Modem Events store'), fmtKiB(hotspots.modem_events_kb)),
+			row(_('Temperature store'), fmtKiB(hotspots.temperature_kb))
 		])
 	]);
 }

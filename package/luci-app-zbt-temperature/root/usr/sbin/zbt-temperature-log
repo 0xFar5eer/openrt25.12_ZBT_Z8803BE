@@ -1,7 +1,9 @@
 #!/bin/sh
 
-DATA_DIR=/var/log/zbt-temperature
+DATA_DIR=/etc/zbt-temperature
 DATA_FILE=$DATA_DIR/readings.csv
+OLD_DATA_DIR=/var/log/zbt-temperature
+OLD_DATA_FILE=$OLD_DATA_DIR/readings.csv
 LOCK_DIR=/tmp/zbt-temperature.lock
 RETENTION_SECONDS=${ZBT_TEMPERATURE_RETENTION_SECONDS:-604800}
 
@@ -244,6 +246,12 @@ prune_old() {
 	printf '%s\n' "$now" > "$marker"
 }
 
+migrate_legacy() {
+	[ -f "$DATA_FILE" ] && return 0
+	[ -f "$OLD_DATA_FILE" ] || return 0
+	cp "$OLD_DATA_FILE" "$DATA_FILE" 2>/dev/null || true
+}
+
 sample() {
 	local now
 	now=$(date +%s)
@@ -252,6 +260,7 @@ sample() {
 		exit 0
 	fi
 	trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT INT TERM
+	migrate_legacy
 	if [ ! -f "$DATA_FILE" ]; then
 		printf 'epoch,group,name,value,unit\n' > "$DATA_FILE"
 	elif head -n 1 "$DATA_FILE" 2>/dev/null | grep -q '^epoch,group,name,celsius$'; then

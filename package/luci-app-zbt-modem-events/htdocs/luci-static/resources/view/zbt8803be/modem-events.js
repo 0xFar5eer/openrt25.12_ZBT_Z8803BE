@@ -5,7 +5,7 @@
 'require dom';
 'require ui';
 
-const DATA_FILE = '/var/log/zbt-modem-events/events.csv';
+const DATA_FILE = '/etc/zbt-modem-events/events.csv';
 const LOGGER = '/usr/sbin/zbt-modem-events';
 const RANGE_S = 604800;
 const LIMIT = 500;
