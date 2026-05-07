@@ -1,4 +1,4 @@
-# ZBT-Z8803BE OpenWrt 25.12.2 maintenance release
+# ZBT-Z8803BE OpenWrt v25.12.2-3-zbt8803be maintenance release
 
 [English](RELEASE_NOTES.md) | [中文](RELEASE_NOTES.zh-CN.md)
 
