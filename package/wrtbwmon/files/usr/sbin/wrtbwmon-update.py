@@ -17,13 +17,17 @@ import subprocess
 import time
 import re
 import fcntl
+import json
 
-from wrtbwmon_nft import chain_to_ipv4, counter_bytes, list_table_json, nft_objects, rule_comment
+from wrtbwmon_nft import counter_bytes, nft_objects, rule_comment
 
 DB_FILE = os.environ.get("DB_FILE", "/etc/wrtbwmon/traffic.db")
 NFT_TABLE = os.environ.get("NFT_TABLE", "inet fw4")
 LOCK_FILE = "/var/run/wrtbwmon-update.lock"
+COUNTERS_JSON = "/tmp/wrtbwmon-device-counters.json"
 DEFAULT_IFACE = "br-lan"
+MAX_NFT_OPS_PER_CYCLE = int(os.environ.get("WRTBWMON_NFT_MAX_OPS", "40"))
+MAX_ORPHAN_DELETES_PER_CYCLE = int(os.environ.get("WRTBWMON_NFT_MAX_ORPHAN_DELETES", "10"))
 
 MAC_RE = re.compile(r'^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$')
 IP4_RE = re.compile(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
@@ -49,7 +53,80 @@ def acquire_lock():
         return None
 
 
-def parse_nft_table():
+def uci_get(path, default=""):
+    try:
+        result = subprocess.run(["uci", "-q", "get", path], capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return default
+
+
+def monitoring_enabled():
+    return uci_get("wrtbwmon.general.enabled", "0") == "1"
+
+
+def read_dispatch_map():
+    map_keys = {}
+    try:
+        result = subprocess.run(
+            ["nft", "list", "map"] + NFT_TABLE.split() + ["wrtbwmon_dispatch_v4"],
+            capture_output=True, text=True, timeout=5
+        )
+        for line in result.stdout.splitlines():
+            m = re.search(r'(\d+\.\d+\.\d+\.\d+)\s*:\s*jump\s+(\S+)', line)
+            if m:
+                map_keys[m.group(1)] = m.group(2).rstrip(",")
+    except Exception:
+        pass
+    return map_keys
+
+
+def read_device_chain(ip):
+    chain_name = _ip_to_chain(ip)
+    counter = {"up": 0, "down": 0, "has_rules": False}
+    try:
+        result = subprocess.run(
+            ["nft", "-j", "list", "chain"] + NFT_TABLE.split() + [chain_name],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode != 0:
+            return None
+        try:
+            data = json.loads(result.stdout)
+            for rule in nft_objects(data, "rule"):
+                comment = rule_comment(rule)
+                if comment not in ("upload", "download"):
+                    continue
+                direction = "up" if comment == "upload" else "down"
+                counter[direction] = counter_bytes(rule)
+                counter["has_rules"] = True
+            return counter
+        except json.JSONDecodeError:
+            pass
+    except Exception:
+        return None
+
+    try:
+        result = subprocess.run(
+            ["nft", "list", "chain"] + NFT_TABLE.split() + [chain_name],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode != 0:
+            return None
+        for line in result.stdout.splitlines():
+            m = re.search(r'bytes (\d+).*comment "(upload|download)"', line)
+            if m:
+                direction = "up" if m.group(2) == "upload" else "down"
+                counter[direction] = int(m.group(1))
+                counter["has_rules"] = True
+        return counter
+    except Exception:
+        return None
+
+
+def parse_nft_table(arp_table=None):
     """Read the entire nft table once and extract:
     - existing device chains (ip → chain_name)
     - per-device upload/download byte counters
@@ -64,92 +141,16 @@ def parse_nft_table():
     map_keys = {}
     chains = set()
 
-    try:
-        data, proc = list_table_json(NFT_TABLE, timeout=15)
-        if data:
-            for chain in nft_objects(data, "chain"):
-                name = chain.get("name")
-                if not name or not name.startswith("device_"):
-                    continue
-                chains.add(name)
-                ip = chain_to_ipv4(name)
-                if ip:
-                    counters.setdefault(ip, {"up": 0, "down": 0, "has_rules": False})
-            for map_obj in nft_objects(data, "map"):
-                if map_obj.get("name") != "wrtbwmon_dispatch_v4":
-                    continue
-                for elem in map_obj.get("elem", []) or []:
-                    if isinstance(elem, list) and len(elem) == 2:
-                        target = elem[1].get("jump", {}).get("target") if isinstance(elem[1], dict) else None
-                        if target:
-                            map_keys[elem[0]] = target
-            for rule in nft_objects(data, "rule"):
-                ip = chain_to_ipv4(rule.get("chain"))
-                if not ip:
-                    continue
-                comment = rule_comment(rule)
-                if comment not in ("upload", "download"):
-                    continue
-                direction = "up" if comment == "upload" else "down"
-                counters.setdefault(ip, {"up": 0, "down": 0, "has_rules": False})
-                counters[ip][direction] = counter_bytes(rule)
-                counters[ip]["has_rules"] = True
-            return counters, map_keys, chains
-        if proc and proc.returncode != 0 and proc.stderr.strip():
-            print(f"nft json list table failed: {proc.stderr.strip()}", file=sys.stderr)
-    except Exception as e:
-        print(f"nft json parse failed: {e}", file=sys.stderr)
+    if arp_table is None:
+        arp_table = get_arp_table()
 
-    try:
-        result = subprocess.run(
-            ["nft", "list", "table"] + NFT_TABLE.split(),
-            capture_output=True, text=True, timeout=15
-        )
-        text = result.stdout
-    except Exception as e:
-        print(f"nft list table failed: {e}", file=sys.stderr)
-        return counters, map_keys, chains
-
-    current_chain = None
-    in_v4_map = False
-
-    for line in text.splitlines():
-        s = line.strip()
-
-        m = re.match(r'chain (device_\S+)\s*\{', s)
-        if m:
-            current_chain = m.group(1)
-            chains.add(current_chain)
-            ip = _chain_to_ip(current_chain)
-            if ip:
-                counters.setdefault(ip, {"up": 0, "down": 0, "has_rules": False})
-            continue
-
-        if s == '}':
-            current_chain = None
-            in_v4_map = False
-            continue
-
-        if 'map wrtbwmon_dispatch_v4' in s:
-            in_v4_map = True
-            continue
-
-        if in_v4_map:
-            m = re.search(r'(\d+\.\d+\.\d+\.\d+)\s*:\s*jump\s+(\S+)', s)
-            if m:
-                map_keys[m.group(1)] = m.group(2)
-            continue
-
-        if current_chain:
-            ip = _chain_to_ip(current_chain)
-            if not ip:
-                continue
-            m = re.search(r'bytes (\d+).*comment "(upload|download)"', s)
-            if m:
-                direction = "up" if m.group(2) == "upload" else "down"
-                counters.setdefault(ip, {"up": 0, "down": 0, "has_rules": False})
-                counters[ip][direction] = int(m.group(1))
-                counters[ip]["has_rules"] = True
+    map_keys = read_dispatch_map()
+    for ip in arp_table:
+        chain_name = _ip_to_chain(ip)
+        chain_counter = read_device_chain(ip)
+        if chain_counter is not None:
+            chains.add(chain_name)
+            counters[ip] = chain_counter
 
     return counters, map_keys, chains
 
@@ -166,6 +167,19 @@ def _chain_to_ip(chain_name):
 
 def _ip_to_chain(ip):
     return "device_" + ip.replace(".", "_")
+
+
+def write_counter_cache(now, counters):
+    tmp = COUNTERS_JSON + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump({"t": now, "c": counters}, f)
+        os.replace(tmp, COUNTERS_JSON)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except Exception:
+            pass
 
 
 def get_arp_table():
@@ -273,23 +287,31 @@ def ensure_device_chains(arp_table, map_keys, chains, counters):
 
     for ip, (mac, iface) in arp_table.items():
         chain_name = _ip_to_chain(ip)
-        has_rules = counters.get(ip, {}).get("has_rules", False)
-        if chain_name not in chains:
-            batch += [
+        chain_seen = chain_name in chains or map_keys.get(ip) == chain_name
+        counter_state = counters.get(ip)
+        has_rules = counter_state.get("has_rules", False) if counter_state else False
+        if not chain_seen:
+            group = [
                 f'add chain {NFT_TABLE} {chain_name}',
                 f'add rule {NFT_TABLE} {chain_name} ip saddr {ip} counter comment "upload"',
                 f'add rule {NFT_TABLE} {chain_name} ip daddr {ip} counter comment "download"',
             ]
-        elif not has_rules:
-            batch += [
+            if len(batch) + len(group) <= MAX_NFT_OPS_PER_CYCLE:
+                batch.extend(group)
+        elif counter_state is not None and not has_rules:
+            group = [
                 f'add rule {NFT_TABLE} {chain_name} ip saddr {ip} counter comment "upload"',
                 f'add rule {NFT_TABLE} {chain_name} ip daddr {ip} counter comment "download"',
             ]
+            if len(batch) + len(group) <= MAX_NFT_OPS_PER_CYCLE:
+                batch.extend(group)
         if ip not in map_keys:
-            batch.append(
+            group = [
                 f'add element {NFT_TABLE} wrtbwmon_dispatch_v4 '
                 f'{{ {ip} : jump {chain_name} }}'
-            )
+            ]
+            if len(batch) + len(group) <= MAX_NFT_OPS_PER_CYCLE:
+                batch.extend(group)
 
     # Clean orphaned map entries: IPs in dispatch map but not in ARP
     # (device changed IP via DHCP renewal)
@@ -298,7 +320,9 @@ def ensure_device_chains(arp_table, map_keys, chains, counters):
         if map_ip not in active_ips:
             orphaned_ips.add(map_ip)
 
-    for oip in orphaned_ips:
+    for oip in sorted(orphaned_ips)[:MAX_ORPHAN_DELETES_PER_CYCLE]:
+        if len(batch) >= MAX_NFT_OPS_PER_CYCLE:
+            break
         batch.append(f'delete element {NFT_TABLE} wrtbwmon_dispatch_v4 {{ {oip} }}')
 
     if batch:
@@ -442,6 +466,9 @@ def update_traffic(conn, now, today, arp_table, counters, hostnames, prev_counte
 
 
 def main():
+    if not monitoring_enabled():
+        return 0
+
     if not os.path.exists(DB_FILE):
         print(f"Database not found: {DB_FILE}", file=sys.stderr)
         return 1
@@ -454,8 +481,8 @@ def main():
     try:
         now = int(time.time())
 
-        counters, map_keys, chains = parse_nft_table()
         arp_table = get_arp_table()
+        counters, map_keys, chains = parse_nft_table(arp_table)
         hostnames = get_hostnames()
 
         # Create device chains for ARP-visible devices (bootstrap after reboot)
@@ -463,11 +490,13 @@ def main():
 
         if not counters:
             # After ensure_device_chains, re-read nft state to pick up newly created chains
-            counters, map_keys, chains = parse_nft_table()
+            counters, map_keys, chains = parse_nft_table(arp_table)
 
         if not counters:
             print("No device chains found in nft table", file=sys.stderr)
             return 0
+
+        write_counter_cache(now, counters)
 
         today = time.strftime("%Y-%m-%d", time.localtime(now))
 

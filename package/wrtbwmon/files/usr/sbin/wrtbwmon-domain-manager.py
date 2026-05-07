@@ -20,8 +20,6 @@ import re
 import fcntl
 import socket
 
-from wrtbwmon_nft import list_table_json, nft_objects, rule_comment
-
 DB_FILE = os.environ.get("DB_FILE", "/etc/wrtbwmon/traffic.db")
 NFT_TABLE = os.environ.get("NFT_TABLE", "inet fw4")
 DOMAIN_CHAIN = "wrtbwmon_domains"
@@ -78,6 +76,24 @@ def acquire_lock(cmd):
         return None
 
 
+def uci_get(path, default=""):
+    try:
+        result = subprocess.run(["uci", "-q", "get", path], capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return default
+
+
+def monitoring_enabled():
+    return uci_get("wrtbwmon.general.enabled", "0") == "1"
+
+
+def domain_tracking_enabled():
+    return monitoring_enabled() and uci_get("wrtbwmon.general.domain_tracking", "0") == "1"
+
+
 def execute_nft_batch(batch_lines, timeout=60):
     """Execute nft commands as a single batch. Returns True on success."""
     if not batch_lines:
@@ -103,63 +119,91 @@ def execute_nft_batch(batch_lines, timeout=60):
 
 def get_nft_state():
     """Read nft table state once. Returns dict with chains, sets, rules, map_keys."""
-    state = {"chains": set(), "sets": set(), "rules": set(), "map_keys": set()}
+    state = {"chains": set(), "sets": set(), "rules": set(), "map_keys": set(), "elements": {}}
     try:
-        data, proc = list_table_json(NFT_TABLE, timeout=15)
-        if data:
-            for chain in nft_objects(data, "chain"):
-                name = chain.get("name")
-                if name:
-                    state["chains"].add(name)
-            for set_obj in nft_objects(data, "set"):
-                name = set_obj.get("name")
-                if name:
-                    state["sets"].add(name)
-            for map_obj in nft_objects(data, "map"):
-                name = map_obj.get("name")
-                if name:
-                    state["sets"].add(name)
-                if name == DISPATCH_MAP:
-                    for elem in map_obj.get("elem", []) or []:
-                        if isinstance(elem, list) and elem:
-                            state["map_keys"].add(elem[0])
-            for rule in nft_objects(data, "rule"):
-                comment = rule_comment(rule)
-                if comment:
-                    state["rules"].add(comment)
-            return state
-        if proc and proc.returncode != 0:
-            return state
-
         result = subprocess.run(
-            ["nft", "list", "table"] + NFT_TABLE.split(),
-            capture_output=True, text=True, timeout=15
+            ["nft", "list", "sets"] + NFT_TABLE.split(),
+            capture_output=True, text=True, timeout=10
         )
-        if result.returncode != 0:
-            return state
-        in_dispatch_map = False
         for line in result.stdout.splitlines():
             s = line.strip()
-            m = re.match(r'chain (\S+)', s)
-            if m:
-                state["chains"].add(m.group(1))
             m = re.match(r'(?:set|map) (\S+)', s)
             if m:
                 state["sets"].add(m.group(1))
-            if f'map {DISPATCH_MAP}' in s:
-                in_dispatch_map = True
-            if in_dispatch_map and s == '}':
-                in_dispatch_map = False
-            if in_dispatch_map:
-                m = re.search(r'(\d+\.\d+\.\d+\.\d+)\s*:', s)
+        result = subprocess.run(
+            ["nft", "list", "chain"] + NFT_TABLE.split() + [DOMAIN_CHAIN],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            state["chains"].add(DOMAIN_CHAIN)
+        result = subprocess.run(
+            ["nft", "list", "map"] + NFT_TABLE.split() + [DISPATCH_MAP],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            state["sets"].add(DISPATCH_MAP)
+            for line in result.stdout.splitlines():
+                m = re.search(r'(\d+\.\d+\.\d+\.\d+)\s*:', line)
                 if m:
                     state["map_keys"].add(m.group(1))
-            m = re.search(r'comment "([^"]+)"', s)
-            if m:
-                state["rules"].add(m.group(1))
     except Exception as e:
         print(f"Warning: could not read nft state: {e}", file=sys.stderr)
     return state
+
+
+def get_set_elements(set_name, state):
+    if set_name in state["elements"]:
+        return state["elements"][set_name]
+    elements = set()
+    try:
+        result = subprocess.run(
+            ["nft", "list", "set"] + NFT_TABLE.split() + [set_name],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            for ip in re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', result.stdout):
+                if validate_ip(ip):
+                    elements.add(ip)
+    except Exception:
+        pass
+    state["elements"][set_name] = elements
+    return elements
+
+
+def collect_existing_domain_rules(state, device_domains, device_ips):
+    existing_jumps = set()
+    for mac in device_domains:
+        chain_name = mac_to_chain(mac)
+        device_ip = device_ips.get(mac)
+        if device_ip:
+            ip_chain = "device_" + device_ip.replace(".", "_")
+            try:
+                result = subprocess.run(
+                    ["nft", "list", "chain"] + NFT_TABLE.split() + [ip_chain],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    state["chains"].add(ip_chain)
+                    for line in result.stdout.splitlines():
+                        jm = re.search(r"jump (device_domains_\S+)", line)
+                        if jm:
+                            existing_jumps.add(f"{ip_chain}->{jm.group(1)}")
+            except Exception:
+                pass
+        try:
+            result = subprocess.run(
+                ["nft", "list", "chain"] + NFT_TABLE.split() + [chain_name],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                state["chains"].add(chain_name)
+                for line in result.stdout.splitlines():
+                    m = re.search(r'comment "([^"]+)"', line)
+                    if m:
+                        state["rules"].add(f"{chain_name}:{m.group(1)}")
+        except Exception:
+            pass
+    return existing_jumps
 
 
 def get_device_ips():
@@ -266,23 +310,7 @@ def cmd_init(conn):
     batch = []
 
     # Track existing jumps as ip_chain->domain_chain pairs
-    existing_jumps = set()
-    try:
-        result = subprocess.run(["nft", "list", "table"] + NFT_TABLE.split(),
-                                capture_output=True, text=True, timeout=10)
-        cur_ch = None
-        for l in result.stdout.splitlines():
-            cm = re.match(r"\s*chain (device_\d+_\d+_\d+_\d+)\b", l)
-            if cm:
-                cur_ch = cm.group(1)
-            elif l.strip() == "}":
-                cur_ch = None
-            elif cur_ch:
-                jm = re.search(r"jump (device_domains_\S+)", l)
-                if jm:
-                    existing_jumps.add(f"{cur_ch}->{jm.group(1)}")
-    except Exception:
-        pass
+    existing_jumps = collect_existing_domain_rules(state, device_domains, device_ips)
 
     # Clean up legacy domain dispatch chain/map if present (replaced by jump approach)
     if DOMAIN_CHAIN in state["chains"]:
@@ -317,9 +345,11 @@ def cmd_init(conn):
                     f'add set {NFT_TABLE} {set_name} '
                     f'{{ type ipv4_addr; flags interval; comment "{domain}"; }}'
                 )
+                ul_missing = ips
             else:
-                batch.append(f'flush set {NFT_TABLE} {set_name}')
-            if f"domain_ul:{domain}" not in state["rules"]:
+                ul_existing = get_set_elements(set_name, state)
+                ul_missing = [ip for ip in ips if ip not in ul_existing]
+            if f"{chain_name}:domain_ul:{domain}" not in state["rules"]:
                 batch.append(
                     f'add rule {NFT_TABLE} {chain_name} '
                     f'ip daddr @{set_name} counter comment "domain_ul:{domain}"'
@@ -330,16 +360,19 @@ def cmd_init(conn):
                     f'add set {NFT_TABLE} {dl_set_name} '
                     f'{{ type ipv4_addr; flags interval; comment "{domain}"; }}'
                 )
+                dl_missing = ips
             else:
-                batch.append(f'flush set {NFT_TABLE} {dl_set_name}')
-            if f"domain_dl:{domain}" not in state["rules"]:
+                dl_existing = get_set_elements(dl_set_name, state)
+                dl_missing = [ip for ip in ips if ip not in dl_existing]
+            if f"{chain_name}:domain_dl:{domain}" not in state["rules"]:
                 batch.append(
                     f'add rule {NFT_TABLE} {chain_name} '
                     f'ip saddr @{dl_set_name} counter comment "domain_dl:{domain}"'
                 )
 
-            for ip in ips:
+            for ip in ul_missing:
                 batch.append(f'add element {NFT_TABLE} {set_name} {{ {ip} }}')
+            for ip in dl_missing:
                 batch.append(f'add element {NFT_TABLE} {dl_set_name} {{ {ip} }}')
 
             domain_count += 1
@@ -601,6 +634,9 @@ def main():
         return 1
 
     cmd = sys.argv[1]
+
+    if cmd in ("init", "cleanup", "ensure-dispatch", "add", "remove") and not domain_tracking_enabled():
+        return 0
 
     if cmd in ("init", "cleanup"):
         lock_fd = acquire_lock(cmd)

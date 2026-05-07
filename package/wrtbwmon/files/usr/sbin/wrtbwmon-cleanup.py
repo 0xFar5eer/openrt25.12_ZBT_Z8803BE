@@ -57,6 +57,20 @@ def acquire_lock():
         return None
 
 
+def uci_get(path, default=""):
+    try:
+        result = subprocess.run(["uci", "-q", "get", path], capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return default
+
+
+def monitoring_enabled():
+    return uci_get("wrtbwmon.general.enabled", "0") == "1"
+
+
 def get_db():
     conn = sqlite3.connect(DB_FILE, timeout=30)
     conn.row_factory = sqlite3.Row
@@ -255,6 +269,9 @@ def cleanup_orphaned_chains(conn, chains, dispatch):
 
 
 def main():
+    if not monitoring_enabled():
+        return 0
+
     lock_fd = acquire_lock()
     if lock_fd is None:
         print("Cleanup already running", file=sys.stderr)

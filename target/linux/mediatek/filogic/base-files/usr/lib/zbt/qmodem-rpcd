@@ -11,6 +11,7 @@ TRAFFIC_RESET_DEFAULT_TYPE="monthly"
 TRAFFIC_RESET_DEFAULT_HOUR=0
 TRAFFIC_RESET_DEFAULT_DAY=1
 TRAFFIC_RESET_DEFAULT_MINUTE=0
+MODEM_MONITOR_COOLDOWN="/usr/sbin/zbt-modem-monitor-cooldown"
 
 # Helper function for caching
 try_cache() {
@@ -863,6 +864,9 @@ EOF
                         reboot_status=1
                         ;;
                 esac
+                if [ "$reboot_status" = "0" ]; then
+                    [ -x "$MODEM_MONITOR_COOLDOWN" ] && "$MODEM_MONITOR_COOLDOWN" mark-manual "$config_section" "manual_${reboot_method}_reboot" >/dev/null 2>&1 || true
+                fi
                 if [ -x /usr/sbin/zbt-modem-events ]; then
                     if [ "$reboot_status" = "0" ]; then
                         /usr/sbin/zbt-modem-events record qmodem manual_reboot_completed warning "$config_section" "Manual modem reboot completed" "method=${reboot_method}" >/dev/null 2>&1 || true

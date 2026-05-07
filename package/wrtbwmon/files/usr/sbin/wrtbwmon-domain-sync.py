@@ -10,8 +10,9 @@ import subprocess
 import time
 import re
 import fcntl
+import json
 
-from wrtbwmon_nft import counter_bytes, domain_chain_to_mac, list_table_json, nft_objects, rule_comment
+from wrtbwmon_nft import counter_bytes, nft_objects, rule_comment
 
 DB_FILE = os.environ.get("DB_FILE", "/etc/wrtbwmon/traffic.db")
 LOCK_FILE = "/var/run/wrtbwmon-domain-sync.lock"
@@ -28,6 +29,23 @@ def acquire_lock():
         return fd
     except (IOError, OSError):
         return None
+
+
+def uci_get(path, default=""):
+    try:
+        result = subprocess.run(["uci", "-q", "get", path], capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return default
+
+
+def tracking_enabled():
+    return (
+        uci_get("wrtbwmon.general.enabled", "0") == "1"
+        and uci_get("wrtbwmon.general.domain_tracking", "0") == "1"
+    )
 
 
 def get_db():
@@ -51,89 +69,97 @@ def chain_to_mac(chain):
     return None
 
 
-def get_all_domain_counters():
-    """Get all domain counters in a single nft call - much faster than per-chain."""
+def get_domain_macs(conn):
+    macs = set()
+    try:
+        cursor = conn.execute("""
+            SELECT DISTINCT lower(mac)
+            FROM domain_traffic_daily
+            WHERE date >= date('now','localtime','-7 day')
+            UNION
+            SELECT DISTINCT lower(mac)
+            FROM devices
+            WHERE updated_at >= strftime('%s','now') - 604800
+        """)
+        for row in cursor.fetchall():
+            mac = row[0]
+            if mac and MAC_RE.match(mac):
+                macs.add(mac)
+    except Exception:
+        pass
+    return sorted(macs)
+
+
+def mac_to_chain(mac):
+    return "device_domains_" + mac.replace(":", "")
+
+
+def parse_domain_rule(counter, mac, rule):
+    comment = rule_comment(rule)
+    if comment.startswith("domain_ul:"):
+        direction = "ul"
+        domain = comment[len("domain_ul:"):]
+    elif comment.startswith("domain_dl:"):
+        direction = "dl"
+        domain = comment[len("domain_dl:"):]
+    else:
+        return
+    counter.setdefault(mac, {}).setdefault(domain, {"dl": 0, "ul": 0})
+    counter[mac][domain][direction] = counter_bytes(rule)
+
+
+def parse_domain_line(counter, mac, line):
+    ul_match = re.search(r'counter\s+packets\s+\d+\s+bytes\s+(\d+)\s+comment\s+"domain_ul:([^"]+)"', line)
+    dl_match = re.search(r'counter\s+packets\s+\d+\s+bytes\s+(\d+)\s+comment\s+"domain_dl:([^"]+)"', line)
+    if ul_match:
+        domain = ul_match.group(2)
+        counter.setdefault(mac, {}).setdefault(domain, {"dl": 0, "ul": 0})
+        counter[mac][domain]["ul"] = int(ul_match.group(1))
+    elif dl_match:
+        domain = dl_match.group(2)
+        counter.setdefault(mac, {}).setdefault(domain, {"dl": 0, "ul": 0})
+        counter[mac][domain]["dl"] = int(dl_match.group(1))
+
+
+def get_all_domain_counters(macs):
     counters = {}  # mac -> {domain -> {dl: bytes, ul: bytes}}
 
-    try:
-        data, proc = list_table_json(NFT_TABLE, timeout=30)
-        if data:
-            for rule in nft_objects(data, "rule"):
-                mac = domain_chain_to_mac(rule.get("chain"))
-                if not mac:
-                    continue
-                comment = rule_comment(rule)
-                if comment.startswith("domain_ul:"):
-                    direction = "ul"
-                    domain = comment[len("domain_ul:"):]
-                elif comment.startswith("domain_dl:"):
-                    direction = "dl"
-                    domain = comment[len("domain_dl:"):]
-                else:
-                    continue
-                counters.setdefault(mac, {}).setdefault(domain, {"dl": 0, "ul": 0})
-                counters[mac][domain][direction] = counter_bytes(rule)
-            return counters
-        if proc and proc.returncode != 0 and proc.stderr.strip():
-            print(f"nft json list table failed: {proc.stderr.strip()}", file=sys.stderr)
-    except subprocess.TimeoutExpired:
-        print("nft json list table timed out", file=sys.stderr)
-    except Exception as e:
-        print(f"Error getting JSON counters: {e}", file=sys.stderr)
-
-    try:
-        # List all device_domains_ chains and their rules in one call
-        result = subprocess.run(
-            ["nft", "list", "table"] + NFT_TABLE.split(),
-            capture_output=True, text=True, timeout=30
-        )
-        if result.returncode != 0:
-            if result.stderr.strip():
-                print(f"nft list table failed: {result.stderr.strip()}", file=sys.stderr)
-            return counters
-
-        current_chain = None
-        current_mac = None
-
-        for line in result.stdout.splitlines():
-            # Detect chain start
-            chain_match = re.match(r'\s*chain (device_domains_\w+)', line)
-            if chain_match:
-                current_chain = chain_match.group(1)
-                current_mac = chain_to_mac(current_chain)
-                if current_mac and current_mac not in counters:
-                    counters[current_mac] = {}
+    for mac in macs:
+        chain = mac_to_chain(mac)
+        try:
+            result = subprocess.run(
+                ["nft", "-j", "list", "chain"] + NFT_TABLE.split() + [chain],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode != 0:
                 continue
-
-            # Detect chain end
-            if line.strip() == "}" and current_chain:
-                current_chain = None
-                current_mac = None
+            try:
+                data = json.loads(result.stdout)
+                for rule in nft_objects(data, "rule"):
+                    parse_domain_rule(counters, mac, rule)
                 continue
+            except json.JSONDecodeError:
+                pass
+        except subprocess.TimeoutExpired:
+            print(f"nft json list chain timed out: {chain}", file=sys.stderr)
+            continue
+        except Exception as e:
+            print(f"Error getting JSON counters for {chain}: {e}", file=sys.stderr)
+            continue
 
-            # Parse counter rules
-            if current_mac and "counter" in line:
-                # Match: ip daddr @set_name counter packets N bytes M comment "domain_ul:domain"
-                ul_match = re.search(r'counter\s+packets\s+\d+\s+bytes\s+(\d+)\s+comment\s+"domain_ul:([^"]+)"', line)
-                dl_match = re.search(r'counter\s+packets\s+\d+\s+bytes\s+(\d+)\s+comment\s+"domain_dl:([^"]+)"', line)
-
-                if ul_match:
-                    domain = ul_match.group(2)
-                    bytes_val = int(ul_match.group(1))
-                    if domain not in counters[current_mac]:
-                        counters[current_mac][domain] = {"dl": 0, "ul": 0}
-                    counters[current_mac][domain]["ul"] = bytes_val
-                elif dl_match:
-                    domain = dl_match.group(2)
-                    bytes_val = int(dl_match.group(1))
-                    if domain not in counters[current_mac]:
-                        counters[current_mac][domain] = {"dl": 0, "ul": 0}
-                    counters[current_mac][domain]["dl"] = bytes_val
-
-    except subprocess.TimeoutExpired:
-        print("nft list table timed out", file=sys.stderr)
-    except Exception as e:
-        print(f"Error getting counters: {e}", file=sys.stderr)
+        try:
+            result = subprocess.run(
+                ["nft", "list", "chain"] + NFT_TABLE.split() + [chain],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode != 0:
+                continue
+            for line in result.stdout.splitlines():
+                parse_domain_line(counters, mac, line)
+        except subprocess.TimeoutExpired:
+            print(f"nft list chain timed out: {chain}", file=sys.stderr)
+        except Exception as e:
+            print(f"Error getting counters for {chain}: {e}", file=sys.stderr)
 
     return counters
 
@@ -309,6 +335,9 @@ def sync_counters_to_db(conn, counters, today):
 
 
 def main():
+    if not tracking_enabled():
+        return 0
+
     lock_fd = acquire_lock()
     if lock_fd is None:
         return 0
@@ -318,7 +347,8 @@ def main():
 
         today = time.strftime("%Y-%m-%d", time.localtime())
 
-        counters = get_all_domain_counters()
+        macs = get_domain_macs(conn)
+        counters = get_all_domain_counters(macs)
 
         if counters:
             sync_counters_to_db(conn, counters, today)

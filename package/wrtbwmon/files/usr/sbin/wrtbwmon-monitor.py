@@ -20,13 +20,14 @@ import time
 import json
 import fcntl
 
-from wrtbwmon_nft import chain_to_ipv4, counter_bytes, list_table_json, nft_objects, rule_comment
+from wrtbwmon_nft import counter_bytes, nft_objects, rule_comment
 
 DB_FILE = os.environ.get("DB_FILE", "/etc/wrtbwmon/traffic.db")
 NFT_TABLE = os.environ.get("NFT_TABLE", "inet fw4")
 LOCK_FILE = "/var/run/wrtbwmon-monitor.lock"
 SPEED_STATE = "/tmp/wrtbwmon-speed.state"
 SPEED_JSON  = "/tmp/wrtbwmon-speed.json"
+COUNTERS_JSON = "/tmp/wrtbwmon-device-counters.json"
 HOSTNAME_STAMP = "/tmp/wrtbwmon-hostname-stamp"
 HOSTNAME_INTERVAL = 900  # 15 minutes
 
@@ -42,58 +43,114 @@ def acquire_lock():
         return None
 
 
-def read_nft_device_counters():
-    """Read all device chain counters in one nft call.
-    Returns {ip: {up: bytes, down: bytes}}.
-    """
-    counters = {}
+def uci_get(path, default=""):
     try:
-        data, proc = list_table_json(NFT_TABLE, timeout=10)
-        if data:
-            for chain in nft_objects(data, "chain"):
-                ip = chain_to_ipv4(chain.get("name"))
-                if ip:
-                    counters.setdefault(ip, {"up": 0, "down": 0})
+        result = subprocess.run(["uci", "-q", "get", path], capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return default
+
+
+def monitoring_enabled():
+    return uci_get("wrtbwmon.general.enabled", "0") == "1"
+
+
+def _ip_to_chain(ip):
+    return "device_" + ip.replace(".", "_")
+
+
+def read_cached_device_counters(max_age=90):
+    try:
+        with open(COUNTERS_JSON) as f:
+            payload = json.load(f)
+        if int(time.time()) - int(payload.get("t", 0)) > max_age:
+            return None
+        data = payload.get("c", {})
+        counters = {}
+        for ip, values in data.items():
+            counters[ip] = {
+                "up": int(values.get("up", 0)),
+                "down": int(values.get("down", 0)),
+            }
+        return counters
+    except Exception:
+        return None
+
+
+def get_candidate_ips():
+    ips = set()
+    try:
+        result = subprocess.run(["ip", "neigh", "show"], capture_output=True, text=True, timeout=5)
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if parts and re.match(r'^\d+\.\d+\.\d+\.\d+$', parts[0]):
+                ips.add(parts[0])
+    except Exception:
+        pass
+    try:
+        with open("/tmp/dhcp.leases") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 3 and re.match(r'^\d+\.\d+\.\d+\.\d+$', parts[2]):
+                    ips.add(parts[2])
+    except Exception:
+        pass
+    return sorted(ips)
+
+
+def read_device_chain(ip):
+    chain_name = _ip_to_chain(ip)
+    counter = {"up": 0, "down": 0}
+    try:
+        result = subprocess.run(
+            ["nft", "-j", "list", "chain"] + NFT_TABLE.split() + [chain_name],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode != 0:
+            return None
+        try:
+            data = json.loads(result.stdout)
             for rule in nft_objects(data, "rule"):
-                ip = chain_to_ipv4(rule.get("chain"))
-                if not ip:
-                    continue
                 comment = rule_comment(rule)
                 if comment not in ("upload", "download"):
                     continue
                 direction = "up" if comment == "upload" else "down"
-                counters.setdefault(ip, {"up": 0, "down": 0})
-                counters[ip][direction] = counter_bytes(rule)
-            return counters
-        if proc and proc.returncode != 0 and proc.stderr.strip():
-            print(f"nft json error: {proc.stderr.strip()}", file=sys.stderr)
-    except Exception as e:
-        print(f"nft json error: {e}", file=sys.stderr)
+                counter[direction] = counter_bytes(rule)
+            return counter
+        except json.JSONDecodeError:
+            pass
+    except Exception:
+        return None
 
     try:
-        r = subprocess.run(
-            ["nft", "list", "table"] + NFT_TABLE.split(),
-            capture_output=True, text=True, timeout=10
+        result = subprocess.run(
+            ["nft", "list", "chain"] + NFT_TABLE.split() + [chain_name],
+            capture_output=True, text=True, timeout=5
         )
-        current_ip = None
-        for line in r.stdout.splitlines():
-            s = line.strip()
-            m = re.match(r'chain (device_(\d+)_(\d+)_(\d+)_(\d+))\s*\{', s)
+        if result.returncode != 0:
+            return None
+        for line in result.stdout.splitlines():
+            m = re.search(r'bytes (\d+).*comment "(upload|download)"', line)
             if m:
-                ip = f"{m.group(2)}.{m.group(3)}.{m.group(4)}.{m.group(5)}"
-                current_ip = ip
-                counters.setdefault(ip, {"up": 0, "down": 0})
-                continue
-            if s == '}':
-                current_ip = None
-                continue
-            if current_ip:
-                m = re.search(r'bytes (\d+).*comment "(upload|download)"', s)
-                if m:
-                    d = "up" if m.group(2) == "upload" else "down"
-                    counters[current_ip][d] = int(m.group(1))
-    except Exception as e:
-        print(f"nft error: {e}", file=sys.stderr)
+                direction = "up" if m.group(2) == "upload" else "down"
+                counter[direction] = int(m.group(1))
+        return counter
+    except Exception:
+        return None
+
+
+def read_nft_device_counters():
+    counters = {}
+    cached = read_cached_device_counters()
+    if cached is not None:
+        return cached
+
+    for ip in get_candidate_ips():
+        chain_counter = read_device_chain(ip)
+        if chain_counter is not None:
+            counters[ip] = chain_counter
     return counters
 
 
@@ -231,6 +288,9 @@ def migrate_hostnames(conn):
 
 
 def main():
+    if not monitoring_enabled():
+        return 0
+
     lock_fd = acquire_lock()
     if lock_fd is None:
         return 0

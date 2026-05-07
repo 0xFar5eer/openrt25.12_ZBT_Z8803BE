@@ -29,10 +29,13 @@ Do not upload `REDDIT_POST.md`.
 ## Current checksums
 
 ```text
-45dfdda0204eb549a1dc127c3ef3ef2ef4c0be1ea3a048fca6925937641e5281  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-ccc242c1a7fb3ab4b2864f7b87654a7d1576aeec90791f5c72ed9b5b95ed7970  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-f2f4454deafb186712bf11a153dbb43694f0d6bd3d5c215313d670acff300df1  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-c4898a1a2760b72c6eab640c5bfba9b08c5cf239571212b2011e815be4fa1db0  sha256sums
+9dd4c08b461bd0cc00687fcaf02bfbcf03ce177011d6eb5c99f83ec78e605ea3  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+52be5036bb72275a996247bb956ab5910d65da2e1b86f441cdba7c8a82538037  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+d1657eba3df03621517132b396c5a0bcdbc44d86fe3c0c91f3743140e8108dee  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+bcd424a53c0d140eaa40c15833bb37017606dc4df10c9816ced33f296ce8e382  sha256sums
+0d1ac3f38d93e39e61e064f4f14062918333ba99a5e8fe1ac7c8c805101623d2  config.buildinfo
+ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinfo
+05f6cea7ac9e5c3d2d73225400b4dc3cf51eb8002f54cf6d05e5934c1805c60c  version.buildinfo
 ```
 
 ## Publish

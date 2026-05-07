@@ -48,12 +48,10 @@ if ! nft list maps "$table" 2>/dev/null | grep -q wrtbwmon_dispatch; then
     exit 0
 fi
 
-# Check if domain tracking chains exist
-if [ "$DOMAIN_TRACKING_ENABLED" = "1" ] && ! nft list table "$table" 2>/dev/null | grep -q wrtbwmon_domains; then
-    log_info "Domain tracking chains missing, reinitializing"
+# Check if domain dispatch wiring exists
+if [ "$DOMAIN_TRACKING_ENABLED" = "1" ] && [ -x /usr/sbin/wrtbwmon-domain-manager.py ] && ! nft list chain "$table" forward 2>/dev/null | grep -q wrtbwmon-dispatch-v4-up; then
+    log_info "Domain dispatch wiring missing, rechecking"
     rm -f /tmp/wrtbwmon-dispatch-ok
 
-    if [ -x /usr/sbin/wrtbwmon-domain-manager.py ]; then
-        /usr/sbin/wrtbwmon-domain-manager.py init 2>/dev/null
-    fi
+    /usr/sbin/wrtbwmon-domain-manager.py ensure-dispatch 2>/dev/null
 fi

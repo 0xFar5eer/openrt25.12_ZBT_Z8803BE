@@ -128,6 +128,11 @@ if uci -q get qmodem.main >/dev/null 2>&1; then
                 uci -q set qmodem.main.zbt_monitor_cooldown='300'
                 contract_changed=1
         fi
+        cur_manual_cooldown=$(uci -q get qmodem.main.zbt_manual_reboot_cooldown 2>/dev/null)
+        if [ "$cur_manual_cooldown" != "600" ]; then
+                uci -q set qmodem.main.zbt_manual_reboot_cooldown='600'
+                contract_changed=1
+        fi
 fi
 
 # Walk every modem-device section currently in /etc/config/qmodem.

@@ -2,6 +2,7 @@
 . /lib/functions.sh
 . /usr/share/qmodem/modem_util.sh
 MONITOR_COOLDOWN_FILE="/tmp/zbt-qmodem-monitor-action.lock"
+MONITOR_COOLDOWN_HELPER="/usr/sbin/zbt-modem-monitor-cooldown"
 MONITOR_COOLDOWN_S_DEFAULT=300
 MONITOR_COOLDOWN_S=$MONITOR_COOLDOWN_S_DEFAULT
 # Envs
@@ -91,7 +92,15 @@ load_monitor_cooldown(){
 }
 
 monitor_cooldown_active(){
-    local uptime_s now lock_mtime age
+    local uptime_s now lock_mtime age remaining
+    if [ -x "$MONITOR_COOLDOWN_HELPER" ]; then
+        remaining=$("$MONITOR_COOLDOWN_HELPER" active 2>/dev/null || true)
+        if [ -n "$remaining" ]; then
+            log "Cooldown active: ${remaining}s remaining; skip monitor actions"
+            record_modem_event monitor monitor_cooldown warning "$Modem_ID" "Monitor action skipped by cooldown" "remaining=${remaining}s"
+            return 0
+        fi
+    fi
     uptime_s=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)
     case "$uptime_s" in *[!0-9]*|"") uptime_s=0 ;; esac
     if [ "$uptime_s" -lt "$MONITOR_COOLDOWN_S" ]; then
@@ -115,6 +124,10 @@ monitor_cooldown_active(){
 }
 
 mark_monitor_action(){
+    if [ -x "$MONITOR_COOLDOWN_HELPER" ]; then
+        "$MONITOR_COOLDOWN_HELPER" mark-action "$Modem_ID" "monitor_action" >/dev/null 2>&1 || true
+        return 0
+    fi
     touch "$MONITOR_COOLDOWN_FILE" 2>/dev/null || true
 }
 
@@ -459,7 +472,7 @@ while true; do
             log "No SIM present; skip monitor actions"
             record_modem_event monitor monitor_no_sim warning "$Modem_ID" "Monitor action skipped because SIM is missing" "failed_checks=${failed_count} threshold=${Threshold}"
         elif monitor_cooldown_active; then
-            :
+            failed_count=0
         else
             mark_monitor_action
             record_modem_event monitor monitor_action danger "$Modem_ID" "Monitor dispatching configured action" "failed_checks=${failed_count} action=run_scripts"

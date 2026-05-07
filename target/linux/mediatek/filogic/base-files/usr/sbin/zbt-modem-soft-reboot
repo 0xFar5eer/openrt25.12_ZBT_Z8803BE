@@ -5,6 +5,7 @@ PORT=''
 SECTION=''
 SOURCE='manual'
 REASON='manual_reboot'
+MONITOR_COOLDOWN_HELPER="/usr/sbin/zbt-modem-monitor-cooldown"
 
 log() {
 	logger -t zbt-modem-soft-reboot "$1"
@@ -124,6 +125,10 @@ for method in sms_tool sms_tool_q tom_modem qmodem_at; do
 				record_event "$SOURCE" auto_reboot danger "${SECTION:-auto}" "Monitor auto rebooted modem" "method=${method} port=${PORT} command=${AT_CMD}"
 				;;
 			*)
+				case "$SOURCE" in
+					monitor) ;;
+					*) [ -x "$MONITOR_COOLDOWN_HELPER" ] && "$MONITOR_COOLDOWN_HELPER" mark-manual "${SECTION:-auto}" "$REASON" >/dev/null 2>&1 || true ;;
+				esac
 				record_event "$SOURCE" manual_reboot warning "${SECTION:-auto}" "Manual modem reboot dispatched" "method=${method} port=${PORT} command=${AT_CMD}"
 				;;
 		esac

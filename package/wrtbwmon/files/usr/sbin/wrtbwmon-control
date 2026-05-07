@@ -89,9 +89,53 @@ remove_cron() {
 	[ -f "$CRONTAB" ] || return 0
 	local tmp
 	tmp="$CRONTAB.tmp.$$"
-	grep -v "$CRON_MARKER_PREFIX" "$CRONTAB" > "$tmp" 2>/dev/null || true
+	grep -v \
+		-e "$CRON_MARKER_PREFIX" \
+		-e "/usr/sbin/wrtbwmon update" \
+		-e "/usr/sbin/wrtbwmon-monitor.py" \
+		-e "/usr/sbin/wrtbwmon-cleanup.py" \
+		-e "/usr/sbin/wrtbwmon-dns-interceptor.py" \
+		-e "/usr/sbin/wrtbwmon-domain-manager.py" \
+		-e "/usr/sbin/wrtbwmon-domain-sync.py" \
+		-e "/usr/sbin/wrtbwmon-update.py" \
+		"$CRONTAB" > "$tmp" 2>/dev/null || true
 	cat "$tmp" > "$CRONTAB"
 	rm -f "$tmp"
+}
+
+stop_running_jobs() {
+	local targets children proc pid cmd child ppid child_cmd
+	targets=""
+	children=""
+	for proc in /proc/[0-9]*; do
+		[ -r "$proc/cmdline" ] || continue
+		pid=${proc#/proc/}
+		[ "$pid" = "$$" ] && continue
+		cmd=$(tr '\000' ' ' < "$proc/cmdline" 2>/dev/null)
+		case "$cmd" in
+			*"/usr/sbin/wrtbwmon-control"*) continue ;;
+			*"/usr/sbin/wrtbwmon update"*|*"/usr/sbin/wrtbwmon-monitor.py"*|*"/usr/sbin/wrtbwmon-cleanup.py"*|*"/usr/sbin/wrtbwmon-dns-interceptor.py"*|*"/usr/sbin/wrtbwmon-domain-manager.py"*|*"/usr/sbin/wrtbwmon-domain-sync.py"*|*"/usr/sbin/wrtbwmon-update.py"*)
+				targets="$targets $pid"
+				;;
+		esac
+	done
+	for pid in $targets; do
+		for proc in /proc/[0-9]*; do
+			[ -r "$proc/stat" ] || continue
+			child=${proc#/proc/}
+			ppid=$(awk '{print $4}' "$proc/stat" 2>/dev/null)
+			[ "$ppid" = "$pid" ] || continue
+			child_cmd=$(tr '\000' ' ' < "$proc/cmdline" 2>/dev/null)
+			case "$child_cmd" in
+				"nft -f -"*|*"/nft -f -"*) children="$children $child" ;;
+			esac
+		done
+	done
+	[ -n "$children" ] && kill $children 2>/dev/null || true
+	[ -n "$targets" ] && kill $targets 2>/dev/null || true
+	sleep 1
+	[ -n "$children" ] && kill -9 $children 2>/dev/null || true
+	[ -n "$targets" ] && kill -9 $targets 2>/dev/null || true
 }
 
 add_cron() {
@@ -101,14 +145,14 @@ add_cron() {
 	touch "$CRONTAB"
 	remove_cron
 	cat >> "$CRONTAB" << EOF
-* * * * * /usr/sbin/wrtbwmon update $CRON_MARKER_PREFIX wrtbwmon-update
-* * * * * sleep 30 && . /etc/wrtbwmon.conf && export DB_FILE NFT_TABLE DOMAIN_TRACKING_ENABLED DOMAIN_CACHE_TTL DNS_BACKEND && /usr/sbin/wrtbwmon-monitor.py $CRON_MARKER_PREFIX wrtbwmon-monitor
-0 3 * * * . /etc/wrtbwmon.conf && export DB_FILE NFT_TABLE DOMAIN_TRACKING_ENABLED DOMAIN_CACHE_TTL DNS_BACKEND && /usr/sbin/wrtbwmon-cleanup.py $CRON_MARKER_PREFIX wrtbwmon-cleanup
+* * * * * [ "\$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] && /usr/sbin/wrtbwmon update $CRON_MARKER_PREFIX wrtbwmon-update
+* * * * * sleep 30 && [ "\$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] && . /etc/wrtbwmon.conf && export DB_FILE NFT_TABLE DOMAIN_TRACKING_ENABLED DOMAIN_CACHE_TTL DNS_BACKEND && /usr/sbin/wrtbwmon-monitor.py $CRON_MARKER_PREFIX wrtbwmon-monitor
+0 3 * * * [ "\$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] && . /etc/wrtbwmon.conf && export DB_FILE NFT_TABLE DOMAIN_TRACKING_ENABLED DOMAIN_CACHE_TTL DNS_BACKEND && /usr/sbin/wrtbwmon-cleanup.py $CRON_MARKER_PREFIX wrtbwmon-cleanup
 EOF
 	if [ "$domain" = 1 ]; then
 		cat >> "$CRONTAB" << EOF
-* * * * * sleep 10 && . /etc/wrtbwmon.conf && export DB_FILE NFT_TABLE DOMAIN_TRACKING_ENABLED DOMAIN_CACHE_TTL DNS_BACKEND && /usr/sbin/wrtbwmon-dns-interceptor.py $CRON_MARKER_PREFIX wrtbwmon-dns-interceptor
-* * * * * sleep 20 && . /etc/wrtbwmon.conf && export DB_FILE NFT_TABLE DOMAIN_TRACKING_ENABLED DOMAIN_CACHE_TTL DNS_BACKEND && /usr/sbin/wrtbwmon-domain-sync.py $CRON_MARKER_PREFIX wrtbwmon-domain-sync
+*/5 * * * * sleep 10 && [ "\$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] && [ "\$(uci -q get wrtbwmon.general.domain_tracking 2>/dev/null)" = "1" ] && . /etc/wrtbwmon.conf && export DB_FILE NFT_TABLE DOMAIN_TRACKING_ENABLED DOMAIN_CACHE_TTL DNS_BACKEND && /usr/sbin/wrtbwmon-dns-interceptor.py $CRON_MARKER_PREFIX wrtbwmon-dns-interceptor
+*/5 * * * * sleep 20 && [ "\$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] && [ "\$(uci -q get wrtbwmon.general.domain_tracking 2>/dev/null)" = "1" ] && . /etc/wrtbwmon.conf && export DB_FILE NFT_TABLE DOMAIN_TRACKING_ENABLED DOMAIN_CACHE_TTL DNS_BACKEND && /usr/sbin/wrtbwmon-domain-sync.py $CRON_MARKER_PREFIX wrtbwmon-domain-sync
 EOF
 	fi
 	/etc/init.d/cron restart 2>/dev/null || /etc/init.d/cron reload 2>/dev/null || true
@@ -164,6 +208,7 @@ apply_config() {
 		remove_cron
 		restore_dns_logging
 		/etc/init.d/cron restart 2>/dev/null || /etc/init.d/cron reload 2>/dev/null || true
+		stop_running_jobs
 	fi
 }
 

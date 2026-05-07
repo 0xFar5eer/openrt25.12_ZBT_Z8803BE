@@ -18,12 +18,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 DB_FILE = os.environ.get("DB_FILE", "/etc/wrtbwmon/traffic.db")
 CACHE_EXPIRY = int(os.environ.get("DOMAIN_CACHE_TTL", "604800"))    # 7 days — keeps CDN IP cache stable for long-term device/domain history
-MAX_DOMAINS_PER_CYCLE = 50  # Limit domains processed per cycle
+MAX_DOMAINS_PER_CYCLE = int(os.environ.get("DOMAIN_MAX_DOMAINS_PER_CYCLE", "20"))
+MAX_NFT_OPS_PER_CYCLE = int(os.environ.get("DOMAIN_NFT_MAX_OPS", "80"))
 LOCK_FILE = "/var/run/wrtbwmon-dns-interceptor.lock"
 NFT_TABLE = os.environ.get("NFT_TABLE", "inet fw4")
 DNS_BACKEND = os.environ.get("DNS_BACKEND", "auto")
 BACKEND_STAMP = "/tmp/wrtbwmon-dns-backend"
 BACKEND_TTL   = 600  # re-detect every 10 minutes
+STALE_REFRESH_STAMP = "/tmp/wrtbwmon-domain-refresh-stamp"
+STALE_REFRESH_INTERVAL = int(os.environ.get("DOMAIN_REFRESH_INTERVAL", "900"))
+DNS_SEEN_CACHE = "/tmp/wrtbwmon-dns-seen.json"
+DNS_SEEN_TTL = int(os.environ.get("DOMAIN_DNS_SEEN_TTL", "900"))
 
 # MAC validation regex
 MAC_RE = re.compile(r'^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$')
@@ -66,6 +71,23 @@ def acquire_lock():
         return fd
     except (IOError, OSError):
         return None
+
+
+def uci_get(path, default=""):
+    try:
+        result = subprocess.run(["uci", "-q", "get", path], capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return default
+
+
+def tracking_enabled():
+    return (
+        uci_get("wrtbwmon.general.enabled", "0") == "1"
+        and uci_get("wrtbwmon.general.domain_tracking", "0") == "1"
+    )
 
 
 def get_db():
@@ -201,7 +223,7 @@ def parse_dnsmasq_logs():
             ["logread", "-e", "dnsmasq"],
             capture_output=True, text=True, timeout=10
         )
-        for line in result.stdout.splitlines():
+        for line in result.stdout.splitlines()[-200:]:
             # Parse query lines: "query[A] example.com from 192.168.1.100"
             m = re.match(r'.*query\[\w+\]\s+(\S+)\s+from\s+(\S+)', line)
             if m:
@@ -298,6 +320,48 @@ def store_mappings(conn, mappings):
     conn.commit()
 
 
+def filter_recent_dns_events(queries, mappings):
+    now = int(time.time())
+    seen = {"q": {}, "m": {}}
+    try:
+        with open(DNS_SEEN_CACHE) as f:
+            loaded = json.load(f)
+        for group in ("q", "m"):
+            if isinstance(loaded.get(group), dict):
+                seen[group] = {
+                    k: int(v) for k, v in loaded[group].items()
+                    if now - int(v) < DNS_SEEN_TTL
+                }
+    except Exception:
+        pass
+
+    filtered_queries = []
+    for client_ip, mac, domain, ts in queries:
+        key = f"{client_ip}|{mac}|{domain}"
+        if key in seen["q"]:
+            continue
+        seen["q"][key] = now
+        filtered_queries.append((client_ip, mac, domain, ts))
+
+    filtered_mappings = []
+    for ip, domain, ts in mappings:
+        key = f"{ip}|{domain}"
+        if key in seen["m"]:
+            continue
+        seen["m"][key] = now
+        filtered_mappings.append((ip, domain, ts))
+
+    try:
+        tmp = DNS_SEEN_CACHE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(seen, f)
+        os.replace(tmp, DNS_SEEN_CACHE)
+    except Exception:
+        pass
+
+    return filtered_queries, filtered_mappings
+
+
 def get_cached_ips(conn, domain):
     """Get cached IPs for a domain."""
     now = int(time.time())
@@ -311,34 +375,103 @@ def get_cached_ips(conn, domain):
         return []
 
 
-def cache_nft_state():
-    """Cache nftables state: sets + existing domain-jump rules (avoids duplicates)."""
-    state = {"chains": set(), "sets": set(), "rules": {}, "jumps": set()}
+def set_exists(set_name, nft_state):
+    if set_name in nft_state["sets"]:
+        return True
     try:
-        result = subprocess.run(["nft", "list", "sets"] + NFT_TABLE.split(), capture_output=True, text=True, timeout=10)
-        for m in re.finditer(r'set\s+(\S+)\s*\{', result.stdout):
-            state["sets"].add(m.group(1))
+        result = subprocess.run(
+            ["nft", "list", "set"] + NFT_TABLE.split() + [set_name],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            nft_state["sets"].add(set_name)
+            return True
     except Exception:
         pass
-    # Load existing jumps as ip_chain->domain_chain pairs
+    return False
+
+
+def get_set_elements(set_name, nft_state):
+    if set_name in nft_state["elements"]:
+        return nft_state["elements"][set_name]
+    elements = set()
+    if not set_exists(set_name, nft_state):
+        nft_state["elements"][set_name] = elements
+        return elements
     try:
-        result = subprocess.run(["nft", "list", "table"] + NFT_TABLE.split(), capture_output=True, text=True, timeout=10)
-        cur_ch = None
-        for line in result.stdout.splitlines():
-            chain_any = re.match(r"\s*chain (\S+)\b", line)
-            if chain_any:
-                state["chains"].add(chain_any.group(1))
-            cm = re.match(r"\s*chain (device_\d+_\d+_\d+_\d+)\b", line)
-            if cm:
-                cur_ch = cm.group(1)
-            elif line.strip() == "}":
-                cur_ch = None
-            elif cur_ch:
+        result = subprocess.run(
+            ["nft", "list", "set"] + NFT_TABLE.split() + [set_name],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            for ip in re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', result.stdout):
+                if validate_ip(ip):
+                    elements.add(ip)
+    except Exception:
+        pass
+    nft_state["elements"][set_name] = elements
+    return elements
+
+
+def missing_set_elements(set_name, ips, nft_state):
+    if set_name not in nft_state["sets"] and not set_exists(set_name, nft_state):
+        return []
+    elements = get_set_elements(set_name, nft_state)
+    return [ip for ip in ips if ip not in elements]
+
+
+def append_nft_group(batch_lines, group):
+    if not group:
+        return True
+    if len(batch_lines) + len(group) > MAX_NFT_OPS_PER_CYCLE:
+        return False
+    batch_lines.extend(group)
+    return True
+
+
+def cache_nft_state(queries=None):
+    """Cache nftables state: sets + existing domain-jump rules (avoids duplicates)."""
+    state = {"chains": set(), "sets": set(), "rules": {}, "jumps": set(), "elements": {}}
+
+    query_rows = queries or []
+    device_ips = sorted(set(q[0] for q in query_rows if len(q) >= 1 and validate_ip(q[0])))
+    mac_domains = sorted(set((q[1], q[2]) for q in query_rows if len(q) >= 3 and validate_mac(q[1]) and validate_domain(q[2])))
+    macs = sorted(set(mac for mac, _domain in mac_domains))
+
+    for client_ip in device_ips:
+        ip_chain = "device_" + client_ip.replace(".", "_")
+        try:
+            result = subprocess.run(
+                ["nft", "list", "chain"] + NFT_TABLE.split() + [ip_chain],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode != 0:
+                continue
+            state["chains"].add(ip_chain)
+            for line in result.stdout.splitlines():
                 jm = re.search(r"jump (device_domains_\S+)", line)
                 if jm:
-                    state["jumps"].add(f"{cur_ch}->{jm.group(1)}")
-    except Exception:
-        pass
+                    state["jumps"].add(f"{ip_chain}->{jm.group(1)}")
+        except Exception:
+            pass
+
+    for mac in macs:
+        domain_chain = mac_to_chain(mac)
+        try:
+            result = subprocess.run(
+                ["nft", "list", "chain"] + NFT_TABLE.split() + [domain_chain],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                state["chains"].add(domain_chain)
+        except Exception:
+            pass
+
+    for mac, domain in mac_domains:
+        set_name = domain_to_set(mac, domain)
+        set_exists(set_name, state)
+        set_exists(f"{set_name}_dl", state)
+
     return state
 
 
@@ -381,33 +514,42 @@ def generate_nft_batch(conn, queries, nft_state):
         if not ips:
             continue
 
-        # Create device_domains chain + jump from device IP chain (if not already wired)
+        group = []
         if chain_name not in nft_state["chains"]:
-            batch_lines.append(f'add chain {NFT_TABLE} {chain_name}')
+            group.append(f'add chain {NFT_TABLE} {chain_name}')
             nft_state["chains"].add(chain_name)
         ip_chain = "device_" + client_ip.replace(".", "_")
         jump_key = f"{ip_chain}->{chain_name}"
-        if jump_key not in nft_state["jumps"]:
-            batch_lines.append(f'add rule {NFT_TABLE} {ip_chain} jump {chain_name}')
+        if ip_chain in nft_state["chains"] and jump_key not in nft_state["jumps"]:
+            group.append(f'add rule {NFT_TABLE} {ip_chain} jump {chain_name}')
             nft_state["jumps"].add(jump_key)
 
-        # Create sets if not exists
         if set_name not in nft_state["sets"]:
-            batch_lines.append(f'add set {NFT_TABLE} {set_name} {{ type ipv4_addr; flags interval; comment "{domain}" ; }}')
+            group.append(f'add set {NFT_TABLE} {set_name} {{ type ipv4_addr; flags interval; comment "{domain}" ; }}')
             nft_state["sets"].add(set_name)
-            # Add upload rule
-            batch_lines.append(f'add rule {NFT_TABLE} {chain_name} ip daddr @{set_name} counter comment "domain_ul:{domain}"')
+            group.append(f'add rule {NFT_TABLE} {chain_name} ip daddr @{set_name} counter comment "domain_ul:{domain}"')
+            ul_missing = ips
+        else:
+            ul_missing = missing_set_elements(set_name, ips, nft_state)
 
         if dl_set_name not in nft_state["sets"]:
-            batch_lines.append(f'add set {NFT_TABLE} {dl_set_name} {{ type ipv4_addr; flags interval; comment "{domain}" ; }}')
+            group.append(f'add set {NFT_TABLE} {dl_set_name} {{ type ipv4_addr; flags interval; comment "{domain}" ; }}')
             nft_state["sets"].add(dl_set_name)
-            # Add download rule
-            batch_lines.append(f'add rule {NFT_TABLE} {chain_name} ip saddr @{dl_set_name} counter comment "domain_dl:{domain}"')
+            group.append(f'add rule {NFT_TABLE} {chain_name} ip saddr @{dl_set_name} counter comment "domain_dl:{domain}"')
+            dl_missing = ips
+        else:
+            dl_missing = missing_set_elements(dl_set_name, ips, nft_state)
 
-        # Add IP elements to both sets
-        for ip in ips:
-            batch_lines.append(f"add element {NFT_TABLE} {set_name} {{ {ip} }}")
-            batch_lines.append(f"add element {NFT_TABLE} {dl_set_name} {{ {ip} }}")
+        for ip in ul_missing:
+            group.append(f"add element {NFT_TABLE} {set_name} {{ {ip} }}")
+        for ip in dl_missing:
+            group.append(f"add element {NFT_TABLE} {dl_set_name} {{ {ip} }}")
+
+        if not append_nft_group(batch_lines, group):
+            break
+
+        nft_state["elements"].setdefault(set_name, set()).update(ul_missing)
+        nft_state["elements"].setdefault(dl_set_name, set()).update(dl_missing)
 
         processed += 1
 
@@ -436,7 +578,7 @@ def execute_nft_batch(batch_lines):
         return False
 
 
-def refresh_stale_domain_ips(conn, nft_state, max_domains=50):
+def refresh_stale_domain_ips(conn, nft_state, max_domains=10):
     """Proactively resolve domains whose ip_domain_cache entries are expired or
     expiring within 1 hour. Updates nft sets with any new IPs.
     This handles CDN IP rotation and OS-level DNS caching where devices reuse
@@ -499,11 +641,18 @@ def refresh_stale_domain_ips(conn, nft_state, max_domains=50):
 
         set_name = domain_to_set(mac, domain)
         dl_set_name = f"{set_name}_dl"
+        group = []
         for ip in valid_ips:
-            if set_name in nft_state["sets"]:
-                batch_lines.append(f"add element {NFT_TABLE} {set_name} {{ {ip} }}")
-            if dl_set_name in nft_state["sets"]:
-                batch_lines.append(f"add element {NFT_TABLE} {dl_set_name} {{ {ip} }}")
+            if ip in missing_set_elements(set_name, [ip], nft_state):
+                group.append(f"add element {NFT_TABLE} {set_name} {{ {ip} }}")
+            if ip in missing_set_elements(dl_set_name, [ip], nft_state):
+                group.append(f"add element {NFT_TABLE} {dl_set_name} {{ {ip} }}")
+
+        if not append_nft_group(batch_lines, group):
+            break
+
+        nft_state["elements"].setdefault(set_name, set()).update(valid_ips)
+        nft_state["elements"].setdefault(dl_set_name, set()).update(valid_ips)
 
         refreshed += 1
 
@@ -515,6 +664,22 @@ def refresh_stale_domain_ips(conn, nft_state, max_domains=50):
         print(f"Refreshed IPs for {refreshed} stale domains")
 
     return batch_lines
+
+
+def should_refresh_stale_ips():
+    now = int(time.time())
+    try:
+        with open(STALE_REFRESH_STAMP) as f:
+            if now - int(f.read().strip()) < STALE_REFRESH_INTERVAL:
+                return False
+    except Exception:
+        pass
+    try:
+        with open(STALE_REFRESH_STAMP, "w") as f:
+            f.write(str(now))
+    except Exception:
+        pass
+    return True
 
 
 def backfill_cache(conn, queries, nft_state):
@@ -534,7 +699,7 @@ def backfill_cache(conn, queries, nft_state):
 
     # Deduplicate queries
     seen = set()
-    for _, mac, domain, _ in queries:
+    for client_ip, mac, domain, _ in queries:
         key = (mac, domain)
         if key in seen:
             continue
@@ -552,19 +717,41 @@ def backfill_cache(conn, queries, nft_state):
         if not ips:
             continue
 
+        group = []
+        if chain_name not in nft_state["chains"]:
+            group.append(f'add chain {NFT_TABLE} {chain_name}')
+            nft_state["chains"].add(chain_name)
+        ip_chain = "device_" + client_ip.replace(".", "_")
+        jump_key = f"{ip_chain}->{chain_name}"
+        if ip_chain in nft_state["chains"] and jump_key not in nft_state["jumps"]:
+            group.append(f'add rule {NFT_TABLE} {ip_chain} jump {chain_name}')
+            nft_state["jumps"].add(jump_key)
         if set_name not in nft_state["sets"]:
-            batch_lines.append(f'add set {NFT_TABLE} {set_name} {{ type ipv4_addr; flags interval; comment "{domain}" ; }}')
+            group.append(f'add set {NFT_TABLE} {set_name} {{ type ipv4_addr; flags interval; comment "{domain}" ; }}')
             nft_state["sets"].add(set_name)
-            batch_lines.append(f'add rule {NFT_TABLE} {chain_name} ip daddr @{set_name} counter comment "domain_ul:{domain}"')
+            group.append(f'add rule {NFT_TABLE} {chain_name} ip daddr @{set_name} counter comment "domain_ul:{domain}"')
+            ul_missing = ips
+        else:
+            ul_missing = missing_set_elements(set_name, ips, nft_state)
 
         if dl_set_name not in nft_state["sets"]:
-            batch_lines.append(f'add set {NFT_TABLE} {dl_set_name} {{ type ipv4_addr; flags interval; comment "{domain}" ; }}')
+            group.append(f'add set {NFT_TABLE} {dl_set_name} {{ type ipv4_addr; flags interval; comment "{domain}" ; }}')
             nft_state["sets"].add(dl_set_name)
-            batch_lines.append(f'add rule {NFT_TABLE} {chain_name} ip saddr @{dl_set_name} counter comment "domain_dl:{domain}"')
+            group.append(f'add rule {NFT_TABLE} {chain_name} ip saddr @{dl_set_name} counter comment "domain_dl:{domain}"')
+            dl_missing = ips
+        else:
+            dl_missing = missing_set_elements(dl_set_name, ips, nft_state)
 
-        for ip in ips:
-            batch_lines.append(f"add element {NFT_TABLE} {set_name} {{ {ip} }}")
-            batch_lines.append(f"add element {NFT_TABLE} {dl_set_name} {{ {ip} }}")
+        for ip in ul_missing:
+            group.append(f"add element {NFT_TABLE} {set_name} {{ {ip} }}")
+        for ip in dl_missing:
+            group.append(f"add element {NFT_TABLE} {dl_set_name} {{ {ip} }}")
+
+        if not append_nft_group(batch_lines, group):
+            break
+
+        nft_state["elements"].setdefault(set_name, set()).update(ul_missing)
+        nft_state["elements"].setdefault(dl_set_name, set()).update(dl_missing)
 
         processed += 1
         if processed >= MAX_DOMAINS_PER_CYCLE:
@@ -574,6 +761,9 @@ def backfill_cache(conn, queries, nft_state):
 
 
 def main():
+    if not tracking_enabled():
+        return 0
+
     # Acquire lock
     lock_fd = acquire_lock()
     if lock_fd is None:
@@ -595,15 +785,20 @@ def main():
         else:
             queries, mappings = parse_dnsmasq_logs()
 
+        queries, mappings = filter_recent_dns_events(queries, mappings)
+
+        refresh_due = should_refresh_stale_ips() if not queries else False
+        if not queries and not mappings and not refresh_due:
+            return 0
+
         # Connect to database
         conn = get_db()
 
         # Cache nftables state once (used by all nft operations)
-        nft_state = cache_nft_state()
+        nft_state = cache_nft_state(queries)
 
-        # Always refresh stale domain IPs — handles CDN IP rotation and OS DNS caching.
-        # This runs every minute regardless of new DNS activity.
-        refresh_lines = refresh_stale_domain_ips(conn, nft_state)
+        # Refresh stale domain IPs on a bounded interval.
+        refresh_lines = refresh_stale_domain_ips(conn, nft_state) if refresh_due else []
 
         batch_lines = list(refresh_lines)
 

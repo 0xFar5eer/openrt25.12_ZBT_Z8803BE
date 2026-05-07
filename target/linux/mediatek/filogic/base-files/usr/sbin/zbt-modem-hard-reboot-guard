@@ -2,6 +2,7 @@
 set -e
 
 LOCK_FILE="/tmp/zbt-modem-reboot.lock"
+MONITOR_COOLDOWN_HELPER="/usr/sbin/zbt-modem-monitor-cooldown"
 BOOT_GRACE_S_DEFAULT=300
 LOCKOUT_S_DEFAULT=300
 TAG="zbt-modem-hard-reboot-guard"
@@ -37,6 +38,15 @@ if [ -f "$LOCK_FILE" ]; then
 	if [ "$AGE" -lt "$LOCKOUT_S" ]; then
 		log "skip: last reboot ${AGE}s ago < lockout ${LOCKOUT_S}s"
 		record_event monitor auto_hard_reboot_skipped warning "" "Monitor hard reboot skipped by lockout" "last_reboot_age=${AGE}s lockout=${LOCKOUT_S}s"
+		exit 0
+	fi
+fi
+
+if [ -x "$MONITOR_COOLDOWN_HELPER" ]; then
+	REMAINING=$("$MONITOR_COOLDOWN_HELPER" active 2>/dev/null || true)
+	if [ -n "$REMAINING" ]; then
+		log "skip: monitor cooldown active, ${REMAINING}s remaining"
+		record_event monitor auto_hard_reboot_skipped warning "" "Monitor hard reboot skipped by cooldown" "remaining=${REMAINING}s"
 		exit 0
 	fi
 fi

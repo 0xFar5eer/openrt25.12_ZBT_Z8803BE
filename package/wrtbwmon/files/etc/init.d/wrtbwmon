@@ -49,6 +49,10 @@ start() {
 
     # Load configuration
     config_load
+    if [ "$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" != "1" ]; then
+        log_info "wrtbwmon disabled in UCI, skipping start"
+        return 0
+    fi
     local db_file
     db_file=$(config_get "DB_FILE")
 
@@ -152,6 +156,12 @@ boot() {
     # Create boot script
     cat > "$boot_script" << 'BOOTSCRIPT'
 #!/bin/sh
+[ "$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] || {
+    logger -t "wrtbwmon-boot" "wrtbwmon disabled in UCI, skipping boot start"
+    rm -f /tmp/wrtbwmon_boot.sh
+    exit 0
+}
+
 # Wait for firewall4 to be ready (fw4 table must exist)
 for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
     if nft list table inet fw4 >/dev/null 2>&1; then
