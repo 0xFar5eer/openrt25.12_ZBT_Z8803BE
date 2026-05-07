@@ -1,4 +1,4 @@
-# ZBT-Z8803BE OpenWrt 25.12.2 维护版
+# ZBT-Z8803BE OpenWrt v25.12.2-3-zbt8803be 维护版
 
 [English](RELEASE_NOTES.md) | [中文](RELEASE_NOTES.zh-CN.md)
 
