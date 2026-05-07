@@ -30,10 +30,13 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 ## Checksums
 
 ```text
-TBD  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-TBD  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-TBD  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-TBD  sha256sums
+89d694ebe0b464819dc4721ccdecb63038915cb6db2d3eb15f5f21eb47448bf8  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+248d1ddb8add40dda9a5c17a6532011a6bccf87f48707d0cc3418e713dbbde07  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+d1657eba3df03621517132b396c5a0bcdbc44d86fe3c0c91f3743140e8108dee  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+eb487134bd9dd7986d475f46c55fc6928faf070e5a86bb2436261151730e4cc3  sha256sums
+0d1ac3f38d93e39e61e064f4f14062918333ba99a5e8fe1ac7c8c805101623d2  config.buildinfo
+ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinfo
+05f6cea7ac9e5c3d2d73225400b4dc3cf51eb8002f54cf6d05e5934c1805c60c  version.buildinfo
 ```
 
 ## Assets
