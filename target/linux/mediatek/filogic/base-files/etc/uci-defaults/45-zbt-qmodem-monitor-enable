@@ -4,14 +4,14 @@
 # Z8803BE — wire qmodem_monitor for the cellular modem-device section
 # and enable the service at boot.
 #
-# Pairs with /usr/sbin/zbt-modem-reboot-guard. The qmodem_monitor
+# Pairs with /usr/sbin/zbt-modem-hard-reboot-guard. The qmodem_monitor
 # package (feeds/qmodem/application/qmodem_monitor) is shipped but
 # stays inert by default: each modem-device section needs
 # monitor_enabled=1 and a method/action set, and /etc/init.d/qmodem_monitor
 # isn't symlinked into /etc/rc.d on a clean image. We do both here so
 # the cellular link gets watchdogged out of the box.
 #
-# Why curl/direct-IP gstatic/60s/threshold=5:
+# Why curl/direct-IP gstatic/10s/threshold=6:
 #   * monitor_method=curl on http://142.250.23.94/generate_204 is
 #     what we actually need on Smart/Globe PH. Empirical test on the
 #     RM551E-GL on Globe PH (Apr 2026):
@@ -30,17 +30,17 @@
 #     DNS resolver hiccups being misclassified as a broken modem. It
 #     still exercises the full data path: USB → modem firmware → RAN →
 #     GGSN → internet → TCP → HTTP.
-#   * interval=60s and threshold=5 means we declare-down only after
-#     roughly five minutes of consecutive HTTP failures. That is slow
-#     enough to ride through short carrier/DNS/backhaul blips without
-#     repeatedly rebooting a healthy modem.
+#   * interval=10s and threshold=6 means we declare-down after roughly
+#     one minute of consecutive HTTP failures. That is fast enough to
+#     recover short cellular outages quickly while the hard-reboot guard
+#     still enforces boot grace, SIM-present checks, and reset lockout.
 #
-# Why run_scripts -> zbt-modem-reboot-guard:
+# Why run_scripts -> zbt-modem-hard-reboot-guard:
 #   The qmodem_monitor send_at_commands action would let us send
 #   AT+CFUN=1,1 directly, but that path has no concept of an
 #   inter-reset lockout or a router-uptime grace window — both
-#   requirements for safe production use. Routing through
-#   zbt-modem-reboot-guard keeps the policy in one auditable script.
+#   requirements for safe production use. Routing through the hard
+#   reboot guard keeps the GPIO power-cycle policy in one script.
 #
 # Why we touch monitor_method/_ping_type/_ping_dest/_interval/
 # _threshold/_action/script via uci -q (not add_list except for the
@@ -67,7 +67,7 @@ esac
 [ -e /etc/config/qmodem ] || exit 0
 [ -x /etc/init.d/qmodem_monitor ] || exit 0
 
-GUARD_SCRIPT="/usr/sbin/zbt-modem-reboot-guard"
+GUARD_SCRIPT="/usr/sbin/zbt-modem-hard-reboot-guard"
 
 apply_monitor_contract() {
         local sec=$1
@@ -78,8 +78,8 @@ apply_monitor_contract() {
                 "monitor_enabled=1" \
                 "monitor_method=curl" \
                 "monitor_http_url=http://142.250.23.94/generate_204" \
-                "monitor_interval=60" \
-                "monitor_threshold=5"
+                "monitor_interval=10" \
+                "monitor_threshold=6"
         do
                 k=${kv%%=*}; v=${kv#*=}
                 cur=$(uci -q get "qmodem.${sec}.${k}")
