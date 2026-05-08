@@ -14,7 +14,7 @@
 
 ## 相比 `v25.12.2-3-zbt8803be` 的变化
 
-- **修复有线 MAC 分配。** DTS 为 `gmac0`、`gmac1`、`gmac2` 的有线接口显式传入 NVMEM cell 索引，避免以太网 PHY 回退到随机 MAC。
+- **修复有线 MAC 分配。** DTS 为 `gmac0`、`gmac1`、`gmac2` 的有线接口显式传入 NVMEM cell 索引，回应 OpenWrt PR `#23053` 中 `@joelinux60` 对 [`gmac0`](https://github.com/openwrt/openwrt/pull/23053#discussion_r3206902888)、[`gmac1`](https://github.com/openwrt/openwrt/pull/23053#discussion_r3206909949)、[`gmac2`](https://github.com/openwrt/openwrt/pull/23053#discussion_r3206915357) 的 review comments。
 
 ## 验证
 

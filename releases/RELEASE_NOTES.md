@@ -14,7 +14,7 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
 ## What's new since `v25.12.2-3-zbt8803be`
 
-- **Wired MAC assignment fix.** DTS wired interfaces now pass an explicit NVMEM cell index for `gmac0`, `gmac1`, and `gmac2` to avoid random MAC fallback on Ethernet PHYs.
+- **Wired MAC assignment fix.** DTS wired interfaces now pass an explicit NVMEM cell index for `gmac0`, `gmac1`, and `gmac2`, addressing OpenWrt PR `#23053` review comments from `@joelinux60` for [`gmac0`](https://github.com/openwrt/openwrt/pull/23053#discussion_r3206902888), [`gmac1`](https://github.com/openwrt/openwrt/pull/23053#discussion_r3206909949), and [`gmac2`](https://github.com/openwrt/openwrt/pull/23053#discussion_r3206915357).
 
 ## Validation
 
