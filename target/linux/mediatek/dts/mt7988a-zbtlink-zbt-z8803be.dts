@@ -291,7 +291,7 @@
 
 &gmac0 {
 	nvmem-cell-names = "mac-address";
-	nvmem-cells = <&gmac0_mac>;
+	nvmem-cells = <&gmac0_mac 0>;
 	status = "okay";
 };
 
@@ -300,7 +300,7 @@
 	phy-connection-type = "internal";
 	phy = <&int_2p5g_phy>;
 	nvmem-cell-names = "mac-address";
-	nvmem-cells = <&gmac1_mac>;
+	nvmem-cells = <&gmac1_mac 0>;
 	status = "okay";
 };
 
@@ -309,7 +309,7 @@
 	managed = "in-band-status";
 	phy-mode = "10gbase-r";
 	nvmem-cell-names = "mac-address";
-	nvmem-cells = <&gmac2_mac>;
+	nvmem-cells = <&gmac2_mac 0>;
 	status = "okay";
 };
 

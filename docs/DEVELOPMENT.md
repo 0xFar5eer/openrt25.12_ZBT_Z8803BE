@@ -4,7 +4,7 @@ This document describes how to work on this firmware repository without disturbi
 
 ## Branch and release model
 
-The active firmware branch is `25.12`. The public release tag is `v25.12.2-1-zbt8803be`.
+The active firmware branch is `25.12`. The public release tag is `v25.12.2-4-zbt8803be`.
 
 Release documentation lives in:
 

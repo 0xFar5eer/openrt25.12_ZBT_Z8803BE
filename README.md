@@ -12,7 +12,7 @@ Current custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - **Kernel:** Linux `6.12.74`
 - **Target:** `mediatek/filogic`
 - **Device:** MediaTek MT7988A / Filogic 880 + MT7996-family tri-band WiFi 7
-- **Release tag:** `v25.12.2-3-zbt8803be`
+- **Release tag:** `v25.12.2-4-zbt8803be`
 
 ## Download
 

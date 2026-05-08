@@ -14,7 +14,7 @@ const RELEASES_URL = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/rele
 const REPO_URL     = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE';
 const ISSUES_URL   = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/issues';
 const CONTACT_URL  = 'https://t.me/Far5eer';
-const RELEASE_TAG  = 'v25.12.2-3-zbt8803be';
+const RELEASE_TAG  = 'v25.12.2-4-zbt8803be';
 const OPENWRT_BASE = 'OpenWrt v25.12.2 / r32802-f505120278';
 
 function loadCss(path) {
