@@ -437,7 +437,22 @@ no_sim_present(){
     return 1
 }
 
+record_no_sim_suspended(){
+    [ -f "$NO_SIM_STATE_FILE" ] && return 0
+    log "No SIM present; suspend monitor probes"
+    record_modem_event monitor monitor_no_sim info "$Modem_ID" "Monitor suspended because SIM is missing" "method=${Method} netdev=${NET_DEV:-none}"
+    touch "$NO_SIM_STATE_FILE" 2>/dev/null || true
+}
+
+record_sim_resumed(){
+    [ -f "$NO_SIM_STATE_FILE" ] || return 0
+    rm -f "$NO_SIM_STATE_FILE" 2>/dev/null || true
+    log "SIM present; resume monitor probes"
+    record_modem_event monitor monitor_recovered ok "$Modem_ID" "Monitor resumed because SIM is present" "method=${Method} netdev=${NET_DEV:-none}"
+}
+
 parse_args "$@"
+NO_SIM_STATE_FILE="/tmp/zbt-qmodem-monitor-no-sim-${Modem_ID}"
 update_cfg
 load_monitor_cooldown
 update_netcfg
@@ -445,6 +460,13 @@ log "Start monitoring $Modem_ID($Method) with interval $Interval and threshold $
 failed_count=0
 while true; do
     update_netcfg
+    if no_sim_present; then
+        record_no_sim_suspended
+        failed_count=0
+        sleep "$Interval"
+        continue
+    fi
+    record_sim_resumed
     # wait_until_ready
     # status=$?
     # if [ "$status" -ne 0 ]; then
@@ -453,6 +475,12 @@ while true; do
     loop
     status=$?
     if [ "$status" -ne 0 ]; then
+        if no_sim_present; then
+            record_no_sim_suspended
+            failed_count=0
+            sleep "$Interval"
+            continue
+        fi
         failed_count=$((failed_count + 1))
         log "Failed count: $failed_count Threshold: $Threshold"
         record_modem_event monitor monitor_check_failed warning "$Modem_ID" "Monitor probe failed" "count=${failed_count}/${Threshold} method=${Method} netdev=${NET_DEV:-none} url=${Http_Url:-}"
@@ -465,13 +493,15 @@ while true; do
     sleep "$Interval"
     
     if [ "$failed_count" -ge "$Threshold" ]; then
-        # log last failure time
+        if no_sim_present; then
+            record_no_sim_suspended
+            failed_count=0
+            sleep "$Interval"
+            continue
+        fi
         log "$Method failed $failed_count times"
         record_modem_event monitor monitor_threshold danger "$Modem_ID" "Monitor threshold reached" "failed_checks=${failed_count} threshold=${Threshold} method=${Method} netdev=${NET_DEV:-none} url=${Http_Url:-}"
-        if no_sim_present; then
-            log "No SIM present; skip monitor actions"
-            record_modem_event monitor monitor_no_sim warning "$Modem_ID" "Monitor action skipped because SIM is missing" "failed_checks=${failed_count} threshold=${Threshold}"
-        elif monitor_cooldown_active; then
+        if monitor_cooldown_active; then
             failed_count=0
         else
             mark_monitor_action

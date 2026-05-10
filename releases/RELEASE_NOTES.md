@@ -31,9 +31,13 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - **WiFi preserve-config fix.** The board WiFi uci-defaults script now skips factory SSID rewrites when preserved custom SSIDs already exist, so `sysupgrade` with config preservation keeps existing MLO/IoT/Guest WiFi profiles.
 - **Live preserved-config verification.** Existing `AlegriaWifi`, `AlegriaWifi_IOT1`, `AlegriaWifi_IOT2`, and `AlegriaWifi_Guest` profiles survived the tested preserved-config sysupgrade.
 
+### Modem monitoring
+
+- **No-SIM monitor quieting.** QModem monitoring now suspends curl/ping probes while `AT+CPIN?` reports no SIM, records a single informational `Monitor suspended because SIM is missing` event, and resumes normal monitoring when a SIM is present again. This prevents repeated warning/critical rows and reboot-action attempts when the cellular slot is intentionally empty.
+
 ### Release metadata / documentation
 
-- **LuCI About release tag bumped.** The About page now reports `v25.12.2-5-zbt8803be`.
+- **Static About/banner version wording.** LuCI About and the SSH banner now use stable build-channel/base wording instead of embedding the per-release `-N` suffix, so future patch releases do not require manual UI/banner version edits.
 - **Checksums refreshed.** README files, release notes, and staged release metadata now point to the live-tested sysupgrade image `5870b7747b97d95e469cbed539db8701346fee454529dd9dfec732520cbd9f55`.
 - **Validation runbook refreshed.** `docs/TESTING.md` was updated with the corrected flash/test flow, CPUFreq validation expectations, PR-review traceability, and final v25.12.2-5 test status.
 - **PR comment traceability added.** The release notes now link each upstream OpenWrt PR #23053 review point to the local fix or validation result.
@@ -59,6 +63,7 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - The rebuilt sysupgrade image was flashed to the live router with config preservation.
 - Live CPUFreq validation passed with available frequencies `800000 1100000 1500000 1800000`.
 - Existing `AlegriaWifi`, `AlegriaWifi_IOT1`, `AlegriaWifi_IOT2`, and `AlegriaWifi_Guest` profiles survived the preserved-config sysupgrade.
+- Live no-SIM monitor validation passed: the monitor now records `Monitor suspended because SIM is missing` once and stops generating repeated probe-failure/threshold events while no SIM is present.
 
 ## Checksums
 

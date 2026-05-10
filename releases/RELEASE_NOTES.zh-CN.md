@@ -31,9 +31,13 @@
 - **保留配置升级时 WiFi 不再被重置。** 板级 WiFi uci-defaults 脚本在检测到已保留的自定义 SSID 后跳过出厂 SSID 重写，因此保留配置的 `sysupgrade` 会保留现有 MLO / IoT / Guest WiFi 配置。
 - **保留配置实机验证。** 测试中 `AlegriaWifi`、`AlegriaWifi_IOT1`、`AlegriaWifi_IOT2` 和 `AlegriaWifi_Guest` 配置在保留配置升级后仍然存在。
 
+### Modem 监控
+
+- **无 SIM 卡时监控降噪。** 当 `AT+CPIN?` 返回无 SIM 卡时，QModem monitor 现在会暂停 curl/ping 探测，只记录一次信息级 `Monitor suspended because SIM is missing` 事件；检测到 SIM 卡恢复后再继续正常监控。这样空卡槽不会持续产生 warning/critical 事件，也不会反复尝试触发重启动作。
+
 ### 发布元数据 / 文档
 
-- **LuCI About 发布标签更新。** About 页面现在显示 `v25.12.2-5-zbt8803be`。
+- **About/banner 使用静态版本文案。** LuCI About 和 SSH banner 现在使用稳定的 build-channel/base 文案，不再嵌入每个发布版本的 `-N` 后缀，避免以后小版本发布时忘记同步修改 UI/banner。
 - **校验值刷新。** README、release notes 和 staged release metadata 现在都指向已实机测试的 sysupgrade 镜像 `5870b7747b97d95e469cbed539db8701346fee454529dd9dfec732520cbd9f55`。
 - **验证 runbook 刷新。** `docs/TESTING.md` 已更新为修正后的刷机/测试流程、CPUFreq 验证预期、PR review 可追溯链接，以及 v25.12.2-5 最终测试状态。
 - **PR comment 可追溯链接。** Release notes 现在将 OpenWrt PR #23053 的每条相关 review comment 映射到本地修复或验证结果。
@@ -59,6 +63,7 @@
 - 已将重构后的 sysupgrade 固件以保留配置方式刷入实机路由器。
 - 实机 CPUFreq 验证通过，可用频率为 `800000 1100000 1500000 1800000`。
 - 保留配置升级后，`AlegriaWifi`、`AlegriaWifi_IOT1`、`AlegriaWifi_IOT2` 和 `AlegriaWifi_Guest` 配置仍然存在。
+- 无 SIM 卡实机验证通过：monitor 现在只记录一次 `Monitor suspended because SIM is missing`，并在无 SIM 卡期间停止重复产生 probe-failure/threshold 事件。
 
 ## 校验值
 

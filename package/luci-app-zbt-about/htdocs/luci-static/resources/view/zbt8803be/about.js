@@ -14,8 +14,8 @@ const RELEASES_URL = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/rele
 const REPO_URL     = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE';
 const ISSUES_URL   = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/issues';
 const CONTACT_URL  = 'https://t.me/Far5eer';
-const RELEASE_TAG  = 'v25.12.2-5-zbt8803be';
-const OPENWRT_BASE = 'OpenWrt v25.12.2 / r32802-f505120278';
+const BUILD_CHANNEL = 'ZBT-Z8803BE community build';
+const OPENWRT_BASE = 'OpenWrt 25.12 stable branch';
 
 function loadCss(path) {
 	const head = document.head || document.getElementsByTagName('head')[0];
@@ -109,11 +109,11 @@ return view.extend({
 			[ release_lines['DISTRIB_ID'], release_lines['DISTRIB_RELEASE'], release_lines['DISTRIB_REVISION'] ]
 			.filter(Boolean).join(' ');
 
-		const branch = '25.12.2 stable';
+		const branch = '25.12 stable';
 
 		const featureGroups = [
 			[ _('Platform / board support'), [
-				_('Mainline OpenWrt 25.12.2 base for ZBTLink ZBT-Z8803BE, target mediatek/filogic, kernel 6.12.74, no MediaTek vendor feed required.'),
+				_('Mainline OpenWrt 25.12 base for ZBTLink ZBT-Z8803BE, target mediatek/filogic, kernel 6.12, no MediaTek vendor feed required.'),
 				_('Board DTS/image profile, NAND sysupgrade support, LED/network/GPIO switch defaults, modem LED services, APK feed defaults, shell/banner defaults, and first-boot LuCI defaults.'),
 				_('WiFi 7 tri-band defaults: 2.4 GHz ch11/EHT20, 5 GHz ch149/EHT80, 6 GHz ch37/EHT160, country PH, no firmware-side txpower/channel clamps.')
 			] ],
@@ -184,7 +184,7 @@ return view.extend({
 				row(_('Model'),       board.model || '?'),
 				row(_('Board'),       (board.board_name || '?')),
 				row(_('Distribution'), distrib || '?'),
-				row(_('Release'),      RELEASE_TAG),
+				row(_('Build channel'), BUILD_CHANNEL),
 				row(_('OpenWrt base'), OPENWRT_BASE),
 				row(_('Branch'),       branch),
 				row(_('Kernel'),      board.kernel || '?'),
