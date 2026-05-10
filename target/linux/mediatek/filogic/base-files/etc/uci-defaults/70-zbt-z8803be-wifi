@@ -14,6 +14,17 @@ esac
 [ -s /etc/config/wireless ] || /sbin/wifi config >/dev/null 2>&1
 [ -s /etc/config/wireless ] || /sbin/wifi detect > /etc/config/wireless 2>/dev/null
 
+for iface in $(uci -q show wireless | sed -nE 's/^wireless\.([^.]+)=wifi-iface$/\1/p'); do
+	ssid=$(uci -q get "wireless.${iface}.ssid")
+	case "$ssid" in
+	""|OpenWrt)
+		;;
+	*)
+		exit 0
+		;;
+	esac
+done
+
 # Derive a 6-char MAC suffix from the first readable NIC MAC.
 mac=""
 for f in /sys/class/net/br-lan/address \

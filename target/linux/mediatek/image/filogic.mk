@@ -3205,8 +3205,6 @@ define Device/zbtlink_zbt-z8803be
   DEVICE_PACKAGES := kmod-sfp kmod-hwmon-pwmfan kmod-usb3 kmod-mt7996-firmware mt7988-2p5g-phy-firmware mt7988-wo-firmware
   DEVICE_DTC_FLAGS := --pad 4096
   SUPPORTED_DEVICES += zbtlink,zbt-z8803be,mt7988a-nand
-  DEVICE_COMPAT_VERSION := 1.1
-  DEVICE_COMPAT_MESSAGE := DT compatible changed to zbtlink,zbt-z8803be. Pre-1.1 images report the old board_name; use --force-compat-version-check when sysupgrading across this bump.
   KERNEL := kernel-bin | gzip | \
 	fit gzip $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
   KERNEL_INITRAMFS := kernel-bin | lzma | \
