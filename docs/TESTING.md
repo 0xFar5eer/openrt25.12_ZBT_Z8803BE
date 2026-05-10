@@ -71,7 +71,7 @@ sha256sum releases/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgr
 Expected sysupgrade hash:
 
 ```text
-5870b7747b97d95e469cbed539db8701346fee454529dd9dfec732520cbd9f55
+36cd47c0579876a24343aaea6bc4f8851007bcb5a57c06632b86bd079cbb0d82
 ```
 
 ### 1.2 Confirm archive structure
@@ -194,7 +194,7 @@ ssh root@3fl.lan 'sha256sum /tmp/v25.12.2-5-zbt8803be-sysupgrade.bin'
 Expected:
 
 ```text
-5870b7747b97d95e469cbed539db8701346fee454529dd9dfec732520cbd9f55
+36cd47c0579876a24343aaea6bc4f8851007bcb5a57c06632b86bd079cbb0d82
 ```
 
 ### 3.3 Run sysupgrade
@@ -943,14 +943,14 @@ releases/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
 Sysupgrade SHA256:
 
 ```text
-5870b7747b97d95e469cbed539db8701346fee454529dd9dfec732520cbd9f55
+36cd47c0579876a24343aaea6bc4f8851007bcb5a57c06632b86bd079cbb0d82
 ```
 
 Build logs:
 
 ```text
-.buildenv/logs/test-20260510-154110-v25.12.2-5-cpufreq-wifi-preserve/build.log
-.buildenv/logs/test-20260510-154110-v25.12.2-5-cpufreq-wifi-preserve/extract.log
+.buildenv/logs/rebuild-20260510-184233-v25.12.2-5-nosim-static/build.log
+.buildenv/logs/rebuild-20260510-184233-v25.12.2-5-nosim-static/extract.log
 ```
 
 Current release status:
@@ -958,9 +958,10 @@ Current release status:
 - **Built locally:** yes
 - **Artifacts staged:** yes
 - **Checksums refreshed:** yes
-- **Router flashed:** yes
-- **Committed:** no
-- **Pushed:** no
-- **Tagged:** no
-- **GitHub release:** no
+- **Router flashed:** initial v25.12.2-5 image yes; refreshed no-SIM/static hotfix image not reflashed
+- **Live hotfix deployed:** yes, qmodem monitor no-SIM suspension script deployed and verified on 3fl.lan
+- **Committed:** yes
+- **Pushed:** yes
+- **Tagged:** yes
+- **GitHub release:** refreshed with hotfix assets
 - **PR updated:** no

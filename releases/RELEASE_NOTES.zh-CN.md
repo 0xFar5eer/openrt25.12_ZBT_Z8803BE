@@ -38,7 +38,7 @@
 ### 发布元数据 / 文档
 
 - **About/banner 使用静态版本文案。** LuCI About 和 SSH banner 现在使用稳定的 build-channel/base 文案，不再嵌入每个发布版本的 `-N` 后缀，避免以后小版本发布时忘记同步修改 UI/banner。
-- **校验值刷新。** README、release notes 和 staged release metadata 现在都指向已实机测试的 sysupgrade 镜像 `5870b7747b97d95e469cbed539db8701346fee454529dd9dfec732520cbd9f55`。
+- **校验值刷新。** README、release notes 和 staged release metadata 现在都指向已实机测试的 sysupgrade 镜像 `36cd47c0579876a24343aaea6bc4f8851007bcb5a57c06632b86bd079cbb0d82`。
 - **验证 runbook 刷新。** `docs/TESTING.md` 已更新为修正后的刷机/测试流程、CPUFreq 验证预期、PR review 可追溯链接，以及 v25.12.2-5 最终测试状态。
 - **PR comment 可追溯链接。** Release notes 现在将 OpenWrt PR #23053 的每条相关 review comment 映射到本地修复或验证结果。
 
@@ -60,7 +60,7 @@
 - DTS 清理通过 `git diff --check` 和继承节点静态 review。
 - LuCI About JavaScript 通过 `node --check`。
 - 固件已从当前发布分支重新构建并提取到 `output/mediatek/filogic`。
-- 已将重构后的 sysupgrade 固件以保留配置方式刷入实机路由器。
+- 初版 v25.12.2-5 sysupgrade 固件已以保留配置方式刷入实机路由器；本次 hotfix 镜像在无 SIM 卡 monitor 实机验证后重新构建并刷新发布文件。
 - 实机 CPUFreq 验证通过，可用频率为 `800000 1100000 1500000 1800000`。
 - 保留配置升级后，`AlegriaWifi`、`AlegriaWifi_IOT1`、`AlegriaWifi_IOT2` 和 `AlegriaWifi_Guest` 配置仍然存在。
 - 无 SIM 卡实机验证通过：monitor 现在只记录一次 `Monitor suspended because SIM is missing`，并在无 SIM 卡期间停止重复产生 probe-failure/threshold 事件。
@@ -68,10 +68,10 @@
 ## 校验值
 
 ```text
-5870b7747b97d95e469cbed539db8701346fee454529dd9dfec732520cbd9f55  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-6ad6a892ad29b636313521c62235618dd68ee2d7fc3d5a7d4004b8905c920047  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-384713d6d6db10e67f7221ee2cd8bbeb91385406dbc747fe305e4a6ec894c1bb  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-cfea01de20bb0c227723be17f3f38c575839d55ccce926ed94202aecbef378c9  sha256sums
+36cd47c0579876a24343aaea6bc4f8851007bcb5a57c06632b86bd079cbb0d82  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+e18e2f4dc7986646939a44dff1cb422dfc0b10420873b45b073e2dd41835c9d8  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+8d340453b2aad72dfd6f2b0d424d90d09b97168c0c70ec6a90722b3c388420b4  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+c345615d0de8341d7e2d9a86ca1ce05213a9d50bf23eaa1f90439b532861b44e  sha256sums
 0d1ac3f38d93e39e61e064f4f14062918333ba99a5e8fe1ac7c8c805101623d2  config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinfo
 05f6cea7ac9e5c3d2d73225400b4dc3cf51eb8002f54cf6d05e5934c1805c60c  version.buildinfo

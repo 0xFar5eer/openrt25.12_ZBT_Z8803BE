@@ -31,9 +31,9 @@ Use the latest GitHub release assets:
 ## Checksums
 
 ```text
-5870b7747b97d95e469cbed539db8701346fee454529dd9dfec732520cbd9f55  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-6ad6a892ad29b636313521c62235618dd68ee2d7fc3d5a7d4004b8905c920047  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-384713d6d6db10e67f7221ee2cd8bbeb91385406dbc747fe305e4a6ec894c1bb  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+36cd47c0579876a24343aaea6bc4f8851007bcb5a57c06632b86bd079cbb0d82  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+e18e2f4dc7986646939a44dff1cb422dfc0b10420873b45b073e2dd41835c9d8  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+8d340453b2aad72dfd6f2b0d424d90d09b97168c0c70ec6a90722b3c388420b4  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ```
 
 ## Included features

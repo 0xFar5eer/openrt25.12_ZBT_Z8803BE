@@ -38,7 +38,7 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 ### Release metadata / documentation
 
 - **Static About/banner version wording.** LuCI About and the SSH banner now use stable build-channel/base wording instead of embedding the per-release `-N` suffix, so future patch releases do not require manual UI/banner version edits.
-- **Checksums refreshed.** README files, release notes, and staged release metadata now point to the live-tested sysupgrade image `5870b7747b97d95e469cbed539db8701346fee454529dd9dfec732520cbd9f55`.
+- **Checksums refreshed.** README files, release notes, and staged release metadata now point to the live-tested sysupgrade image `36cd47c0579876a24343aaea6bc4f8851007bcb5a57c06632b86bd079cbb0d82`.
 - **Validation runbook refreshed.** `docs/TESTING.md` was updated with the corrected flash/test flow, CPUFreq validation expectations, PR-review traceability, and final v25.12.2-5 test status.
 - **PR comment traceability added.** The release notes now link each upstream OpenWrt PR #23053 review point to the local fix or validation result.
 
@@ -60,7 +60,7 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - DTS cleanup passed `git diff --check` and static inherited-node review.
 - LuCI About JavaScript passed `node --check`.
 - Firmware was rebuilt from this release branch and extracted to `output/mediatek/filogic`.
-- The rebuilt sysupgrade image was flashed to the live router with config preservation.
+- The initial v25.12.2-5 sysupgrade image was flashed to the live router with config preservation; the refreshed hotfix image was rebuilt and staged after live no-SIM monitor validation.
 - Live CPUFreq validation passed with available frequencies `800000 1100000 1500000 1800000`.
 - Existing `AlegriaWifi`, `AlegriaWifi_IOT1`, `AlegriaWifi_IOT2`, and `AlegriaWifi_Guest` profiles survived the preserved-config sysupgrade.
 - Live no-SIM monitor validation passed: the monitor now records `Monitor suspended because SIM is missing` once and stops generating repeated probe-failure/threshold events while no SIM is present.
@@ -68,10 +68,10 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 ## Checksums
 
 ```text
-5870b7747b97d95e469cbed539db8701346fee454529dd9dfec732520cbd9f55  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-6ad6a892ad29b636313521c62235618dd68ee2d7fc3d5a7d4004b8905c920047  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-384713d6d6db10e67f7221ee2cd8bbeb91385406dbc747fe305e4a6ec894c1bb  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-cfea01de20bb0c227723be17f3f38c575839d55ccce926ed94202aecbef378c9  sha256sums
+36cd47c0579876a24343aaea6bc4f8851007bcb5a57c06632b86bd079cbb0d82  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+e18e2f4dc7986646939a44dff1cb422dfc0b10420873b45b073e2dd41835c9d8  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+8d340453b2aad72dfd6f2b0d424d90d09b97168c0c70ec6a90722b3c388420b4  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+c345615d0de8341d7e2d9a86ca1ce05213a9d50bf23eaa1f90439b532861b44e  sha256sums
 0d1ac3f38d93e39e61e064f4f14062918333ba99a5e8fe1ac7c8c805101623d2  config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinfo
 05f6cea7ac9e5c3d2d73225400b4dc3cf51eb8002f54cf6d05e5934c1805c60c  version.buildinfo
