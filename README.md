@@ -12,7 +12,7 @@ Current custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - **Kernel:** Linux `6.12.74`
 - **Target:** `mediatek/filogic`
 - **Device:** MediaTek MT7988A / Filogic 880 + MT7996-family tri-band WiFi 7
-- **Release tag:** `v25.12.2-4-zbt8803be`
+- **Release tag:** `v25.12.2-5-zbt8803be`
 
 ## Download
 
@@ -31,9 +31,9 @@ Use the latest GitHub release assets:
 ## Checksums
 
 ```text
-45dfdda0204eb549a1dc127c3ef3ef2ef4c0be1ea3a048fca6925937641e5281  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-ccc242c1a7fb3ab4b2864f7b87654a7d1576aeec90791f5c72ed9b5b95ed7970  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-f2f4454deafb186712bf11a153dbb43694f0d6bd3d5c215313d670acff300df1  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+5870b7747b97d95e469cbed539db8701346fee454529dd9dfec732520cbd9f55  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+6ad6a892ad29b636313521c62235618dd68ee2d7fc3d5a7d4004b8905c920047  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+384713d6d6db10e67f7221ee2cd8bbeb91385406dbc747fe305e4a6ec894c1bb  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ```
 
 ## Included features
