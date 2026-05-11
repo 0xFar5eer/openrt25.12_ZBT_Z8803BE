@@ -5,7 +5,7 @@
 'require dom';
 'require ui';
 
-const DATA_FILE = '/etc/zbt-temperature/readings.csv';
+const DATA_FILE = '/var/log/zbt-temperature/readings.csv';
 const LOGGER = '/usr/sbin/zbt-temperature-log';
 const COLORS = [ '#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa', '#00acc1', '#6d4c41', '#3949ab', '#7cb342', '#d81b60', '#00897b', '#f4511e', '#5e35b1', '#039be5', '#c0ca33', '#757575' ];
 const CHART_HEIGHT = 320;
@@ -66,16 +66,18 @@ function parseRows(text) {
 			continue;
 
 		const parts = line.split(',');
-		if (parts.length < 4)
+		if (parts.length < 5)
 			continue;
 
 		const epoch = Math.floor(parseInt(parts[0], 10) / 60) * 60;
 		const group = parts[1];
-		const hasUnit = parts.length >= 5 && /^[A-Za-z%°/]+$/.test(parts[parts.length - 1]);
-		const valueIndex = hasUnit ? parts.length - 2 : parts.length - 1;
+		const hasUnit = /^[A-Za-z%°/]+$/.test(parts[parts.length - 1]);
+		if (!hasUnit)
+			continue;
+		const valueIndex = parts.length - 2;
 		const name = parts.slice(2, valueIndex).join(',');
 		const value = parseFloat(parts[valueIndex]);
-		const unit = hasUnit ? parts[parts.length - 1] : 'C';
+		const unit = parts[parts.length - 1];
 
 		if (!epoch || !group || !name || isNaN(value))
 			continue;

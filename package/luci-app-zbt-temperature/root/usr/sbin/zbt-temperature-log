@@ -1,11 +1,10 @@
 #!/bin/sh
 
-DATA_DIR=/etc/zbt-temperature
+DATA_DIR=/var/log/zbt-temperature
 DATA_FILE=$DATA_DIR/readings.csv
-OLD_DATA_DIR=/var/log/zbt-temperature
-OLD_DATA_FILE=$OLD_DATA_DIR/readings.csv
 LOCK_DIR=/tmp/zbt-temperature.lock
 RETENTION_SECONDS=${ZBT_TEMPERATURE_RETENTION_SECONDS:-604800}
+FAN_STATE_FILE=/tmp/zbt-temperature-fan-state
 
 sanitize_label() {
 	printf '%s' "$1" | tr ',\r\n' '___' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/[[:space:]][[:space:]]*/ /g'
@@ -141,8 +140,102 @@ sample_modem() {
 	done
 }
 
+fan_pwm_for_state() {
+	local state levels
+	state=$1
+	levels=${ZBT_FAN_LEVELS:-"0 80 112 144 176 216 255"}
+	awk -v s="$state" -v levels="$levels" 'BEGIN {
+		n = split(levels, a, /[[:space:]]+/);
+		if (n < 1) exit;
+		s += 0;
+		if (s < 0) s = 0;
+		if (s >= n) s = n - 1;
+		v = a[s + 1] + 0;
+		if (v < 0) v = 0;
+		if (v > 255) v = 255;
+		printf "%d", v;
+	}'
+}
+
+pwmfan_hwmon() {
+	local h name
+	for h in /sys/class/hwmon/hwmon*; do
+		[ -d "$h" ] || continue
+		name=$(cat "$h/name" 2>/dev/null || true)
+		[ "$name" = "pwmfan" ] || continue
+		[ -r "$h/pwm1" ] || continue
+		printf '%s\n' "$h"
+		return 0
+	done
+	return 1
+}
+
+sync_pwm_fan_state() {
+	local c target expected h pwm delta bump max
+	c=$1
+	target=$2
+	[ -w "$c/cur_state" ] || return 0
+	expected=$(fan_pwm_for_state "$target")
+	[ -n "$expected" ] || return 0
+	h=$(pwmfan_hwmon) || return 0
+	pwm=$(cat "$h/pwm1" 2>/dev/null || true)
+	delta=$(awk -v a="$expected" -v b="$pwm" -v db="${ZBT_FAN_PWM_DEADBAND:-4}" 'BEGIN {
+		a += 0; b += 0; db += 0;
+		if (db < 0) db = 0;
+		d = a - b;
+		if (d < 0) d = -d;
+		print d < db ? 0 : d;
+	}')
+	[ "${delta:-0}" = 0 ] && return 0
+	if [ "$target" -gt 0 ]; then
+		bump=$((target - 1))
+	else
+		max=$(cat "$c/max_state" 2>/dev/null || echo 0)
+		case "$max" in
+			''|*[!0-9]*) return 0 ;;
+		esac
+		[ "$max" -gt 0 ] || return 0
+		bump=1
+	fi
+	printf '%s\n' "$bump" > "$c/cur_state" 2>/dev/null || return 0
+	printf '%s\n' "$target" > "$c/cur_state" 2>/dev/null || true
+}
+
+fan_target_state() {
+	local temp current max
+	temp=$1
+	current=$2
+	max=$3
+	awk -v t="$temp" -v c="$current" -v m="$max" 'BEGIN {
+		c += 0;
+		if (m !~ /^[0-9]+$/) m = 6;
+		m += 0;
+		if (m < 1) m = 6;
+		if (t >= 85) desired = 6;
+		else if (t >= 80) desired = 5;
+		else if (t >= 75) desired = 4;
+		else if (t >= 70) desired = 3;
+		else if (t >= 65) desired = 2;
+		else if (t >= 55) desired = 1;
+		else desired = 0;
+		if (desired > c) target = desired;
+		else if (desired < c) {
+			target = c;
+			if (c >= 6 && t < 80) target = 5;
+			else if (c >= 5 && t < 76) target = 4;
+			else if (c >= 4 && t < 72) target = 3;
+			else if (c >= 3 && t < 66) target = 2;
+			else if (c >= 2 && t < 58) target = 1;
+			else if (c >= 1 && t < 48) target = 0;
+		} else target = c;
+		if (target > m) target = m;
+		if (target < 0) target = 0;
+		print target;
+	}'
+}
+
 adjust_fan() {
-	local now max_temp pwm cur delta h name max target c
+	local now max_temp pwm cur delta h name max target c prev
 	now=$1
 	max_temp=$(awk -F, -v now="$now" '
 		$1 == now && $5 == "C" && ($2 == "system" || $2 == "wifi" || $2 == "modem") {
@@ -151,26 +244,26 @@ adjust_fan() {
 		END { if (max > 0) printf "%.1f", max }
 	' "$DATA_FILE" 2>/dev/null || true)
 	[ -n "$max_temp" ] || return 0
-	pwm=$(awk \
-		-v t="$max_temp" \
-		-v tmin="${ZBT_FAN_TMIN:-35}" \
-		-v tmax="${ZBT_FAN_TMAX:-75}" \
-		-v pmin="${ZBT_FAN_PMIN:-70}" \
-		-v pmax="${ZBT_FAN_PMAX:-255}" \
-		'BEGIN {
-			t += 0; tmin += 0; tmax += 0; pmin += 0; pmax += 0;
-			if (tmax <= tmin) tmax = tmin + 1;
-			if (pmin < 0) pmin = 0;
-			if (pmin > 255) pmin = 255;
-			if (pmax < 0) pmax = 0;
-			if (pmax > 255) pmax = 255;
-			if (pmax < pmin) pmax = pmin;
-			if (t <= tmin) { printf "%d", pmin; exit }
-			if (t >= tmax) { printf "%d", pmax; exit }
-			ratio = (t - tmin) / (tmax - tmin);
-			curved = ratio ^ 3;
-			printf "%d", pmin + curved * (pmax - pmin);
-		}')
+	for c in /sys/class/thermal/cooling_device*; do
+		[ -d "$c" ] || continue
+		[ "$(cat "$c/type" 2>/dev/null)" = "pwm-fan" ] || continue
+		cur=$(cat "$c/cur_state" 2>/dev/null || echo 0)
+		max=$(cat "$c/max_state" 2>/dev/null || echo 2)
+		target=$(fan_target_state "$max_temp" "$cur" "$max")
+		[ -n "$target" ] || return 0
+		if [ "$target" = "$cur" ]; then
+			sync_pwm_fan_state "$c" "$target"
+			printf '%s\n' "$target" > "$FAN_STATE_FILE" 2>/dev/null || true
+			return 0
+		fi
+		if printf '%s\n' "$target" > "$c/cur_state" 2>/dev/null; then
+			printf '%s\n' "$target" > "$FAN_STATE_FILE" 2>/dev/null || true
+		fi
+		return 0
+	done
+	prev=$(cat "$FAN_STATE_FILE" 2>/dev/null || echo 0)
+	target=$(fan_target_state "$max_temp" "$prev" 6)
+	pwm=$(fan_pwm_for_state "$target")
 	[ -n "$pwm" ] || return 0
 	for h in /sys/class/hwmon/hwmon*; do
 		[ -d "$h" ] || continue
@@ -187,47 +280,7 @@ adjust_fan() {
 		}')
 		[ "${delta:-0}" = 0 ] && return 0
 		printf '%s\n' "$pwm" > "$h/pwm1" 2>/dev/null || true
-		return 0
-	done
-	for c in /sys/class/thermal/cooling_device*; do
-		[ -d "$c" ] || continue
-		[ "$(cat "$c/type" 2>/dev/null)" = "pwm-fan" ] || continue
-		cur=$(cat "$c/cur_state" 2>/dev/null || echo 0)
-		max=$(cat "$c/max_state" 2>/dev/null || echo 2)
-		target=$(awk -v t="$max_temp" -v c="$cur" -v m="$max" 'BEGIN {
-			c += 0;
-			m += 0;
-			if (m >= 6) {
-				if (t >= 76) target = 6;
-				else if (t >= 70) target = 5;
-				else if (t >= 64) target = 4;
-				else if (t >= 58) target = 3;
-				else if (t >= 52) target = 2;
-				else if (t >= 44) target = 1;
-				else if (t <= 38) target = 0;
-				else target = c;
-				if (c > target) {
-					if (c >= 6 && t >= 72) target = 6;
-					else if (c >= 5 && t >= 66) target = 5;
-					else if (c >= 4 && t >= 60) target = 4;
-					else if (c >= 3 && t >= 54) target = 3;
-					else if (c >= 2 && t >= 48) target = 2;
-					else if (c >= 1 && t >= 40) target = 1;
-				}
-			} else {
-				if (t >= 66) target = 2;
-				else if (t >= 44) target = 1;
-				else if (t <= 38) target = 0;
-				else target = c;
-				if (c > target && c >= 2 && t >= 64) target = 2;
-			}
-			if (target > m) target = m;
-			if (target < 0) target = 0;
-			print target;
-		}')
-		[ -n "$target" ] || return 0
-		[ "$target" = "$cur" ] && return 0
-		printf '%s\n' "$target" > "$c/cur_state" 2>/dev/null || true
+		printf '%s\n' "$target" > "$FAN_STATE_FILE" 2>/dev/null || true
 		return 0
 	done
 }
@@ -246,12 +299,6 @@ prune_old() {
 	printf '%s\n' "$now" > "$marker"
 }
 
-migrate_legacy() {
-	[ -f "$DATA_FILE" ] && return 0
-	[ -f "$OLD_DATA_FILE" ] || return 0
-	cp "$OLD_DATA_FILE" "$DATA_FILE" 2>/dev/null || true
-}
-
 sample() {
 	local now
 	now=$(date +%s)
@@ -260,12 +307,8 @@ sample() {
 		exit 0
 	fi
 	trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT INT TERM
-	migrate_legacy
 	if [ ! -f "$DATA_FILE" ]; then
 		printf 'epoch,group,name,value,unit\n' > "$DATA_FILE"
-	elif head -n 1 "$DATA_FILE" 2>/dev/null | grep -q '^epoch,group,name,celsius$'; then
-		awk -F, 'BEGIN { OFS="," } NR == 1 { print "epoch","group","name","value","unit"; next } NF == 4 { print $1,$2,$3,$4,"C"; next } { print }' "$DATA_FILE" > "$DATA_FILE.migrated" 2>/dev/null && cat "$DATA_FILE.migrated" > "$DATA_FILE"
-		rm -f "$DATA_FILE.migrated"
 	fi
 	sample_hwmon "$now"
 	sample_thermal "$now"

@@ -593,19 +593,19 @@
 		};
 
 		cpu_trip_active_high: active-high {
-			temperature = <60000>;
+			temperature = <75000>;
 			hysteresis = <2000>;
 			type = "active";
 		};
 
 		cpu_trip_active_low: active-low {
-			temperature = <45000>;
+			temperature = <55000>;
 			hysteresis = <2000>;
 			type = "active";
 		};
 
 		cpu_trip_active_silent: active-silent {
-			temperature = <38000>;
+			temperature = <45000>;
 			hysteresis = <2000>;
 			type = "active";
 		};

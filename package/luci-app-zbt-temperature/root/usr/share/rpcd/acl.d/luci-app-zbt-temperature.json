@@ -4,8 +4,8 @@
 		"read": {
 			"cgi-io": [ "exec" ],
 			"file": {
-				"/etc/zbt-temperature/readings.csv": [ "read" ],
-				"/usr/sbin/zbt-temperature-log sample": [ "exec" ]
+				"/var/log/zbt-temperature/readings.csv": [ "read" ],
+				"/usr/sbin/zbt-temperature-log": [ "exec" ]
 			}
 		},
 		"write": {}
