@@ -1,6 +1,6 @@
 # Corrected Router Reflash / Setup / DTS Validation Plan
 
-This file is the release gate for the local unreleased `v25.12.2-5-zbt8803be` test build. The previous generic firmware checks are considered covered; use this plan for the router reflash, setup, live DTS validation, and any DTS fix/rebuild/retest loop.
+This file is the release gate for the local unreleased `v25.12.2-6-zbt8803be` test build. The previous generic firmware checks are considered covered; use this plan for the router reflash, setup, live DTS validation, and any DTS fix/rebuild/retest loop.
 
 No router action should run until the explicit green flag is given.
 
@@ -51,7 +51,7 @@ Do nothing to the router until this exact approval is given:
 green flag, flash router
 ```
 
-Do not commit, tag, push, publish a GitHub release, or update the upstream PR until post-flash validation passes.
+Do not flash the router until the explicit green flag is given. Publishing release assets before the reflash is allowed when the goal is to make the image available for the reflash.
 
 ## Phase 1: Local Artifact Preflight
 
@@ -71,7 +71,7 @@ sha256sum releases/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgr
 Expected sysupgrade hash:
 
 ```text
-36cd47c0579876a24343aaea6bc4f8851007bcb5a57c06632b86bd079cbb0d82
+373420c401352f4890c4480de24d333174f8decdae5d3631d58e91fc0ffeed0b
 ```
 
 ### 1.2 Confirm archive structure
@@ -182,25 +182,25 @@ Use current pre-flash hostname:
 ### 3.1 Upload image
 
 ```sh
-scp releases/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin root@3fl.lan:/tmp/v25.12.2-5-zbt8803be-sysupgrade.bin
+scp releases/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin root@3fl.lan:/tmp/v25.12.2-6-zbt8803be-sysupgrade.bin
 ```
 
 ### 3.2 Verify uploaded hash
 
 ```sh
-ssh root@3fl.lan 'sha256sum /tmp/v25.12.2-5-zbt8803be-sysupgrade.bin'
+ssh root@3fl.lan 'sha256sum /tmp/v25.12.2-6-zbt8803be-sysupgrade.bin'
 ```
 
 Expected:
 
 ```text
-36cd47c0579876a24343aaea6bc4f8851007bcb5a57c06632b86bd079cbb0d82
+373420c401352f4890c4480de24d333174f8decdae5d3631d58e91fc0ffeed0b
 ```
 
 ### 3.3 Run sysupgrade
 
 ```sh
-ssh root@3fl.lan 'sysupgrade /tmp/v25.12.2-5-zbt8803be-sysupgrade.bin'
+ssh root@3fl.lan 'sysupgrade /tmp/v25.12.2-6-zbt8803be-sysupgrade.bin'
 ```
 
 Expected:
@@ -931,7 +931,7 @@ Then refresh release checksums/docs, reflash, and repeat this validation plan fr
 Version:
 
 ```text
-v25.12.2-5-zbt8803be
+v25.12.2-6-zbt8803be
 ```
 
 Sysupgrade:
@@ -943,14 +943,14 @@ releases/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
 Sysupgrade SHA256:
 
 ```text
-36cd47c0579876a24343aaea6bc4f8851007bcb5a57c06632b86bd079cbb0d82
+373420c401352f4890c4480de24d333174f8decdae5d3631d58e91fc0ffeed0b
 ```
 
 Build logs:
 
 ```text
-.buildenv/logs/rebuild-20260510-184233-v25.12.2-5-nosim-static/build.log
-.buildenv/logs/rebuild-20260510-184233-v25.12.2-5-nosim-static/extract.log
+.buildenv/logs/release-20260511-181850-v25.12.2-6-fan-policy-final/build.log
+.buildenv/logs/release-20260511-181850-v25.12.2-6-fan-policy-final/extract.log
 ```
 
 Current release status:
@@ -958,10 +958,7 @@ Current release status:
 - **Built locally:** yes
 - **Artifacts staged:** yes
 - **Checksums refreshed:** yes
-- **Router flashed:** initial v25.12.2-5 image yes; refreshed no-SIM/static hotfix image not reflashed
-- **Live hotfix deployed:** yes, qmodem monitor no-SIM suspension script deployed and verified on 3fl.lan
-- **Committed:** yes
-- **Pushed:** yes
-- **Tagged:** yes
-- **GitHub release:** refreshed with hotfix assets
+- **Router flashed:** no, v25.12.2-6 fan-policy image awaits user reflash
+- **Live hotfix deployed:** yes, fan-temperature policy deployed and verified live on 3fl.lan; post-replug spot-check was stable; 85C DTS failsafe requires reflash
+- **Release publication:** use tag `v25.12.2-6-zbt8803be` and the staged GitHub release assets before user reflash
 - **PR updated:** no
