@@ -592,6 +592,12 @@
 			type = "critical";
 		};
 
+		cpu_trip_active_max: active-max {
+			temperature = <85000>;
+			hysteresis = <2000>;
+			type = "active";
+		};
+
 		cpu_trip_active_high: active-high {
 			temperature = <75000>;
 			hysteresis = <2000>;
@@ -612,6 +618,11 @@
 	};
 
 	cooling-maps {
+		cpu-active-max {
+			cooling-device = <&fan 6 6>;
+			trip = <&cpu_trip_active_max>;
+		};
+
 		cpu-active-high {
 			/* active: set fan to cooling level 3 */
 			cooling-device = <&fan 3 3>;
