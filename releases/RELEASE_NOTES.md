@@ -30,25 +30,36 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - **Breaking cleanup retained.** Legacy 4-column CSV compatibility remains removed; the frontend still expects the current 5-column format: `epoch, group, name, value, unit`.
 - **LuCI data path unchanged.** The Temperature page and rpcd ACL continue to read `/var/log/zbt-temperature/readings.csv`.
 
+### Crash and reboot forensics
+
+- **Persistent crash log directory.** Added `zbt-crash-forensics`, storing diagnostic data in `/etc/zbt-crash-logs/` so it survives reboots and reflashes.
+- **Kernel pstore archiving.** On boot, `/sys/fs/pstore/*` is copied into timestamped `/etc/zbt-crash-logs/pstore-<epoch>/` directories and old archives are pruned to the latest 10.
+- **Boot classification.** `boot-events.log` records first, clean, and unclean boots using a clean-shutdown marker plus kernel `boot_id`, avoiding fake boot events during service restarts.
+- **Rolling health snapshots.** A one-minute cron overwrites `last-snapshot.txt` and keeps `prev-snapshot.txt`, capturing uptime, load, memory, top processes, thermal/hwmon/fan data, network counters, dmesg tail, and logread tail.
+- **Backup integration.** App-history backup/restore now preserves `/etc/zbt-crash-logs/` alongside the existing app history files.
+
 ## Validation
 
-- Firmware rebuilt from commit `8f88058c57` and extracted to `output/mediatek/filogic`.
+- Firmware rebuilt from commit `b1d85c6f12` and extracted to `output/mediatek/filogic`.
 - Staged release assets passed `sha256sum -c sha256sums --ignore-missing`.
 - `zbt-temperature-log` passed `sh -n`.
+- `zbt-crash-forensics`, `zbt_crash_forensics`, and `49-zbt-crash-forensics` passed `sh -n`.
 - Temperature LuCI JavaScript passed `node --check`.
 - Temperature rpcd ACL passed JSON validation.
+- Engineering code review workflow passed before rebuild; no blockers found.
 - Source tree passed `git diff --check` before release documentation updates.
 - Embedded firmware review and final code review gates passed before rebuild.
 - Live router validation before rebuild showed stable fan behavior around cooling state 2 / PWM 112 with no bouncing, LuCI/ubus could read the tmpfs telemetry file, and a simulated reboot (stop service + wipe tmpfs + start) successfully restored the persistent snapshot back into tmpfs and resumed sampling.
+- Live router crash-forensics smoke test showed service enabled, one cron entry installed, pstore archived, snapshots written, and repeated service restarts did not append duplicate boot events.
 
 ## Checksums
 
 ```text
-9fe17ce6cbbaa0a48ff4290560217678d02211649c37888268307c766f321472  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-d0c4be4b9ccd100cab43d47be4d8147645f6aa08544dcc5285085724d7af26fb  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-eb0b6a8c1bb75620a0c27c8e4a659227f061e327dd19a4c53e878c3edc3d47a4  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-37a90d25ba0f475ddfa479a5e7825c92bd9161c320acff5812ee442e0261d37d  sha256sums
-0d1ac3f38d93e39e61e064f4f14062918333ba99a5e8fe1ac7c8c805101623d2  config.buildinfo
+10a74b09735ad3c82619033b1b23847b44f486a3abbd8a727bdd9c55f3c4a61e  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+add3cdf72e7dc98f86d1fb06b6f775c7c4d4141896231f6546157ba068ab071a  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+ff83037f018fdd52fae2fc2f96dce0cc7331a76ac5f1c4d341a1198334e849ae  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+4605b40e3cdd1f621a03dd5e10bf2b3adeac16bcf8fcadfb9a4629eb782d89ad  sha256sums
+19a0a0bc2e43e95a242f16dc77f6645a1b58d48348c4e8d247cf8273daaabdc2  config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinfo
 05f6cea7ac9e5c3d2d73225400b4dc3cf51eb8002f54cf6d05e5934c1805c60c  version.buildinfo
 ```
