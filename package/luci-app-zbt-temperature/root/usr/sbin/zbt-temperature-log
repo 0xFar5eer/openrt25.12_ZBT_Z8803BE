@@ -5,6 +5,10 @@ DATA_FILE=$DATA_DIR/readings.csv
 LOCK_DIR=/tmp/zbt-temperature.lock
 RETENTION_SECONDS=${ZBT_TEMPERATURE_RETENTION_SECONDS:-604800}
 FAN_STATE_FILE=/tmp/zbt-temperature-fan-state
+PERSIST_DIR=${ZBT_TEMPERATURE_PERSIST_DIR:-/etc/zbt-temperature}
+PERSIST_FILE=$PERSIST_DIR/readings.csv
+PERSIST_MARKER=$DATA_DIR/.last-persist
+PERSIST_INTERVAL=${ZBT_TEMPERATURE_PERSIST_INTERVAL:-900}
 
 sanitize_label() {
 	printf '%s' "$1" | tr ',\r\n' '___' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/[[:space:]][[:space:]]*/ /g'
@@ -285,6 +289,39 @@ adjust_fan() {
 	done
 }
 
+flush_persistent() {
+	local tmp
+	[ -s "$DATA_FILE" ] || return 0
+	mkdir -p "$PERSIST_DIR" 2>/dev/null || return 0
+	tmp=$PERSIST_FILE.tmp
+	cp "$DATA_FILE" "$tmp" 2>/dev/null || return 0
+	sync
+	mv -f "$tmp" "$PERSIST_FILE" 2>/dev/null || { rm -f "$tmp"; return 0; }
+	date +%s > "$PERSIST_MARKER" 2>/dev/null || true
+}
+
+restore_persistent() {
+	[ -f "$PERSIST_FILE" ] || return 0
+	[ -s "$PERSIST_FILE" ] || return 0
+	mkdir -p "$DATA_DIR" 2>/dev/null || return 0
+	if [ ! -s "$DATA_FILE" ]; then
+		cp "$PERSIST_FILE" "$DATA_FILE" 2>/dev/null || return 0
+		date +%s > "$PERSIST_MARKER" 2>/dev/null || true
+	fi
+}
+
+maybe_flush() {
+	local now last
+	now=$1
+	[ "${PERSIST_INTERVAL:-0}" -gt 0 ] 2>/dev/null || return 0
+	last=$(cat "$PERSIST_MARKER" 2>/dev/null || echo 0)
+	case "$last" in
+		''|*[!0-9]*) last=0 ;;
+	esac
+	[ $((now - last)) -ge "$PERSIST_INTERVAL" ] || return 0
+	flush_persistent
+}
+
 prune_old() {
 	local now marker last tmp cutoff
 	now=$1
@@ -307,6 +344,7 @@ sample() {
 		exit 0
 	fi
 	trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT INT TERM
+	restore_persistent
 	if [ ! -f "$DATA_FILE" ]; then
 		printf 'epoch,group,name,value,unit\n' > "$DATA_FILE"
 	fi
@@ -316,10 +354,14 @@ sample() {
 	adjust_fan "$now"
 	sample_fan "$now"
 	prune_old "$now"
+	maybe_flush "$now"
 }
 
 case "${1:-sample}" in
 	sample) sample ;;
+	flush) flush_persistent ;;
+	restore) restore_persistent ;;
 	path) printf '%s\n' "$DATA_FILE" ;;
-	*) echo "Usage: $0 [sample|path]" >&2; exit 1 ;;
+	persist-path) printf '%s\n' "$PERSIST_FILE" ;;
+	*) echo "Usage: $0 [sample|flush|restore|path|persist-path]" >&2; exit 1 ;;
 esac

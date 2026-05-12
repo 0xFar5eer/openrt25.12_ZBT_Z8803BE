@@ -26,6 +26,7 @@ reload_cron() {
 }
 
 start() {
+	/usr/sbin/zbt-temperature-log restore >/dev/null 2>&1 || true
 	add_cron_line
 	/usr/sbin/zbt-temperature-log sample >/dev/null 2>&1 || true
 	reload_cron
@@ -33,6 +34,7 @@ start() {
 
 stop() {
 	remove_cron_line
+	/usr/sbin/zbt-temperature-log flush >/dev/null 2>&1 || true
 	reload_cron
 }
 
