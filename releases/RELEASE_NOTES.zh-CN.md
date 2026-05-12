@@ -24,28 +24,30 @@
 
 ### 温度记录 / LuCI
 
-- **只写 tmpfs。** 温度历史现在写入 `/var/log/zbt-temperature/readings.csv`，不再写入 `/etc/zbt-temperature/readings.csv`，避免持续写入 flash。
-- **破坏性清理。** 已按计划移除旧 `/etc/zbt-temperature` 迁移 / fallback，以及旧 4 列 CSV 兼容逻辑。
-- **LuCI 数据路径修复。** Temperature 页面和 rpcd ACL 现在读取 `/var/log/zbt-temperature/readings.csv`；前端按当前 5 列 CSV 格式解析：epoch、group、name、value、unit。
+- **tmpfs 工作文件 + 持久化快照。** 温度采样仍写入 `/var/log/zbt-temperature/readings.csv`（tmpfs），并按固定间隔通过原子操作快照到 `/etc/zbt-temperature/readings.csv`（overlay/flash）。开机后从快照恢复回 tmpfs，因此意外重启后历史数据不再丢失。
+- **低 flash 写入量。** 快照默认间隔 `ZBT_TEMPERATURE_PERSIST_INTERVAL=900` 秒（约 96 次/天），使用 `cp` + `sync` + `mv` 保证原子性。
+- **正常关机刷盘。** `zbt_temperature` init 脚本在 `stop` 时刷盘，正常重启不丢样本；只有异常崩溃可能丢失最多一个间隔的数据。
+- **破坏性清理保留。** 旧 4 列 CSV 兼容仍按计划移除；前端继续按当前 5 列 CSV 格式解析：epoch、group、name、value、unit。
+- **LuCI 数据路径不变。** Temperature 页面和 rpcd ACL 仍读取 `/var/log/zbt-temperature/readings.csv`。
 
 ## 验证
 
-- 固件从 commit `f58ee50c35` 重新构建，并提取到 `output/mediatek/filogic`。
+- 固件从 commit `8f88058c57` 重新构建，并提取到 `output/mediatek/filogic`。
 - staged release assets 已通过 `sha256sum -c sha256sums --ignore-missing`。
 - `zbt-temperature-log` 通过 `sh -n`。
 - Temperature LuCI JavaScript 通过 `node --check`。
 - Temperature rpcd ACL 通过 JSON 校验。
 - 发布文档更新前源码树通过 `git diff --check`。
 - 重构建前已通过 embedded firmware review 和最终 code review。
-- 重构建前实机验证显示风扇稳定在 cooling state 2 / PWM 112 附近，没有来回跳档；LuCI/ubus 可读取 tmpfs 温度记录。
+- 重构建前实机验证显示风扇稳定在 cooling state 2 / PWM 112 附近，没有来回跳档；LuCI/ubus 可读取 tmpfs 温度记录；模拟重启（停止服务 + 清空 tmpfs + 重启服务）成功从持久化快照恢复并继续采样。
 
 ## 校验值
 
 ```text
-373420c401352f4890c4480de24d333174f8decdae5d3631d58e91fc0ffeed0b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-77cb8e7a2c7840170d35bfbdf9669d2e6caa7397ea43295899bd57f6d294ff8f  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-2d9410ca9a1d15617fe715256e67a0d5e2a365a2ff1f132f9bfcbc6d0c7dbdb8  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-b9847815647e18df517aea99f33681a179f1110077ea44acf8569856e5a14066  sha256sums
+9fe17ce6cbbaa0a48ff4290560217678d02211649c37888268307c766f321472  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+d0c4be4b9ccd100cab43d47be4d8147645f6aa08544dcc5285085724d7af26fb  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+eb0b6a8c1bb75620a0c27c8e4a659227f061e327dd19a4c53e878c3edc3d47a4  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+37a90d25ba0f475ddfa479a5e7825c92bd9161c320acff5812ee442e0261d37d  sha256sums
 0d1ac3f38d93e39e61e064f4f14062918333ba99a5e8fe1ac7c8c805101623d2  config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinfo
 05f6cea7ac9e5c3d2d73225400b4dc3cf51eb8002f54cf6d05e5934c1805c60c  version.buildinfo
