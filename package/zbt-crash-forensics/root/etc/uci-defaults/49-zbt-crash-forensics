@@ -1,0 +1,15 @@
+#!/bin/sh
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+mkdir -p /etc/zbt-crash-logs 2>/dev/null
+chmod 0755 /etc/zbt-crash-logs 2>/dev/null
+
+if [ -x /etc/init.d/zbt_crash_forensics ]; then
+	/etc/init.d/zbt_crash_forensics enable >/dev/null 2>&1 || true
+	/etc/init.d/zbt_crash_forensics start >/dev/null 2>&1 || true
+fi
+
+exit 0

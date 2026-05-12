@@ -1,0 +1,46 @@
+#!/bin/sh /etc/rc.common
+# Capture pstore + classify reboot at startup, write clean-shutdown marker at stop.
+START=11
+STOP=98
+
+CRON_FILE=/etc/crontabs/root
+CRON_CMD='/usr/sbin/zbt-crash-forensics snapshot >/dev/null 2>&1'
+
+remove_cron_line() {
+	[ -f "$CRON_FILE" ] || return 0
+	local tmp=$CRON_FILE.tmp
+	grep -v -F "$CRON_CMD" "$CRON_FILE" > "$tmp" 2>/dev/null || true
+	mv -f "$tmp" "$CRON_FILE"
+}
+
+add_cron_line() {
+	remove_cron_line
+	mkdir -p "$(dirname "$CRON_FILE")"
+	printf '* * * * * %s\n' "$CRON_CMD" >> "$CRON_FILE"
+}
+
+reload_cron() {
+	/etc/init.d/cron restart >/dev/null 2>&1 || true
+}
+
+start() {
+	/usr/sbin/zbt-crash-forensics boot >/dev/null 2>&1 || true
+	/usr/sbin/zbt-crash-forensics snapshot >/dev/null 2>&1 || true
+	add_cron_line
+	reload_cron
+}
+
+stop() {
+	remove_cron_line
+	/usr/sbin/zbt-crash-forensics shutdown >/dev/null 2>&1 || true
+	reload_cron
+}
+
+restart() {
+	stop
+	start
+}
+
+reload() {
+	start
+}
