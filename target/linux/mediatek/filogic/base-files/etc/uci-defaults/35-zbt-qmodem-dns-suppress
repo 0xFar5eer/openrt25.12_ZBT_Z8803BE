@@ -1,11 +1,12 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
 #
-# Z8803BE - firmware modem-profile contract for the cellular qmodem section.
+# Z8803BE - firmware qmodem disabled-by-default modem-profile contract.
 #
-# Asserts the two non-default qmodem.<modem-device>.* options that the
-# firmware needs out of the box (independent of qmodem's package defaults
-# and independent of any setup-script run):
+# WAN-only is the firmware default. This script asserts the qmodem main
+# and qmodem.<modem-device> options that keep cellular dormant unless a
+# deployment explicitly opts back in. It also keeps the historical DNS/NAT
+# modem-profile flags ready for that opt-in path:
 #
 #   1. do_not_add_dns=1
 #       qmodem's modem_dial.sh (feeds/qmodem/.../modem_dial.sh) reads
@@ -52,7 +53,7 @@
 #       masquerade then handles the only NAT step on the path. This
 #       is mandatory for any router-mode deployment.
 #
-# What this script DELIBERATELY does NOT touch (auto-APN contract):
+# What this script DELIBERATELY keeps untouched (auto-APN contract):
 #   * apn / force_set_apn / pre_dial_at_cmds / pdp_type
 #       qmodem's defaults (apn unset, force_set_apn=0, pdp_type=ipv4v6)
 #       let quectel-CM-M auto-detect the carrier-blessed APN, which on
@@ -62,19 +63,13 @@
 #       on Smart PH with the Quectel RM551E firmware. Setup scripts may
 #       still override at runtime if a specific deployment needs it,
 #       but the firmware-shipped default is auto-everything.
-#
-#   * state
-#       qmodem creates new modem-device sections with state='disabled'.
-#       Flipping to 'enabled' is owned by
-#       /etc/uci-defaults/30-zbt-qmodem-autoenable so the dependency
-#       graph stays explicit (autoenable runs before this script via
-#       lexical filename order).
+# Cellular enablement is opt-in. The disabled state, block_auto_probe,
+# and high metric are intentionally duplicated in 45-zbt-qmodem-monitor-enable
+# so the safe WAN-only contract survives partial package availability.
 #
 # WHEN IT TAKES EFFECT:
-#   modem_dial.sh re-reads UCI on every dial, so the next ifup of 4_1
-#   picks up the new flags and the dialer comes up with -D plus no
-#   double-NAT. /etc/resolv.conf settles to whatever procd writes
-#   (just `nameserver 127.0.0.1` for dnsmasq).
+#   qmodem reads UCI on every scan/dial path. If cellular is explicitly
+#   enabled later, the modem-profile flags are already set before dial.
 #
 # IDEMPOTENCE:
 #   uci set is a no-op when the value already matches. Safe on every
@@ -95,11 +90,23 @@ esac
 # `modem-device` (created by qmodem's modem_scan.sh:498 when a modem
 # is detected, named after its logical interface, e.g. `qmodem.4_1`).
 contract_changed=0
+if uci -q get qmodem.main >/dev/null 2>&1; then
+        uci -q set qmodem.main.enable_dial='0'
+        uci -q set qmodem.main.try_preset_usb='0'
+        uci -q set qmodem.main.try_preset_pcie='0'
+        uci -q set qmodem.main.enable_pcie_scan='0'
+        uci -q set qmodem.main.block_auto_probe='1'
+        contract_changed=1
+fi
 for sec in $(uci -q show qmodem 2>/dev/null \
                 | sed -nE "s/^qmodem\.([^.=]+)=modem-device$/\1/p"); do
         [ -n "$sec" ] || continue
         uci -q set "qmodem.${sec}.do_not_add_dns=1"
         uci -q set "qmodem.${sec}.donot_nat=1"
+        uci -q set "qmodem.${sec}.state=disabled"
+        uci -q set "qmodem.${sec}.monitor_enabled=0"
+        uci -q set "qmodem.${sec}.enable_dial=0"
+        uci -q set "qmodem.${sec}.metric=200"
         contract_changed=1
 done
 
@@ -115,6 +122,10 @@ if ! uci -q get qmodem.4_1 >/dev/null 2>&1; then
         uci -q set qmodem.4_1=modem-device
         uci -q set qmodem.4_1.do_not_add_dns='1'
         uci -q set qmodem.4_1.donot_nat='1'
+        uci -q set qmodem.4_1.state='disabled'
+        uci -q set qmodem.4_1.monitor_enabled='0'
+        uci -q set qmodem.4_1.enable_dial='0'
+        uci -q set qmodem.4_1.metric='200'
         contract_changed=1
 fi
 

@@ -1,17 +1,14 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
 #
-# Z8803BE — wire qmodem_monitor for the cellular modem-device section
-# and enable the service at boot.
+# Z8803BE — keep qmodem_monitor configured but disabled by default.
 #
-# Pairs with /usr/sbin/zbt-modem-hard-reboot-guard. The qmodem_monitor
-# package (feeds/qmodem/application/qmodem_monitor) is shipped but
-# stays inert by default: each modem-device section needs
-# monitor_enabled=1 and a method/action set, and /etc/init.d/qmodem_monitor
-# isn't symlinked into /etc/rc.d on a clean image. We do both here so
-# the cellular link gets watchdogged out of the box.
+# WAN-only is the firmware default. This script preserves the qmodem
+# monitor method/action/script contract for deployments that explicitly
+# re-enable cellular later, while forcing monitor_enabled=0 and disabling
+# qmodem_monitor at boot.
 #
-# Why curl/direct-IP gstatic/10s/threshold=6:
+# Why preserve curl/direct-IP gstatic/10s/threshold=6:
 #   * monitor_method=curl on http://142.250.23.94/generate_204 is
 #     what we actually need on Smart/Globe PH. Empirical test on the
 #     RM551E-GL on Globe PH (Apr 2026):
@@ -32,8 +29,9 @@
 #     GGSN → internet → TCP → HTTP.
 #   * interval=10s and threshold=6 means we declare-down after roughly
 #     one minute of consecutive HTTP failures. That is fast enough to
-#     recover short cellular outages quickly while the hard-reboot guard
-#     still enforces boot grace, SIM-present checks, and reset lockout.
+#     recover short cellular outages quickly when cellular is explicitly
+#     enabled, while the hard-reboot guard still enforces boot grace,
+#     SIM-present checks, and reset lockout.
 #
 # Why run_scripts -> zbt-modem-hard-reboot-guard:
 #   The qmodem_monitor send_at_commands action would let us send
@@ -57,6 +55,9 @@
 #   uci set is a no-op when the value matches. The list reset is
 #   gated on a content match so we only rewrite when a different list
 #   is in place.
+#   The WAN-only disabled state is intentionally duplicated in
+#   35-zbt-qmodem-dns-suppress so the safe default survives partial
+#   package availability.
 
 case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
         zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
@@ -79,11 +80,14 @@ apply_monitor_contract() {
 
         # Scalars
         for kv in \
-                "monitor_enabled=1" \
+                "monitor_enabled=0" \
                 "monitor_method=curl" \
                 "monitor_http_url=http://142.250.23.94/generate_204" \
                 "monitor_interval=10" \
-                "monitor_threshold=6"
+                "monitor_threshold=6" \
+                "state=disabled" \
+                "enable_dial=0" \
+                "metric=200"
         do
                 k=${kv%%=*}; v=${kv#*=}
                 cur=$(uci -q get "qmodem.${sec}.${k}")
@@ -150,10 +154,11 @@ contract_changed=0
 
 if uci -q get qmodem.main >/dev/null 2>&1; then
         for kv in \
-                "enable_dial=1" \
-                "try_preset_usb=1" \
+                "enable_dial=0" \
+                "try_preset_usb=0" \
                 "try_preset_pcie=0" \
-                "enable_pcie_scan=0"
+                "enable_pcie_scan=0" \
+                "block_auto_probe=1"
         do
                 k=${kv%%=*}; v=${kv#*=}
                 cur=$(uci -q get "qmodem.main.${k}" 2>/dev/null)
@@ -204,10 +209,7 @@ fi
 
 [ "$contract_changed" = "1" ] && uci -q commit qmodem
 
-# Enable the service so procd starts it on next boot. Don't `start`
-# here — uci-defaults run from S95uci-defaults_apply, before the
-# service-start phase, and the monitor needs the cellular interface
-# to be up to do anything useful anyway.
-/etc/init.d/qmodem_monitor enable >/dev/null 2>&1 || true
+# Keep the monitor service disabled for WAN-only firmware defaults.
+/etc/init.d/qmodem_monitor disable >/dev/null 2>&1 || true
 
 exit 0

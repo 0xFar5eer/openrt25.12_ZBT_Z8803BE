@@ -1,32 +1,11 @@
 #!/bin/sh
-# Auto-enable qmodem WWAN slot on first detection.
+# Auto-enable qmodem WWAN slot only when cellular is explicitly enabled.
 #
-# Background:
-#   FUjr/QModem's modem_scan.sh creates the qmodem.4_1 UCI section with
-#   state='disabled' on first USB detection. With state='disabled' the
-#   companion qmodem_network init script never starts modem_dial.sh, so
-#   quectel-CM-M never runs and wwan0 stays without an IP - the entire
-#   cellular failover path is dead until the user manually toggles state
-#   in LuCI -> QModem Next.
-#
-#   The previous-firmware experience (config preserved across sysupgrade)
-#   masked this because qmodem.4_1.state had been flipped to 'enabled' by
-#   the user once and stuck around. After a fresh `sysupgrade -n` (clean
-#   wipe) the default state='disabled' shows up and breaks failover.
-#
-#   This hotplug fires on USB add events, matches the Quectel RM551E-GL
-#   vendor:product (and any other Quectel WWAN module the qmodem package
-#   recognizes), waits briefly for modem_scan.sh to finish creating the
-#   qmodem section, then flips state to 'enabled' once and triggers a
-#   qmodem_network restart so quectel-CM-M actually dials.
-#
-#   Also re-asserts the network.4_1 / 4_1v6 proto=none stubs that
-#   30-zbt-z8803be-wan-failover sets up at first boot. qmodem_init can
-#   wipe them when it rewrites /etc/config/network on its own boot path,
-#   so we re-create them here defensively. Without these stubs, fw4 has
-#   no device->zone mapping for wwan0, masquerade is skipped on the
-#   wwan0 egress side, and LAN clients can't reach internet over the
-#   cellular failover even though the router itself can.
+# WAN-only is the firmware default. This hotplug is intentionally
+# fail-closed: it exits unless qmodem.main.enable_dial is explicitly set
+# to 1 and qmodem.main.block_auto_probe is not set. In that opt-in mode,
+# it waits for modem_scan.sh to create qmodem.4_1, enables the section,
+# and re-asserts the dormant network stubs needed by cellular failover.
 #
 # Trigger: USB add events for Quectel modems (Vendor 2c7c).
 # Debounce: 6s wait for qmodem to create the section.
@@ -40,6 +19,10 @@ case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
 	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
 	*) exit 0 ;;
 esac
+
+[ -e /etc/config/qmodem ] || exit 0
+[ "$(uci -q get qmodem.main.block_auto_probe 2>/dev/null)" = "1" ] && exit 0
+[ "$(uci -q get qmodem.main.enable_dial 2>/dev/null)" = "1" ] || exit 0
 
 # Match Quectel modems only (idVendor 2c7c covers RM-series 5G/LTE modules).
 [ -e "/sys/$DEVPATH/idVendor" ] || exit 0
@@ -82,15 +65,16 @@ fi
 		uci -q set network.4_1=interface
 		uci -q set network.4_1.proto='none'
 		uci -q set network.4_1.device='wwan0'
-		uci -q set network.4_1.metric='20'
-		uci -q set network.4_1.defaultroute='1'
+		uci -q set network.4_1.metric='200'
+		uci -q set network.4_1.defaultroute='0'
 		uci -q set network.4_1.peerdns='0'
 	fi
 	if ! uci -q get network.4_1v6 >/dev/null 2>&1; then
 		uci -q set network.4_1v6=interface
 		uci -q set network.4_1v6.proto='none'
 		uci -q set network.4_1v6.device='wwan0'
-		uci -q set network.4_1v6.metric='20'
+		uci -q set network.4_1v6.metric='200'
+		uci -q set network.4_1v6.disabled='1'
 	fi
 	uci -q commit network
 

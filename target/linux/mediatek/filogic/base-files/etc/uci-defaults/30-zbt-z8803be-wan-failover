@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
 #
-# Z8803BE - WAN/WWAN failover topology + DNS-policy contract.
+# Z8803BE - wired-WAN topology + dormant WWAN DNS-policy contract.
 #
 # DNS POLICY CONTRACT (firmware-wide):
 #   This board boots into deterministic public DNS by default. The
@@ -9,9 +9,9 @@
 #       LAN client -> dnsmasq (LAN IP:53) -> 1.1.1.1 / 8.8.8.8 (UDP/53)
 #   This file owns the netifd-side half of that contract:
 #       network.wan.peerdns   = 0   (drop ISP DHCP option 6)
-#       network.4_1.peerdns   = 0   (drop cellular operator DNS pushed
-#                                    via netifd hotplug for the qmodem
-#                                    proto=none stub)
+#       network.4_1.peerdns   = 0   (if cellular is explicitly enabled,
+#                                    drop operator DNS pushed via netifd
+#                                    for the qmodem proto=none stub)
 #   Note: feeds/qmodem/.../modem_dial.sh:397 deletes
 #   network.4_1.peerdns whenever the operator DNS list is empty
 #   (Smart PH common case), so `uci show network` after a dial may
@@ -61,21 +61,17 @@ uci -q set network.wan.defaultroute='1'
 uci -q set network.wan.peerdns='0'
 uci -q set network.wan.force_link='0'
 
-# Register WWAN (4_1 / 4_1v6) as netifd proto=none stubs bound to wwan0.
-# Required so fw4 picks up wwan0 as a member of the wan firewall zone
-# (firewall.@zone[1].network already lists '4_1' / '4_1v6'). Without these
-# stubs, quectel-CM configures wwan0 directly via raw `ip addr add` and fw4
-# silently skips the zone reference -> no masquerade on wwan0 -> LAN clients
-# can't reach internet on WAN-cable failover even though router-side
-# `ping -I wwan0` works. proto=none means netifd just binds the device for
-# zone purposes; quectel-CM keeps owning IP/route configuration.
+# Register dormant WWAN (4_1 / 4_1v6) proto=none stubs bound to wwan0.
+# Firmware defaults to wired WAN only: cellular has high metric, no
+# default route, and IPv6 disabled. If a deployment explicitly enables
+# cellular later, these stubs still let fw4 bind wwan0 to the wan zone.
 if ! uci -q get network.4_1 >/dev/null 2>&1; then
 	uci -q set network.4_1=interface
 	uci -q set network.4_1.proto='none'
 	uci -q set network.4_1.device='wwan0'
 fi
-uci -q set network.4_1.metric='20'
-uci -q set network.4_1.defaultroute='1'
+uci -q set network.4_1.metric='200'
+uci -q set network.4_1.defaultroute='0'
 uci -q set network.4_1.peerdns='0'
 # Mirror device → ifname (legacy alias). qmodem_monitor's
 # update_netcfg() reads `network.<sec>.ifname` (modem_monitor.sh:81)
@@ -90,25 +86,25 @@ if ! uci -q get network.4_1v6 >/dev/null 2>&1; then
 	uci -q set network.4_1v6.proto='none'
 	uci -q set network.4_1v6.device='wwan0'
 fi
-uci -q set network.4_1v6.metric='20'
+uci -q set network.4_1v6.metric='200'
+uci -q set network.4_1v6.disabled='1'
 
 if [ -e /etc/config/qmodem ]; then
-	set_slot_default_metric '4-1' '20'
+	set_slot_default_metric '4-1' '200'
 	if uci -q get qmodem.4_1 >/dev/null 2>&1; then
-		uci -q set qmodem.4_1.metric='20'
+		uci -q set qmodem.4_1.metric='200'
 	fi
 	uci -q commit qmodem
 fi
 
 uci -q commit network
 
-# Ensure the wan firewall zone's network list contains '4_1' and '4_1v6'.
+# Keep dormant WWAN stubs listed in the wan firewall zone.
 # qmodem's boot logic has been observed wiping firewall.<wan zone>.network
 # back to just 'wan' (it appears to rewrite the file when it (re)creates
 # its own network sections), which silently drops wwan0 out of the wan
-# zone -> no masquerade on cellular egress -> LAN clients get "no
-# internet" while the router itself can still ping out. add_list is
-# idempotent because UCI deduplicates, so this is safe to re-run.
+# zone if cellular is later enabled. add_list is idempotent because UCI
+# deduplicates, so this is safe to re-run.
 #
 # Resolve the wan zone by NAME instead of by @zone[1] index: a user who
 # adds a guest zone via LuCI before wan would shift the index, and we'd

@@ -116,9 +116,8 @@
 		 * "5G2") get their Vbat from a board-side power-enable that the
 		 * SoC drives on GPIO17 / GPIO52. The pin is active-high; left at
 		 * 0 the slot is dead and any modem inserted into it never
-		 * enumerates on USB. Default the primary slot (5G1) to powered-on
-		 * and the secondary slot (5G2) to powered-off for the 3FL single
-		 * modem deployment. Pre-flash power state is irrelevant: u-boot
+		 * enumerates on USB. Default both modem slots to powered-off for
+		 * the 3FL wired-WAN deployment. Pre-flash power state is irrelevant: u-boot
 		 * doesn't drive these pins.
 		 *
 		 * Names match the front-panel silk so `/sys/class/gpio/5g1`
@@ -128,7 +127,7 @@
 		 */
 		modem0 {
 			gpio-export,name = "5g1";
-			gpio-export,output = <1>;
+			gpio-export,output = <0>;
 			gpios = <&pio 17 GPIO_ACTIVE_HIGH>;
 		};
 		modem1 {

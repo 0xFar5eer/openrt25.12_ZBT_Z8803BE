@@ -3,12 +3,12 @@
 #
 # zbt-modem-reboot-guard — gated AT+CFUN=1,1 modem soft-reset.
 #
-# Invoked by qmodem_monitor's `run_scripts` action (configured in
-# /etc/uci-defaults/45-zbt-qmodem-monitor-enable). The monitor itself
-# reaches threshold after ~60 s of consecutive ping failures and would
-# otherwise re-fire every ~105 s (interval*threshold + the post-action
-# 60 s sleep in modem_monitor.sh:327). This wrapper applies two extra
-# guards before the AT+CFUN reset goes out:
+# WAN-only is the firmware default. If cellular monitoring is explicitly
+# enabled later, qmodem_monitor can invoke this through its `run_scripts`
+# action. The monitor itself reaches threshold after ~60 s of consecutive
+# failures and would otherwise re-fire every ~105 s (interval*threshold +
+# the post-action 60 s sleep in modem_monitor.sh:327). This wrapper
+# applies extra guards before the AT+CFUN reset goes out:
 #
 #   1. Boot grace
 #       Skip if the router has been up for less than $BOOT_GRACE_S
@@ -39,11 +39,8 @@
 #
 # Modem ID resolution:
 #   The qmodem run_scripts dispatch path (modem_monitor.sh:198) does
-#   not pass the failing modem ID to user scripts. We look it up by
-#   (a) walking modem-device sections for monitor_enabled=1, and
-#   (b) falling back to the firmware's well-known section name `4_1`
-#   (the only cellular slot on Z8803BE). Either path yields the
-#   at_port we need for the reset command.
+#   not pass the failing modem ID to user scripts. We only proceed when
+#   a modem-device section is explicitly configured with monitor_enabled=1.
 #
 # AT command:
 #   AT+CFUN=1,1 — Quectel/3GPP soft reset (full re-attach). Faster
@@ -116,8 +113,11 @@ _find_monitored() {
 }
 config_foreach _find_monitored modem-device
 
-# Fall back to the firmware-pinned 4_1 section if the walk didn't find one.
-[ -z "$TARGET_SECTION" ] && TARGET_SECTION="4_1"
+if [ -z "$TARGET_SECTION" ]; then
+        log "skip: no modem-device section has monitor_enabled=1"
+        record_event monitor auto_reboot_skipped warning "" "Monitor reboot skipped because monitoring is disabled" "monitor_enabled=0"
+        exit 0
+fi
 
 config_get AT_PORT "$TARGET_SECTION" at_port
 

@@ -1,6 +1,5 @@
 #!/bin/sh
-# zbt-qmodem-watchdog-loop - poll loop body for the procd-managed
-# /etc/init.d/zbt_qmodem_watchdog service.
+# zbt-qmodem-watchdog-loop - opt-in cellular failover state reassertion.
 #
 # Lives in its own file (instead of inline in the init.d via
 # `procd_set_param command sh -c '...'`) for two reasons:
@@ -9,17 +8,13 @@
 #   2. Lets you test the loop body from CLI without restarting procd:
 #        $ POLL_INTERVAL_FAST=1 POLL_INTERVAL_SLOW=2 /usr/sbin/zbt-qmodem-watchdog-loop
 #
-# What it watches and re-asserts (every cycle):
-#   1. qmodem.4_1.state          — must stay 'enabled' so qmodem_network
-#                                  starts the dialer.
-#   2. network.4_1 / 4_1v6 stubs — proto=none stubs that bind wwan0 to
-#                                  the wan firewall zone (fw4 only adds
-#                                  zone members for declared netifd
-#                                  interfaces).
-#   3. firewall wan zone network — must list '4_1' and '4_1v6' so wwan0
-#                                  appears in the zone's oifname/iifname
-#                                  sets and masquerade is applied to
-#                                  cellular egress.
+# WAN-only is the firmware default. The init.d service is disabled by
+# default, and this loop exits immediately when qmodem auto-probe is
+# blocked or cellular dial is not explicitly enabled. If a deployment
+# opts into cellular failover, this loop preserves the historical behavior:
+# keep qmodem.4_1 enabled, keep network.4_1 / 4_1v6 declared, and keep
+# those stubs present in the wan firewall zone so masquerade applies to
+# cellular egress.
 #
 # Cadence: fast (5 s) for the first 60 s after start, slow (30 s)
 # afterwards. Reactivity matters most during boot and right after
@@ -36,6 +31,11 @@ SETTLE_DELAY="${SETTLE_DELAY:-15}"
 
 NAME=zbt-qmodem-watchdog
 QMODEM_SECTION="qmodem.4_1"
+
+if [ "$(uci -q get qmodem.main.block_auto_probe 2>/dev/null)" = "1" ] || \
+        [ "$(uci -q get qmodem.main.enable_dial 2>/dev/null)" != "1" ]; then
+        exit 0
+fi
 
 # Resolve the wan firewall zone by NAME (instead of fragile @zone[1]
 # index, which breaks if the user adds a guest zone before wan via LuCI).
@@ -71,8 +71,8 @@ reassert_network_stubs() {
                 uci -q set network.4_1=interface
                 uci -q set network.4_1.proto='none'
                 uci -q set network.4_1.device='wwan0'
-                uci -q set network.4_1.metric='20'
-                uci -q set network.4_1.defaultroute='1'
+                uci -q set network.4_1.metric='200'
+                uci -q set network.4_1.defaultroute='0'
                 uci -q set network.4_1.peerdns='0'
                 changed=0
         fi
@@ -80,7 +80,8 @@ reassert_network_stubs() {
                 uci -q set network.4_1v6=interface
                 uci -q set network.4_1v6.proto='none'
                 uci -q set network.4_1v6.device='wwan0'
-                uci -q set network.4_1v6.metric='20'
+                uci -q set network.4_1v6.metric='200'
+                uci -q set network.4_1v6.disabled='1'
                 changed=0
         fi
         if [ $changed -eq 0 ]; then

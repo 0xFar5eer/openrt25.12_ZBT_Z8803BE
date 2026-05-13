@@ -64,7 +64,18 @@ _find_monitored() {
 }
 
 [ -n "$TARGET_SECTION" ] || config_foreach _find_monitored modem-device
-[ -n "$TARGET_SECTION" ] || TARGET_SECTION="4_1"
+if [ -z "$TARGET_SECTION" ]; then
+	log "skip: no modem-device section has monitor_enabled=1"
+	record_event monitor auto_hard_reboot_skipped warning "" "Monitor hard reboot skipped because monitoring is disabled" "monitor_enabled=0"
+	exit 0
+fi
+
+config_get MONITOR_ENABLED "$TARGET_SECTION" monitor_enabled 0
+if [ "$MONITOR_ENABLED" != "1" ]; then
+	log "skip: section ${TARGET_SECTION} has monitor_enabled=${MONITOR_ENABLED:-0}"
+	record_event monitor auto_hard_reboot_skipped warning "$TARGET_SECTION" "Monitor hard reboot skipped because monitoring is disabled" "monitor_enabled=${MONITOR_ENABLED:-0}"
+	exit 0
+fi
 
 config_get AT_PORT "$TARGET_SECTION" override_at_port
 [ -n "$AT_PORT" ] || config_get AT_PORT "$TARGET_SECTION" at_port
