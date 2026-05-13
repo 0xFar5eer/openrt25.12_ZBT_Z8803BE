@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import concurrent.futures
+import fcntl
 import math
 import json
 import os
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import time
 import unicodedata
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
@@ -19,6 +21,9 @@ MAX_DOWN_BYTES = 200000000
 MAX_UP_BYTES = 50000000
 DEFAULT_COUNTRY = 'PH'
 CONFIG_FILE = '/etc/config/zbt-speedtest'
+HISTORY_FILE = '/etc/zbt-speedtest/history.json'
+HISTORY_LOCK_FILE = '/var/lock/zbt-speedtest-history.lock'
+MAX_HISTORY = 100
 USER_AGENT = 'Mozilla/5.0 (OpenWrt; ZBT-Z8803BE) zbt-speedtest/1.0'
 CONFIG_URLS = [
     'https://www.speedtest.net/speedtest-config.php',
@@ -142,6 +147,18 @@ DEFAULT_GENERAL = {
     'download_bytes': str(DEFAULT_DOWN_BYTES),
     'upload_bytes': str(DEFAULT_UP_BYTES)
 }
+PRESET_ALIASES = {
+    'globe-sta-rosa': 'ph-globe-santa-rosa',
+    'smart-paranaque': 'ph-smart-paranaque',
+    'kh-auto': 'kh-phnom-penh',
+    'sg-auto': 'sg-singtel',
+    'my-auto': 'my-time-kuala-lumpur',
+    'us-auto': 'us-frontier-los-angeles',
+    'de-auto': 'de-telekom-berlin',
+    'nl-auto': 'nl-solcon-dronten',
+    'fr-auto': 'fr-orange-strasbourg',
+    'th-auto': 'th-ais-bangkok'
+}
 DEFAULT_PRESETS = [
     {'key': 'auto', 'label': 'Auto (selected country)', 'country': '', 'mode': 'auto'},
     {'key': 'ph-globe-santa-rosa', 'label': 'PH - Globe Telecom Santa Rosa', 'country': 'PH', 'mode': 'pinned', **PINNED_SERVERS['ph-globe-santa-rosa']},
@@ -252,6 +269,19 @@ def normalize_key(value):
     return value.strip('-')
 
 
+def resolve_preset_key(value):
+    key = normalize_key(value or 'auto') or 'auto'
+    return PRESET_ALIASES.get(key, key)
+
+
+def is_http_url(url):
+    try:
+        parsed = urllib.parse.urlsplit(str(url or ''))
+    except Exception:
+        return False
+    return parsed.scheme in ('http', 'https') and bool(parsed.netloc)
+
+
 def uci_quote(value):
     return "'%s'" % str(value or '').replace("'", "'\\''")
 
@@ -298,12 +328,15 @@ def load_app_config():
         presets = [dict(p) for p in DEFAULT_PRESETS]
     if not any(p.get('key') == 'auto' for p in presets):
         presets.insert(0, dict(DEFAULT_PRESETS[0]))
+    general['preset'] = resolve_preset_key(general.get('preset', 'auto'))
+    if not any(normalize_key(p.get('key')) == general['preset'] for p in presets):
+        general['preset'] = 'auto'
     return {'general': general, 'presets': presets}
 
 
 def write_app_config(general, presets):
     os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
-    tmp = CONFIG_FILE + '.tmp'
+    tmp = '%s.%s.%s.tmp' % (CONFIG_FILE, os.getpid(), int(time.time() * 1000))
     with open(tmp, 'w', encoding='utf-8') as fh:
         fh.write("config speedtest 'general'\n")
         for key in ('country', 'preset', 'connections', 'candidate_limit', 'download_bytes', 'upload_bytes'):
@@ -316,20 +349,109 @@ def write_app_config(general, presets):
     os.replace(tmp, CONFIG_FILE)
 
 
+def load_history():
+    try:
+        with open(HISTORY_FILE, 'r', encoding='utf-8') as fh:
+            data = json.load(fh)
+    except Exception:
+        data = []
+    if isinstance(data, dict):
+        data = data.get('history') or []
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+
+def write_history(history):
+    os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
+    tmp = '%s.%s.%s.tmp' % (HISTORY_FILE, os.getpid(), int(time.time() * 1000))
+    with open(tmp, 'w', encoding='utf-8') as fh:
+        json.dump(history[:MAX_HISTORY], fh, sort_keys=True, separators=(',', ':'))
+    os.replace(tmp, HISTORY_FILE)
+
+
+def update_history(mutator):
+    os.makedirs(os.path.dirname(HISTORY_LOCK_FILE), exist_ok=True)
+    with open(HISTORY_LOCK_FILE, 'w', encoding='utf-8') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        history = load_history()
+        updated = mutator(history)
+        write_history(updated if isinstance(updated, list) else history)
+
+
+def history_response(limit=50):
+    return {
+        'ok': True,
+        'history': load_history()[:clamp_int(limit, 50, 1, MAX_HISTORY)]
+    }
+
+
+def clear_history():
+    update_history(lambda history: [])
+    return history_response()
+
+
+def append_history(result, config=None):
+    if not result:
+        return
+    requested = result.get('requested') or {}
+    server = result.get('server') or {}
+    download = result.get('download') or {}
+    upload = result.get('upload') or {}
+    ping = result.get('ping') or {}
+    preset_key = requested.get('server') or ''
+    preset = find_preset(config or {}, preset_key) or find_preset({'presets': DEFAULT_PRESETS}, preset_key) or {}
+    entry = {
+        'timestamp': result.get('finished_at') or result.get('started_at') or int(time.time()),
+        'ok': bool(result.get('ok')),
+        'country': requested.get('country') or server.get('cc') or '',
+        'preset': preset_key,
+        'preset_label': preset.get('label') or preset_key,
+        'server_id': server.get('id') or '',
+        'server_sponsor': server.get('sponsor') or '',
+        'server_name': server.get('name') or '',
+        'server_country': server.get('country') or server.get('cc') or '',
+        'download_mbps': download.get('mbps') or 0,
+        'upload_mbps': upload.get('mbps') or 0,
+        'ping_ms': ping.get('avg_ms') or 0,
+        'connections': requested.get('connections') or '',
+        'download_bytes': download.get('bytes') or 0,
+        'upload_bytes': upload.get('bytes') or 0,
+        'duration_s': result.get('duration_s') or 0
+    }
+    def add_entry(history):
+        history.insert(0, entry)
+        return history[:MAX_HISTORY]
+    update_history(add_entry)
+
+
 def seed_app_config():
     cfg = load_app_config()
     general = dict(DEFAULT_GENERAL)
     general.update(cfg.get('general') or {})
+    general['preset'] = resolve_preset_key(general.get('preset', 'auto'))
+    if not any(p.get('key') == general['preset'] for p in DEFAULT_PRESETS):
+        general['preset'] = 'auto'
     write_app_config(general, [dict(p) for p in DEFAULT_PRESETS])
     return load_app_config()
 
 
 def find_preset(config, key):
-    key = normalize_key(key or 'auto') or 'auto'
+    key = resolve_preset_key(key)
     for preset in config.get('presets') or []:
         if normalize_key(preset.get('key')) == key:
             return preset
     return None
+
+
+def preset_is_pinned(preset):
+    return bool(preset and (preset.get('mode') == 'pinned' or preset.get('url')))
+
+
+def preset_country(preset, fallback):
+    if preset:
+        return normalize_country(preset.get('cc') or preset.get('country') or fallback)
+    return normalize_country(fallback)
 
 
 def config_response():
@@ -360,7 +482,10 @@ def parse_args(argv):
         'server': general.get('preset', 'auto'),
         'save': '0',
         'config': '0',
-        'seed_config': '0'
+        'seed_config': '0',
+        'history': '0',
+        'clear_history': '0',
+        'history_limit': '50'
     }
     pos = []
     i = 0
@@ -393,12 +518,15 @@ def parse_args(argv):
     opts['connections'] = clamp_int(opts.get('connections'), 4, 1, 8)
     opts['country'] = normalize_country(opts.get('country', DEFAULT_COUNTRY))
     opts['server_id'] = str(opts.get('server_id') or '').strip()
-    opts['server'] = normalize_key(opts.get('server') or opts.get('preset') or 'auto') or 'auto'
+    opts['server'] = resolve_preset_key(opts.get('server') or opts.get('preset') or 'auto')
     preset = find_preset(cfg, opts['server'])
-    if preset and preset.get('country'):
-        opts['country'] = normalize_country(preset.get('country'))
+    if preset and (preset.get('cc') or preset.get('country')):
+        opts['country'] = preset_country(preset, opts['country'])
     opts['config'] = str(opts.get('config', '0')).lower() in ('1', 'true', 'yes')
     opts['seed_config'] = str(opts.get('seed_config', '0')).lower() in ('1', 'true', 'yes')
+    opts['history'] = str(opts.get('history', '0')).lower() in ('1', 'true', 'yes')
+    opts['clear_history'] = str(opts.get('clear_history', '0')).lower() in ('1', 'true', 'yes')
+    opts['history_limit'] = clamp_int(opts.get('history_limit'), 50, 1, MAX_HISTORY)
     opts['save'] = str(opts.get('save', '0')).lower() in ('1', 'true', 'yes')
     opts['app_config'] = cfg
     return opts
@@ -419,6 +547,8 @@ def save_run_options(opts):
 
 
 def request_url(url, data=None, timeout=10, read_limit=None):
+    if not is_http_url(url):
+        raise ValueError('invalid URL: %s' % url)
     headers = {
         'User-Agent': USER_AGENT,
         'Accept': '*/*',
@@ -570,13 +700,15 @@ def choose_best_server(servers, opts, warnings):
         preset = find_preset(opts.get('app_config') or load_app_config(), opts['server'])
         if not preset:
             raise RuntimeError('Requested preset %s is not configured' % opts['server'])
-        if preset.get('mode') == 'pinned' or preset.get('url'):
+        if preset_is_pinned(preset):
+            if not is_http_url(preset.get('url')):
+                raise RuntimeError('Requested preset %s has an invalid URL' % opts['server'])
             servers = [dict(preset)]
         else:
-            preset_country = normalize_country(preset.get('country') or opts.get('country'))
-            servers = [s for s in servers if s.get('cc') == preset_country]
+            wanted_country = preset_country(preset, opts.get('country'))
+            servers = [s for s in servers if s.get('cc') == wanted_country]
             if not servers:
-                raise RuntimeError('No servers found for preset country %s' % preset_country)
+                raise RuntimeError('No servers found for preset country %s' % wanted_country)
     candidates = []
     for server in servers[:opts['candidate_limit']]:
         latency, error = timed_latency(server)
@@ -644,6 +776,8 @@ def make_payload(size):
 
 def upload_one(url, size):
     try:
+        if not is_http_url(url):
+            raise ValueError('invalid URL: %s' % url)
         data = make_payload(size)
         headers = {
             'User-Agent': USER_AGENT,
@@ -704,7 +838,14 @@ def run_upload(server, target_bytes, connections):
 
 def run_speedtestnet(opts, warnings):
     config = get_config(warnings)
-    servers, servers_source = get_servers(config, opts['country'], warnings)
+    preset = find_preset(opts.get('app_config') or load_app_config(), opts.get('server'))
+    if preset_is_pinned(preset):
+        if not is_http_url(preset.get('url')):
+            raise RuntimeError('Requested preset %s has an invalid URL' % opts.get('server'))
+        servers = [dict(preset)]
+        servers_source = 'preset:%s' % opts.get('server')
+    else:
+        servers, servers_source = get_servers(config, opts['country'], warnings)
     best, candidates = choose_best_server(servers, opts, warnings)
     download = run_download(best, opts['down_bytes'], opts['connections'])
     upload = run_upload(best, opts['up_bytes'], opts['connections'])
@@ -734,6 +875,12 @@ def main():
     if opts['seed_config']:
         print(json.dumps({'ok': True, 'config': seed_app_config()}, sort_keys=True))
         return
+    if opts['clear_history']:
+        print(json.dumps(clear_history(), sort_keys=True))
+        return
+    if opts['history']:
+        print(json.dumps(history_response(opts['history_limit']), sort_keys=True))
+        return
     if opts['config']:
         print(json.dumps(config_response(), sort_keys=True))
         return
@@ -757,6 +904,10 @@ def main():
         base.update({'ok': False, 'backend': 'speedtest-net-python', 'error': str(exc)})
     base['finished_at'] = int(time.time())
     base['duration_s'] = max(0, base['finished_at'] - started)
+    try:
+        append_history(base, opts.get('app_config'))
+    except Exception as exc:
+        warnings.append('history save failed: %s' % exc)
     print(json.dumps(base, sort_keys=True))
 
 

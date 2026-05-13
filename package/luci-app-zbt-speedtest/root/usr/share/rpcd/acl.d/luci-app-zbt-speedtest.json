@@ -4,14 +4,16 @@
 		"read": {
 			"cgi-io": [ "exec" ],
 			"file": {
-				"/usr/sbin/zbt-speedtest-json": [ "exec" ]
+				"/usr/sbin/zbt-speedtest-json": [ "exec" ],
+				"/etc/zbt-speedtest/history.json": [ "read" ]
 			}
 		},
 		"write": {
 			"cgi-io": [ "exec" ],
 			"file": {
 				"/usr/sbin/zbt-speedtest-json": [ "exec" ],
-				"/etc/config/zbt-speedtest": [ "write" ]
+				"/etc/config/zbt-speedtest": [ "write" ],
+				"/etc/zbt-speedtest/history.json": [ "write" ]
 			}
 		}
 	}

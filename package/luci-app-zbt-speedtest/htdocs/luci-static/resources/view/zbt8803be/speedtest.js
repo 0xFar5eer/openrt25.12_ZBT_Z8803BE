@@ -7,7 +7,9 @@
 const SPEEDTEST_CMD = '/usr/sbin/zbt-speedtest-json';
 let resultNode = null;
 let statusNode = null;
+let historyNode = null;
 let appConfig = null;
+let appHistory = [];
 
 function loadCss(path) {
 	const head = document.head || document.getElementsByTagName('head')[0];
@@ -43,6 +45,14 @@ function fmtTime(epoch) {
 	return new Date(epoch * 1000).toLocaleString();
 }
 
+function joinSize(down, up) {
+	return String(down || '') + ':' + String(up || '');
+}
+
+function fmtTransfer(bytes, seconds, connections) {
+	return fmtBytes(bytes) + ' in ' + (seconds || '?') + 's, ' + (connections || '?') + ' connections';
+}
+
 function parseJson(text) {
 	try {
 		return JSON.parse(text || '{}');
@@ -59,7 +69,7 @@ function card(title, value, detail, good) {
 	const color = good ? '#2e7d32' : '#ef6c00';
 	return E('div', { 'style': 'flex:1 1 220px;border:1px solid rgba(0,0,0,0.12);border-radius:8px;padding:1em;background:rgba(127,127,127,0.04)' }, [
 		E('div', { 'style': 'font-weight:600;margin-bottom:0.35em' }, title),
-		E('div', { 'style': 'font-size:1.8em;font-weight:700;color:%s'.format(color) }, value),
+		E('div', { 'style': 'font-size:1.8em;font-weight:700;color:' + color }, value),
 		detail ? E('div', { 'style': 'opacity:0.75;margin-top:0.35em' }, detail) : ''
 	]);
 }
@@ -87,6 +97,53 @@ function selectedLabel(key) {
 		if (presets[i].key === key)
 			return presets[i].label || key;
 	return key || _('auto');
+}
+
+function renderHistory(history) {
+	const rows = (history || []).map(function(item) {
+		const server = item.server_sponsor || item.server_name || item.preset_label || item.preset || '?';
+		const location = item.server_name ? item.server_name + (item.server_country ? ', ' + item.server_country : '') : (item.server_country || item.country || '?');
+		return E('tr', {}, [
+			E('td', {}, fmtTime(item.timestamp)),
+			E('td', {}, item.country || '?'),
+			E('td', {}, item.preset_label || item.preset || '?'),
+			E('td', {}, server),
+			E('td', {}, location),
+			E('td', {}, fmtMbps(item.download_mbps)),
+			E('td', {}, fmtMbps(item.upload_mbps)),
+			E('td', {}, item.ping_ms ? Number(item.ping_ms).toFixed(1) + ' ms' : '?')
+		]);
+	});
+	const tableRows = [
+		E('tr', { 'class': 'tr table-titles' }, [
+			E('th', {}, _('Time')),
+			E('th', {}, _('Country')),
+			E('th', {}, _('Preset')),
+			E('th', {}, _('Server')),
+			E('th', {}, _('Location')),
+			E('th', {}, _('Download')),
+			E('th', {}, _('Upload')),
+			E('th', {}, _('Ping'))
+		])
+	].concat(rows);
+
+	return E('div', { 'class': 'cbi-section' }, [
+		E('h3', {}, _('Previous tests')),
+		rows.length ? E('table', { 'class': 'table' }, tableRows) : E('p', { 'class': 'cbi-section-descr' }, _('No previous tests recorded yet.'))
+	]);
+}
+
+function refreshHistory() {
+	return fs.exec_direct(SPEEDTEST_CMD, [ '--history', '--history-limit', '25' ]).then(function(text) {
+		const data = parseJson(text);
+		appHistory = data.history || [];
+		if (historyNode)
+			dom.content(historyNode, renderHistory(appHistory));
+	}).catch(function() {
+		appHistory = [];
+		if (historyNode)
+			dom.content(historyNode, renderHistory(appHistory));
+	});
 }
 
 function renderResults(data) {
@@ -118,9 +175,9 @@ function renderResults(data) {
 		E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Latest result')),
 			E('div', { 'style': 'display:flex;flex-wrap:wrap;gap:0.75em' }, [
-				card(_('Download'), fmtMbps(download.mbps), download.bytes ? '%s in %ss, %s connections'.format(fmtBytes(download.bytes), download.seconds || '?', download.connections || requested.connections || '?') : '', !!download.ok),
-				card(_('Upload'), fmtMbps(upload.mbps), upload.bytes ? '%s in %ss, %s connections'.format(fmtBytes(upload.bytes), upload.seconds || '?', upload.connections || requested.connections || '?') : '', !!upload.ok),
-				card(_('Latency'), ping.avg_ms ? Number(ping.avg_ms).toFixed(1) + ' ms' : '?', ping.ok ? 'min %sms / max %sms'.format(ping.min_ms || '?', ping.max_ms || '?') : _('latency unavailable'), !!ping.ok),
+				card(_('Download'), fmtMbps(download.mbps), download.bytes ? fmtTransfer(download.bytes, download.seconds, download.connections || requested.connections) : '', !!download.ok),
+				card(_('Upload'), fmtMbps(upload.mbps), upload.bytes ? fmtTransfer(upload.bytes, upload.seconds, upload.connections || requested.connections) : '', !!upload.ok),
+				card(_('Latency'), ping.avg_ms ? Number(ping.avg_ms).toFixed(1) + ' ms' : '?', ping.ok ? 'min ' + (ping.min_ms || '?') + 'ms / max ' + (ping.max_ms || '?') + 'ms' : _('latency unavailable'), !!ping.ok),
 				card(_('Engine'), 'Speedtest.net', data.ok ? _('completed') : _('needs attention'), !!data.ok)
 			])
 		]),
@@ -137,7 +194,7 @@ function renderResults(data) {
 				row(_('Gateway'), routeGet.via || '?'),
 				row(_('Source address'), routeGet.src || '?'),
 				row(_('WAN status'), renderInterface((data.interfaces || {}).wan)),
-				row(_('Requested sample'), '%s down / %s up'.format(fmtBytes(requested.download_bytes), fmtBytes(requested.upload_bytes))),
+				row(_('Requested sample'), fmtBytes(requested.download_bytes) + ' down / ' + fmtBytes(requested.upload_bytes) + ' up'),
 				row(_('Multi-connection count'), requested.connections || '?')
 			])
 		]),
@@ -145,7 +202,7 @@ function renderResults(data) {
 			E('h3', {}, _('Selected server')),
 			E('table', { 'class': 'table' }, [
 				row(_('Sponsor'), server.sponsor || '?'),
-				row(_('Location'), '%s, %s'.format(server.name || '?', server.country || server.cc || '?')),
+				row(_('Location'), (server.name || '?') + ', ' + (server.country || server.cc || '?')),
 				row(_('Server ID'), server.id || '?'),
 				row(_('Distance'), server.d ? Number(server.d).toFixed(1) + ' km' : '?'),
 				row(_('Latency'), server.latency ? Number(server.latency).toFixed(1) + ' ms' : '?'),
@@ -202,6 +259,7 @@ function runTest() {
 			dom.content(statusNode, data.ok ? _('completed') : _('completed with errors'));
 		if (resultNode)
 			dom.content(resultNode, renderResults(data));
+		return refreshHistory();
 	}).catch(function(err) {
 		ui.hideModal();
 		if (statusNode)
@@ -222,8 +280,10 @@ return view.extend({
 			appConfig = parseJson(text);
 			if (!appConfig.ok)
 				appConfig = null;
+			return refreshHistory();
 		}).catch(function() {
 			appConfig = null;
+			return refreshHistory();
 		});
 	},
 
@@ -235,10 +295,11 @@ return view.extend({
 			{ label: _('Standard (25 MB down / 5 MB up)'), download_bytes: '25000000', upload_bytes: '5000000' },
 			{ label: _('Large (100 MB down / 20 MB up)'), download_bytes: '100000000', upload_bytes: '20000000' }
 		];
-		const selectedSize = '%s:%s'.format(general.download_bytes || '25000000', general.upload_bytes || '5000000');
+		const selectedSize = joinSize(general.download_bytes || '25000000', general.upload_bytes || '5000000');
 
 		statusNode = E('span', {}, _('idle'));
 		resultNode = E('div', {}, renderResults({}));
+		historyNode = E('div', {}, renderHistory(appHistory));
 		return E('div', { 'class': 'cbi-map zbt-app zbt-speedtest' }, [
 			E('h2', _('Speed Test')),
 			E('p', { 'class': 'cbi-section-descr' }, [ _('Engine: Speedtest.net. Status: '), statusNode ]),
@@ -248,7 +309,7 @@ return view.extend({
 					E('label', { 'class': 'cbi-value-title', 'for': 'zbt-speedtest-size' }, _('Test size')),
 					E('div', { 'class': 'cbi-value-field' }, [
 						E('select', { 'id': 'zbt-speedtest-size', 'class': 'cbi-input-select' }, buildOptions(sizes, function(size) {
-							return '%s:%s'.format(size.download_bytes, size.upload_bytes);
+							return joinSize(size.download_bytes, size.upload_bytes);
 						}, function(size) {
 							return _(size.label);
 						}, selectedSize))
@@ -289,7 +350,8 @@ return view.extend({
 					])
 				])
 			]),
-			resultNode
+			resultNode,
+			historyNode
 		]);
 	}
 });
