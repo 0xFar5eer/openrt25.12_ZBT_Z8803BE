@@ -1,4 +1,4 @@
-# ZBT-Z8803BE OpenWrt v25.12.2-6-zbt8803be fan/temperature maintenance release
+# ZBT-Z8803BE OpenWrt v25.12.2-7-zbt8803be speedtest maintenance release
 
 [English](RELEASE_NOTES.md) | [中文](RELEASE_NOTES.zh-CN.md)
 
@@ -6,61 +6,45 @@
 
 Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
-- **Release tag:** `v25.12.2-6-zbt8803be`
+- **Release tag:** `v25.12.2-7-zbt8803be`
 - **OpenWrt base:** official `v25.12.2` / `r32802-f505120278`
 - **Kernel:** `6.12.74`
 - **Target:** `mediatek/filogic`
 - **Default login:** `root` / `admin`
 
-## What's new since `v25.12.2-5-zbt8803be`
+## What's new since `v25.12.2-6-zbt8803be`
 
-### Fan and thermal policy
+### Speedtest LuCI app
 
-- **Quieter fan curve.** Replaced the userspace raw cubic PWM policy with discrete `pwm-fan` cooling states that match the DTS `cooling-levels = <0 80 112 144 176 216 255>`.
-- **Hysteresis to prevent fan hunting.** Fan state now steps up at 55/65/70/75/80/85 C and steps down only below 48/58/66/72/76/80 C, avoiding rapid back-and-forth speed changes near thresholds.
-- **Kernel thermal fail-safe.** Added an `active-max` CPU thermal trip at 85 C that maps to fan cooling level 6, so the kernel can force full fan speed even if userspace sampling/cron is not running.
-- **Less aggressive CPU thermal trips.** CPU thermal trips are now aligned with the quieter policy: silent 45 C, low 55 C, high 75 C, max 85 C, with the critical 100 C trip unchanged.
-- **Stale PWM recovery.** If `cur_state` already equals the target state but the exposed `pwm1` value is stale, the logger re-applies the thermal cooling state instead of writing raw PWM directly.
-
-### Temperature telemetry / LuCI
-
-- **Tmpfs working file, persistent snapshot.** Temperature history is sampled into `/var/log/zbt-temperature/readings.csv` (tmpfs) and snapshotted atomically to `/etc/zbt-temperature/readings.csv` (overlay/flash). On boot the snapshot is restored back into tmpfs, so history now survives unexpected reboots.
-- **Low flash wear.** Snapshot interval defaults to `ZBT_TEMPERATURE_PERSIST_INTERVAL=900` seconds (~96 writes/day) using `cp` + `sync` + `mv` for atomicity.
-- **Clean shutdown flushes.** The `zbt_temperature` init script flushes the working file on `stop`, so a normal reboot loses no samples; only an abrupt crash can lose up to the last interval.
-- **Breaking cleanup retained.** Legacy 4-column CSV compatibility remains removed; the frontend still expects the current 5-column format: `epoch, group, name, value, unit`.
-- **LuCI data path unchanged.** The Temperature page and rpcd ACL continue to read `/var/log/zbt-temperature/readings.csv`.
-- **Temperature page TypeError fix.** Avoids calling `.format()` on translated strings, fixing `_(...).format is not a function` on the LuCI Temperature page.
-
-### Crash and reboot forensics
-
-- **Persistent crash log directory.** Added `zbt-crash-forensics`, storing diagnostic data in `/etc/zbt-crash-logs/` so it survives reboots and reflashes.
-- **Kernel pstore archiving.** On boot, `/sys/fs/pstore/*` is copied into timestamped `/etc/zbt-crash-logs/pstore-<epoch>/` directories and old archives are pruned to the latest 10.
-- **Boot classification.** `boot-events.log` records first, clean, and unclean boots using a clean-shutdown marker plus kernel `boot_id`, avoiding fake boot events during service restarts.
-- **Rolling health snapshots.** A one-minute cron overwrites `last-snapshot.txt` and keeps `prev-snapshot.txt`, capturing uptime, load, memory, top processes, thermal/hwmon/fan data, network counters, dmesg tail, and logread tail.
-- **Backup integration.** App-history backup/restore now preserves `/etc/zbt-crash-logs/` alongside the existing app history files.
+- **Speedtest.net-only backend.** The Speedtest page no longer exposes backend selection and now uses the Speedtest.net backend exclusively.
+- **Pinned international presets.** Added curated Speedtest.net server presets for PH, KH, SG, MY, US, DE, NL, FR, and TH, including fixed server IDs and legacy alias handling.
+- **More reliable preset execution.** Pinned presets skip location-biased XML discovery, validate configured HTTP/HTTPS URLs before test traffic, and normalize saved country codes.
+- **Persistent app config.** The LuCI page loads `/etc/config/zbt-speedtest` through `/usr/sbin/zbt-speedtest-json --config` and saves selected country, preset, transfer sizes, and connection count after a run.
+- **Persistent result history.** Completed tests are stored in `/etc/zbt-speedtest/history.json` with timestamp, country, preset, server, download/upload Mbps, ping, byte counts, and duration. History is capped at 100 entries and uses a file lock to avoid lost concurrent appends.
+- **History UI in LuCI.** The Speedtest page now renders previous tests in a table and refreshes it after each run.
+- **LuCI compatibility fixes.** Removed JavaScript `.format()` calls and fixed nested table-row rendering that could show `[object HTMLTableRowElement]`.
+- **ACL and backup coverage.** rpcd ACLs allow the app to read/write the history DB, and app-history backup/restore preserves `/etc/zbt-speedtest/history.json`.
 
 ## Validation
 
-- Firmware rebuilt from commit `7495da369d` and extracted to `output/mediatek/filogic`.
+- Firmware rebuilt from commit `58a983ad76` and extracted to `output/mediatek/filogic`.
+- Corrected build config with `CONFIG_PACKAGE_luci-app-zbt-speedtest=y`; final manifest includes `luci-app-zbt-speedtest - 26.133.41786~58a983a`.
 - Staged release assets passed `sha256sum -c sha256sums --ignore-missing`.
-- `zbt-temperature-log` passed `sh -n`.
-- `zbt-crash-forensics`, `zbt_crash_forensics`, and `49-zbt-crash-forensics` passed `sh -n`.
-- Temperature LuCI JavaScript passed `node --check`.
-- Temperature rpcd ACL passed JSON validation.
-- Engineering code review workflow passed before rebuild; no blockers found.
-- Source tree passed `git diff --check` before release documentation updates.
-- Embedded firmware review and final code review gates passed before rebuild.
-- Live router validation before rebuild showed stable fan behavior around cooling state 2 / PWM 112 with no bouncing, LuCI/ubus could read the tmpfs telemetry file, and a simulated reboot (stop service + wipe tmpfs + start) successfully restored the persistent snapshot back into tmpfs and resumed sampling.
-- Live router crash-forensics smoke test showed service enabled, one cron entry installed, pstore archived, snapshots written, and repeated service restarts did not append duplicate boot events.
+- `zbt-speedtest-json` passed Python syntax validation.
+- Speedtest LuCI JavaScript passed `node --check`.
+- Speedtest rpcd ACL passed JSON validation.
+- Engineering code review workflow passed; fixes included locked history appends and active-config preset labels in history entries.
+- Local and router temp-file history checks passed for append, custom preset label resolution, and clear-history behavior.
+- Live router hotfix was deployed to `3fl.lan`, LuCI caches were cleared, `rpcd`/`uhttpd` restarted, and `/usr/sbin/zbt-speedtest-json --history` returned the persisted SG Singtel history entry.
 
 ## Checksums
 
 ```text
-bd3f1b79c9010256b0880fdbefd41723ff7ccf884bc2b8e5c805c57c212a4dbe  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-63fe6289ced18386d9ed8425eaebf9d3858e8246a671386edc3f0fcc056549f3  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-5ed76d939ebe947531818bd82fa2138407b086f05dd8028b07414cc3fa28b05b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-0edfdf33440118bd2623d4731c56c37b90a74b301ff753ad939e240c9273cd88  sha256sums
-19a0a0bc2e43e95a242f16dc77f6645a1b58d48348c4e8d247cf8273daaabdc2  config.buildinfo
+a3c35330d09649e56e4ad29b9d6dcbabe3ac3983989e35e54a7d6f3fb3889d7a  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+4f9c90aebc44ddd9aa6c2594a4d55ad2fa7855492c2381946902dc4f126e6c90  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+c755428ec8874006d1572f2b0a457ae61092d1907119ac01ea5e9c46ad443e4d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+22cd03fcfd73f645c0be48165b4449e5768fef147908db51dcb8a25db88b98a5  sha256sums
+43a7d0d006229a8c60a42915e59c7220623778508f18387be37dc8d79ea15777  config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinfo
 05f6cea7ac9e5c3d2d73225400b4dc3cf51eb8002f54cf6d05e5934c1805c60c  version.buildinfo
 ```

@@ -2,7 +2,7 @@
 
 Local staging folder for the current **ZBTLink ZBT-Z8803BE** firmware release.
 
-- **Tag:** `v25.12.2-6-zbt8803be`
+- **Tag:** `v25.12.2-7-zbt8803be`
 - **OpenWrt base:** official `v25.12.2` / `r32802-f505120278`
 - **Kernel:** `6.12.74`
 
@@ -29,11 +29,11 @@ Do not upload `REDDIT_POST.md`.
 ## Current checksums
 
 ```text
-373420c401352f4890c4480de24d333174f8decdae5d3631d58e91fc0ffeed0b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-77cb8e7a2c7840170d35bfbdf9669d2e6caa7397ea43295899bd57f6d294ff8f  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-2d9410ca9a1d15617fe715256e67a0d5e2a365a2ff1f132f9bfcbc6d0c7dbdb8  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-b9847815647e18df517aea99f33681a179f1110077ea44acf8569856e5a14066  sha256sums
-0d1ac3f38d93e39e61e064f4f14062918333ba99a5e8fe1ac7c8c805101623d2  config.buildinfo
+a3c35330d09649e56e4ad29b9d6dcbabe3ac3983989e35e54a7d6f3fb3889d7a  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+4f9c90aebc44ddd9aa6c2594a4d55ad2fa7855492c2381946902dc4f126e6c90  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+c755428ec8874006d1572f2b0a457ae61092d1907119ac01ea5e9c46ad443e4d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+22cd03fcfd73f645c0be48165b4449e5768fef147908db51dcb8a25db88b98a5  sha256sums
+43a7d0d006229a8c60a42915e59c7220623778508f18387be37dc8d79ea15777  config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinfo
 05f6cea7ac9e5c3d2d73225400b4dc3cf51eb8002f54cf6d05e5934c1805c60c  version.buildinfo
 ```
@@ -41,11 +41,11 @@ ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinf
 ## Publish
 
 ```sh
-git tag -a v25.12.2-6-zbt8803be -m "ZBT-Z8803BE OpenWrt v25.12.2-6-zbt8803be maintenance release"
+git tag -a v25.12.2-7-zbt8803be -m "ZBT-Z8803BE OpenWrt v25.12.2-7-zbt8803be speedtest maintenance release"
 git push origin 25.12
-git push origin v25.12.2-6-zbt8803be
+git push origin v25.12.2-7-zbt8803be
 
-gh release create v25.12.2-6-zbt8803be \
+gh release create v25.12.2-7-zbt8803be \
   releases/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin \
   releases/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin \
   releases/openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest \
@@ -56,6 +56,6 @@ gh release create v25.12.2-6-zbt8803be \
   releases/RELEASE_NOTES.md \
   releases/RELEASE_NOTES.zh-CN.md \
   --latest \
-  --title "ZBT-Z8803BE OpenWrt v25.12.2-6-zbt8803be maintenance release" \
+  --title "ZBT-Z8803BE OpenWrt v25.12.2-7-zbt8803be speedtest maintenance release" \
   --notes-file releases/RELEASE_NOTES.md
 ```

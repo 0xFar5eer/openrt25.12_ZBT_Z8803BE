@@ -1,4 +1,4 @@
-# ZBT-Z8803BE OpenWrt v25.12.2-6-zbt8803be 风扇 / 温度维护版
+# ZBT-Z8803BE OpenWrt v25.12.2-7-zbt8803be Speedtest 维护版
 
 [English](RELEASE_NOTES.md) | [中文](RELEASE_NOTES.zh-CN.md)
 
@@ -6,61 +6,45 @@
 
 面向 **ZBTLink ZBT-Z8803BE** WiFi 7 路由器的自定义 OpenWrt 固件。
 
-- **发布标签:** `v25.12.2-6-zbt8803be`
+- **发布标签:** `v25.12.2-7-zbt8803be`
 - **OpenWrt 基线:** 官方 `v25.12.2` / `r32802-f505120278`
 - **内核:** `6.12.74`
 - **目标平台:** `mediatek/filogic`
 - **默认登录:** `root` / `admin`
 
-## 相比 `v25.12.2-5-zbt8803be` 的变化
+## 相比 `v25.12.2-6-zbt8803be` 的变化
 
-### 风扇与温控策略
+### Speedtest LuCI 应用
 
-- **更安静的风扇曲线。** 用户态风扇控制从原来的 raw cubic PWM 写入改为离散 `pwm-fan` cooling state，并与 DTS 中的 `cooling-levels = <0 80 112 144 176 216 255>` 对齐。
-- **加入迟滞避免来回跳档。** 风扇在 55/65/70/75/80/85 C 升档，只在低于 48/58/66/72/76/80 C 时降档，避免温度贴近阈值时频繁变速。
-- **内核级温控兜底。** 新增 85 C 的 CPU thermal `active-max` trip，并映射到风扇 cooling level 6；即使用户态采样或 cron 没有运行，内核仍可强制风扇满速。
-- **CPU thermal trip 调整。** CPU 温控阈值已与更安静的策略对齐：silent 45 C、low 55 C、high 75 C、max 85 C；critical 100 C 保持不变。
-- **修复 stale PWM。** 当 `cur_state` 已经等于目标档位但 `pwm1` 暴露值仍然陈旧时，logger 会重新应用 thermal cooling state，而不是直接写 raw PWM。
-
-### 温度记录 / LuCI
-
-- **tmpfs 工作文件 + 持久化快照。** 温度采样仍写入 `/var/log/zbt-temperature/readings.csv`（tmpfs），并按固定间隔通过原子操作快照到 `/etc/zbt-temperature/readings.csv`（overlay/flash）。开机后从快照恢复回 tmpfs，因此意外重启后历史数据不再丢失。
-- **低 flash 写入量。** 快照默认间隔 `ZBT_TEMPERATURE_PERSIST_INTERVAL=900` 秒（约 96 次/天），使用 `cp` + `sync` + `mv` 保证原子性。
-- **正常关机刷盘。** `zbt_temperature` init 脚本在 `stop` 时刷盘，正常重启不丢样本；只有异常崩溃可能丢失最多一个间隔的数据。
-- **破坏性清理保留。** 旧 4 列 CSV 兼容仍按计划移除；前端继续按当前 5 列 CSV 格式解析：epoch、group、name、value、unit。
-- **LuCI 数据路径不变。** Temperature 页面和 rpcd ACL 仍读取 `/var/log/zbt-temperature/readings.csv`。
-- **Temperature 页面 TypeError 修复。** 不再对翻译字符串调用 `.format()`，修复 LuCI Temperature 页面上的 `_(...).format is not a function`。
-
-### 崩溃与重启取证
-
-- **持久化崩溃日志目录。** 新增 `zbt-crash-forensics`，诊断数据写入 `/etc/zbt-crash-logs/`，可跨重启和重刷保留。
-- **Kernel pstore 归档。** 开机时将 `/sys/fs/pstore/*` 复制到按时间命名的 `/etc/zbt-crash-logs/pstore-<epoch>/` 目录，并保留最新 10 份归档。
-- **重启分类。** `boot-events.log` 通过 clean-shutdown marker 和 kernel `boot_id` 记录 first、clean、unclean boot，避免服务重启产生假的 boot event。
-- **滚动健康快照。** 每分钟 cron 覆盖写入 `last-snapshot.txt`，并保留 `prev-snapshot.txt`，包含 uptime、load、memory、top processes、thermal/hwmon/fan、网卡计数器、dmesg tail 和 logread tail。
-- **备份集成。** app-history backup/restore 现在会保留 `/etc/zbt-crash-logs/`，与其他应用历史一起跨重刷恢复。
+- **仅保留 Speedtest.net 后端。** Speedtest 页面不再显示后端选择，只使用 Speedtest.net 后端。
+- **固定国际测速预设。** 新增 PH、KH、SG、MY、US、DE、NL、FR、TH 的精选 Speedtest.net 服务器预设，包含固定 server ID，并保留旧 preset alias 兼容。
+- **更可靠的预设执行。** 固定预设会跳过按地理位置偏置的 XML 服务器发现流程；测试流量 URL 会先校验 HTTP/HTTPS scheme；保存国家时使用规范化 country code。
+- **持久化应用配置。** LuCI 页面通过 `/usr/sbin/zbt-speedtest-json --config` 读取 `/etc/config/zbt-speedtest`，并在测速后保存所选国家、预设、传输大小和连接数。
+- **持久化测速历史。** 完成的测速会写入 `/etc/zbt-speedtest/history.json`，包含时间、国家、预设、服务器、下载/上传 Mbps、ping、字节数和耗时。历史最多保留 100 条，并使用文件锁避免并发写入丢记录。
+- **LuCI 历史表格。** Speedtest 页面现在会以表格显示历史测速记录，并在每次测速后刷新。
+- **LuCI 兼容性修复。** 移除 JavaScript `.format()` 调用，并修复嵌套 table row 导致显示 `[object HTMLTableRowElement]` 的问题。
+- **ACL 与备份覆盖。** rpcd ACL 允许应用读写历史数据库；app-history backup/restore 会保留 `/etc/zbt-speedtest/history.json`。
 
 ## 验证
 
-- 固件从 commit `7495da369d` 重新构建，并提取到 `output/mediatek/filogic`。
+- 固件从 commit `58a983ad76` 重新构建，并提取到 `output/mediatek/filogic`。
+- 已修正构建配置 `CONFIG_PACKAGE_luci-app-zbt-speedtest=y`；最终 manifest 包含 `luci-app-zbt-speedtest - 26.133.41786~58a983a`。
 - staged release assets 已通过 `sha256sum -c sha256sums --ignore-missing`。
-- `zbt-temperature-log` 通过 `sh -n`。
-- `zbt-crash-forensics`、`zbt_crash_forensics` 和 `49-zbt-crash-forensics` 通过 `sh -n`。
-- Temperature LuCI JavaScript 通过 `node --check`。
-- Temperature rpcd ACL 通过 JSON 校验。
-- 重构建前已执行 engineering code review workflow，未发现 blocker。
-- 发布文档更新前源码树通过 `git diff --check`。
-- 重构建前已通过 embedded firmware review 和最终 code review。
-- 重构建前实机验证显示风扇稳定在 cooling state 2 / PWM 112 附近，没有来回跳档；LuCI/ubus 可读取 tmpfs 温度记录；模拟重启（停止服务 + 清空 tmpfs + 重启服务）成功从持久化快照恢复并继续采样。
-- 重构建前实机 crash-forensics smoke test 显示服务已启用，cron 只有一条，pstore 已归档，snapshot 已写入，重复服务重启不会追加重复 boot event。
+- `zbt-speedtest-json` 通过 Python 语法校验。
+- Speedtest LuCI JavaScript 通过 `node --check`。
+- Speedtest rpcd ACL 通过 JSON 校验。
+- 已执行 engineering code review workflow；修复项包括历史写入加锁，以及历史记录使用当前配置解析 preset label。
+- 本地和路由器临时文件测试通过，覆盖 append、自定义 preset label 解析和 clear-history 行为。
+- 已在实机 `3fl.lan` 热部署验证，清理 LuCI cache 并重启 `rpcd`/`uhttpd` 后，`/usr/sbin/zbt-speedtest-json --history` 可返回已持久化的 SG Singtel 历史记录。
 
 ## 校验值
 
 ```text
-bd3f1b79c9010256b0880fdbefd41723ff7ccf884bc2b8e5c805c57c212a4dbe  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-63fe6289ced18386d9ed8425eaebf9d3858e8246a671386edc3f0fcc056549f3  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-5ed76d939ebe947531818bd82fa2138407b086f05dd8028b07414cc3fa28b05b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-0edfdf33440118bd2623d4731c56c37b90a74b301ff753ad939e240c9273cd88  sha256sums
-19a0a0bc2e43e95a242f16dc77f6645a1b58d48348c4e8d247cf8273daaabdc2  config.buildinfo
+a3c35330d09649e56e4ad29b9d6dcbabe3ac3983989e35e54a7d6f3fb3889d7a  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+4f9c90aebc44ddd9aa6c2594a4d55ad2fa7855492c2381946902dc4f126e6c90  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+c755428ec8874006d1572f2b0a457ae61092d1907119ac01ea5e9c46ad443e4d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+22cd03fcfd73f645c0be48165b4449e5768fef147908db51dcb8a25db88b98a5  sha256sums
+43a7d0d006229a8c60a42915e59c7220623778508f18387be37dc8d79ea15777  config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinfo
 05f6cea7ac9e5c3d2d73225400b4dc3cf51eb8002f54cf6d05e5934c1805c60c  version.buildinfo
 ```
