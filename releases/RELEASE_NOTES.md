@@ -29,6 +29,7 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - **Clean shutdown flushes.** The `zbt_temperature` init script flushes the working file on `stop`, so a normal reboot loses no samples; only an abrupt crash can lose up to the last interval.
 - **Breaking cleanup retained.** Legacy 4-column CSV compatibility remains removed; the frontend still expects the current 5-column format: `epoch, group, name, value, unit`.
 - **LuCI data path unchanged.** The Temperature page and rpcd ACL continue to read `/var/log/zbt-temperature/readings.csv`.
+- **Temperature page TypeError fix.** Avoids calling `.format()` on translated strings, fixing `_(...).format is not a function` on the LuCI Temperature page.
 
 ### Crash and reboot forensics
 
@@ -40,7 +41,7 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
 ## Validation
 
-- Firmware rebuilt from commit `b1d85c6f12` and extracted to `output/mediatek/filogic`.
+- Firmware rebuilt from commit `7495da369d` and extracted to `output/mediatek/filogic`.
 - Staged release assets passed `sha256sum -c sha256sums --ignore-missing`.
 - `zbt-temperature-log` passed `sh -n`.
 - `zbt-crash-forensics`, `zbt_crash_forensics`, and `49-zbt-crash-forensics` passed `sh -n`.
@@ -55,10 +56,10 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 ## Checksums
 
 ```text
-10a74b09735ad3c82619033b1b23847b44f486a3abbd8a727bdd9c55f3c4a61e  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-add3cdf72e7dc98f86d1fb06b6f775c7c4d4141896231f6546157ba068ab071a  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-ff83037f018fdd52fae2fc2f96dce0cc7331a76ac5f1c4d341a1198334e849ae  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-4605b40e3cdd1f621a03dd5e10bf2b3adeac16bcf8fcadfb9a4629eb782d89ad  sha256sums
+bd3f1b79c9010256b0880fdbefd41723ff7ccf884bc2b8e5c805c57c212a4dbe  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+63fe6289ced18386d9ed8425eaebf9d3858e8246a671386edc3f0fcc056549f3  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+5ed76d939ebe947531818bd82fa2138407b086f05dd8028b07414cc3fa28b05b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+0edfdf33440118bd2623d4731c56c37b90a74b301ff753ad939e240c9273cd88  sha256sums
 19a0a0bc2e43e95a242f16dc77f6645a1b58d48348c4e8d247cf8273daaabdc2  config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinfo
 05f6cea7ac9e5c3d2d73225400b4dc3cf51eb8002f54cf6d05e5934c1805c60c  version.buildinfo
