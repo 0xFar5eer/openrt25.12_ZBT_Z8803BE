@@ -115,3 +115,8 @@ fi
 # plain UDP only, so each query opens a fresh socket and the route
 # lookup picks up whichever default route is active right now.
 ip route flush cache 2>/dev/null || true
+
+if [ "${INTERFACE:-}" = "wan" ] && command -v conntrack >/dev/null 2>&1; then
+	conntrack -F >/dev/null 2>&1 || true
+	logger -t zbt-leds "$ACTION $INTERFACE flushed conntrack"
+fi

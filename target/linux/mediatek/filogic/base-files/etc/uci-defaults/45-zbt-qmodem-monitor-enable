@@ -68,6 +68,10 @@ esac
 [ -x /etc/init.d/qmodem_monitor ] || exit 0
 
 GUARD_SCRIPT="/usr/sbin/zbt-modem-hard-reboot-guard"
+WCDMA_BANDS="1/2/4/5/8/19"
+LTE_BANDS="1/2/3/4/5/7/8/12/13/14/17/18/19/20/25/26/28/29/30/32/34/38/39/40/41/42/43/46/48/53/66/70/71"
+NSA_BANDS="1/2/3/5/7/8/12/13/14/18/20/25/26/28/29/30/38/40/41/48/53/66/70/71/75/76/77/78/79/92/94/257/258/260/261"
+SA_BANDS="1/2/3/5/7/8/12/13/14/18/20/25/26/28/29/30/38/40/41/48/53/66/70/71/75/76/77/78/79/91/92/93/94/257/258/260/261"
 
 apply_monitor_contract() {
         local sec=$1
@@ -120,9 +124,44 @@ apply_monitor_contract() {
         return 1
 }
 
+apply_band_contract() {
+        local sec=$1
+        local changed=0
+
+        for kv in \
+                "wcdma_band=$WCDMA_BANDS" \
+                "lte_band=$LTE_BANDS" \
+                "nsa_band=$NSA_BANDS" \
+                "sa_band=$SA_BANDS"
+        do
+                k=${kv%%=*}; v=${kv#*=}
+                cur=$(uci -q get "qmodem.${sec}.${k}")
+                if [ "$cur" != "$v" ]; then
+                        uci -q set "qmodem.${sec}.${k}=$v"
+                        changed=1
+                fi
+        done
+
+        [ "$changed" = "1" ] && return 0
+        return 1
+}
+
 contract_changed=0
 
 if uci -q get qmodem.main >/dev/null 2>&1; then
+        for kv in \
+                "enable_dial=1" \
+                "try_preset_usb=1" \
+                "try_preset_pcie=0" \
+                "enable_pcie_scan=0"
+        do
+                k=${kv%%=*}; v=${kv#*=}
+                cur=$(uci -q get "qmodem.main.${k}" 2>/dev/null)
+                if [ "$cur" != "$v" ]; then
+                        uci -q set "qmodem.main.${k}=$v"
+                        contract_changed=1
+                fi
+        done
         cur_monitor_cooldown=$(uci -q get qmodem.main.zbt_monitor_cooldown 2>/dev/null)
         if [ "$cur_monitor_cooldown" != "300" ]; then
                 uci -q set qmodem.main.zbt_monitor_cooldown='300'
@@ -142,6 +181,9 @@ for sec in $(uci -q show qmodem 2>/dev/null \
         if apply_monitor_contract "$sec"; then
                 contract_changed=1
         fi
+        if apply_band_contract "$sec"; then
+                contract_changed=1
+        fi
 done
 
 # Force-create the canonical 4_1 section if qmodem hasn't detected the
@@ -153,6 +195,9 @@ if ! uci -q get qmodem.4_1 >/dev/null 2>&1; then
 fi
 if uci -q get qmodem.4_1 >/dev/null 2>&1; then
         if apply_monitor_contract 4_1; then
+                contract_changed=1
+        fi
+        if apply_band_contract 4_1; then
                 contract_changed=1
         fi
 fi
