@@ -52,6 +52,86 @@ PINNED_SERVERS = {
         'host': 'laspinas1.smart.com.ph.prod.hosts.ooklaserver.net:8080',
         'url': 'http://laspinas1.smart.com.ph:8080/speedtest/upload.php',
         'd': 50.0
+    },
+    'kh-phnom-penh': {
+        'id': '67101',
+        'sponsor': 'ONLINE ISP',
+        'name': 'Phnom Penh',
+        'country': 'Cambodia',
+        'cc': 'KH',
+        'host': 'speedtest10g.online.com.kh:8080',
+        'url': 'http://speedtest10g.online.com.kh:8080/speedtest/upload.php',
+        'd': 1100.0
+    },
+    'sg-singtel': {
+        'id': '13623',
+        'sponsor': 'Singtel',
+        'name': 'Singapore',
+        'country': 'Singapore',
+        'cc': 'SG',
+        'host': 'speedtest.singnet.com.sg:8080',
+        'url': 'http://speedtest.singnet.com.sg:8080/speedtest/upload.php',
+        'd': 1462.0
+    },
+    'my-time-kuala-lumpur': {
+        'id': '50737',
+        'sponsor': 'TIME MY',
+        'name': 'Kuala Lumpur',
+        'country': 'Malaysia',
+        'cc': 'MY',
+        'host': 'speedkl.time.com.my.prod.hosts.ooklaserver.net:8080',
+        'url': 'http://speedkl.time.com.my:8080/speedtest/upload.php',
+        'd': 1514.0
+    },
+    'us-frontier-los-angeles': {
+        'id': '14236',
+        'sponsor': 'Frontier',
+        'name': 'Los Angeles, CA',
+        'country': 'United States',
+        'cc': 'US',
+        'host': 'losangeles.ca.speedtest.frontier.com:8080',
+        'url': 'http://losangeles.ca.speedtest.frontier.com:8080/speedtest/upload.php',
+        'd': 7340.0
+    },
+    'de-telekom-berlin': {
+        'id': '30907',
+        'sponsor': 'Deutsche Telekom',
+        'name': 'Berlin',
+        'country': 'Germany',
+        'cc': 'DE',
+        'host': 'ber.wsqm.telekom-dienste.de.prod.hosts.ooklaserver.net:8080',
+        'url': 'http://ber.wsqm.telekom-dienste.de:8080/speedtest/upload.php',
+        'd': 6188.0
+    },
+    'nl-solcon-dronten': {
+        'id': '1747',
+        'sponsor': 'Solcon Internetdiensten B.V.',
+        'name': 'Dronten',
+        'country': 'Netherlands',
+        'cc': 'NL',
+        'host': 'speedtest01.dro3.solcon.nl:8080',
+        'url': 'http://speedtest01.dro3.solcon.nl:8080/speedtest/upload.php',
+        'd': 6480.0
+    },
+    'fr-orange-strasbourg': {
+        'id': '61300',
+        'sponsor': 'ORANGE FRANCE',
+        'name': 'Strasbourg',
+        'country': 'France',
+        'cc': 'FR',
+        'host': 'strasbourg3.d2m.c2d.liveservices.fr.prod.hosts.ooklaserver.net:8080',
+        'url': 'http://strasbourg3.d2m.c2d.liveservices.fr:8080/speedtest/upload.php',
+        'd': 6527.0
+    },
+    'th-ais-bangkok': {
+        'id': '36978',
+        'sponsor': 'AIS Fibre',
+        'name': 'Bangkok',
+        'country': 'Thailand',
+        'cc': 'TH',
+        'host': 'tlssp1.myaisfibre.com.prod.hosts.ooklaserver.net:8080',
+        'url': 'http://tlssp1.myaisfibre.com:8080/speedtest/upload.php',
+        'd': 1381.0
     }
 }
 DEFAULT_GENERAL = {
@@ -66,14 +146,14 @@ DEFAULT_PRESETS = [
     {'key': 'auto', 'label': 'Auto (selected country)', 'country': '', 'mode': 'auto'},
     {'key': 'ph-globe-santa-rosa', 'label': 'PH - Globe Telecom Santa Rosa', 'country': 'PH', 'mode': 'pinned', **PINNED_SERVERS['ph-globe-santa-rosa']},
     {'key': 'ph-smart-paranaque', 'label': 'PH - Smart Communications Parañaque', 'country': 'PH', 'mode': 'pinned', **PINNED_SERVERS['ph-smart-paranaque']},
-    {'key': 'kh-auto', 'label': 'KH - Cambodia Auto', 'country': 'KH', 'mode': 'auto'},
-    {'key': 'sg-auto', 'label': 'SG - Singapore Auto', 'country': 'SG', 'mode': 'auto'},
-    {'key': 'my-auto', 'label': 'MY - Malaysia Auto', 'country': 'MY', 'mode': 'auto'},
-    {'key': 'us-auto', 'label': 'US - United States Auto', 'country': 'US', 'mode': 'auto'},
-    {'key': 'de-auto', 'label': 'DE - Germany Auto', 'country': 'DE', 'mode': 'auto'},
-    {'key': 'nl-auto', 'label': 'NL - Netherlands Auto', 'country': 'NL', 'mode': 'auto'},
-    {'key': 'fr-auto', 'label': 'FR - France Auto', 'country': 'FR', 'mode': 'auto'},
-    {'key': 'th-auto', 'label': 'TH - Thailand Auto', 'country': 'TH', 'mode': 'auto'}
+    {'key': 'kh-phnom-penh', 'label': 'KH - ONLINE ISP Phnom Penh', 'country': 'KH', 'mode': 'pinned', **PINNED_SERVERS['kh-phnom-penh']},
+    {'key': 'sg-singtel', 'label': 'SG - Singtel Singapore', 'country': 'SG', 'mode': 'pinned', **PINNED_SERVERS['sg-singtel']},
+    {'key': 'my-time-kuala-lumpur', 'label': 'MY - TIME Kuala Lumpur', 'country': 'MY', 'mode': 'pinned', **PINNED_SERVERS['my-time-kuala-lumpur']},
+    {'key': 'us-frontier-los-angeles', 'label': 'US - Frontier Los Angeles', 'country': 'US', 'mode': 'pinned', **PINNED_SERVERS['us-frontier-los-angeles']},
+    {'key': 'de-telekom-berlin', 'label': 'DE - Deutsche Telekom Berlin', 'country': 'DE', 'mode': 'pinned', **PINNED_SERVERS['de-telekom-berlin']},
+    {'key': 'nl-solcon-dronten', 'label': 'NL - Solcon Dronten', 'country': 'NL', 'mode': 'pinned', **PINNED_SERVERS['nl-solcon-dronten']},
+    {'key': 'fr-orange-strasbourg', 'label': 'FR - Orange Strasbourg', 'country': 'FR', 'mode': 'pinned', **PINNED_SERVERS['fr-orange-strasbourg']},
+    {'key': 'th-ais-bangkok', 'label': 'TH - AIS Fibre Bangkok', 'country': 'TH', 'mode': 'pinned', **PINNED_SERVERS['th-ais-bangkok']}
 ]
 
 
