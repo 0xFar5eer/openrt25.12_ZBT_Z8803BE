@@ -498,7 +498,7 @@ function renderContent(rows) {
 		return E([], blocks);
 	}
 
-	blocks.push(E('p', { 'class': 'cbi-section-descr' }, _('Readings are sampled once per minute and kept for the current boot. The selected 7-day view uses one raw point per minute per sensor. Last sample: %s.').format(formatTime(latest))));
+	blocks.push(E('p', { 'class': 'cbi-section-descr' }, _('Readings are sampled once per minute and kept for the current boot. The selected 7-day view uses one raw point per minute per sensor. Last sample:') + ' ' + formatTime(latest) + '.'));
 
 	if (!modemSeen)
 		blocks.push(E('div', { 'class': 'alert-message warning' }, _('No modem temperature readings detected. The modem AT port may be busy or unavailable.')));
