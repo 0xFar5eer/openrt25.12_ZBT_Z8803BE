@@ -1,0 +1,134 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Z8803BE - firmware qmodem disabled-by-default modem-profile contract.
+#
+# WAN-only is the firmware default. This script asserts the qmodem main
+# and qmodem.<modem-device> options that keep cellular dormant unless a
+# deployment explicitly opts back in. It also keeps the historical DNS/NAT
+# modem-profile flags ready for that opt-in path:
+#
+#   1. do_not_add_dns=1
+#       qmodem's modem_dial.sh (feeds/qmodem/.../modem_dial.sh) reads
+#       this and, when set, appends `-D` to the quectel-CM-M command
+#       line. -D tells the dialer to skip the udhcpc.c add-DNS path
+#       (feeds/qmodem/application/quectel_CM_5G_M/src/udhcpc.c:327,
+#        feeds/qmodem/application/quectel_CM_5G_M/src/main.c:956).
+#       With do_not_add_dns=0 (qmodem's stock default) the dialer
+#       overwrites /etc/resolv.conf on every redial, which:
+#         - races dnsmasq's noresolv=1 + fixed-server policy from
+#           80-zbt-z8803be-dns-cache (the resolver path no longer reads
+#           /etc/resolv.conf, but external tools and scripts do, so
+#           they end up using broken operator DNS for one-off lookups).
+#         - leaks the operator's DNS into ad-hoc tools (curl, wget,
+#           busybox nslookup) that read /etc/resolv.conf directly,
+#           which on Globe / Smart PH cellular APNs gives surprising
+#           NXDOMAIN behaviour.
+#
+#   2. donot_nat=1
+#       qmodem's stock default is 0 across the board:
+#         feeds/qmodem/application/qmodem/files/usr/share/qmodem/modem_dial.sh:153
+#             config_get donot_nat $modem_config donot_nat 0
+#         feeds/qmodem/luci/luci-app-qmodem-next/htdocs/luci-static/resources/view/qmodem/network_config.js:342
+#             o.default = '0';
+#       And the dial wrapper translates that to AT+QCFG="nat",N:
+#         modem_dial.sh:776
+#             [ "$donot_nat" = "1" ] && nat_cfg='AT+QCFG="nat",0' \
+#                                    || nat_cfg='AT+QCFG="nat",1'
+#       So the QMI dialer's AT+QCFG="nat",1 instructs the Quectel
+#       firmware to NAT internally: wwan0 surfaces a fake
+#       192.168.225.x/24 RFC1918 IP and the modem hides every device
+#       behind its own embedded NAT. fw4's wan-zone masquerade then
+#       NATs a second time. Net result on a fresh flash:
+#         - LAN clients are double-NATted; inbound port forwards
+#           punched on the OpenWrt side never reach the WAN.
+#         - PMTUD breaks because ICMP "frag needed" from upstream
+#           lands on the modem's internal NAT, not on fw4.
+#         - quectel-CM-M's stats / IP-attach handler thinks the
+#           modem-assigned IP is the public IP and reports the wrong
+#           WAN address up the stack.
+#       Setting donot_nat=1 makes modem_dial.sh send AT+QCFG="nat",0
+#       on every dial, so the modem stops NATting and surfaces the
+#       carrier-assigned (CGNAT) IP directly on wwan0. fw4's wan-zone
+#       masquerade then handles the only NAT step on the path. This
+#       is mandatory for any router-mode deployment.
+#
+# What this script DELIBERATELY keeps untouched (auto-APN contract):
+#   * apn / force_set_apn / pre_dial_at_cmds / pdp_type
+#       qmodem's defaults (apn unset, force_set_apn=0, pdp_type=ipv4v6)
+#       let quectel-CM-M auto-detect the carrier-blessed APN, which on
+#       PH carriers (Smart, Globe) is the only configuration that gets
+#       through QMI-WDS PDN setup. Forcing any of these from firmware
+#       was observed to cause QMUXError=0xe (PDN_REQUEST_REJECTED) loops
+#       on Smart PH with the Quectel RM551E firmware. Setup scripts may
+#       still override at runtime if a specific deployment needs it,
+#       but the firmware-shipped default is auto-everything.
+# Cellular enablement is opt-in. The disabled state, block_auto_probe,
+# and high metric are intentionally duplicated in 48-zbt-qmodem-monitor-defaults
+# so the safe WAN-only contract survives partial package availability.
+#
+# WHEN IT TAKES EFFECT:
+#   qmodem reads UCI on every scan/dial path. If cellular is explicitly
+#   enabled later, the modem-profile flags are already set before dial.
+#
+# IDEMPOTENCE:
+#   uci set is a no-op when the value already matches. Safe on every
+#   boot and on sysupgrade.
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+        zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+        *) exit 0 ;;
+esac
+
+# Skip cleanly on builds without qmodem.
+[ -e /etc/config/qmodem ] || exit 0
+
+# Walk every modem-device section in /etc/config/qmodem and assert
+# the firmware modem-profile contract. Anonymous modem-slot sections
+# (the 4-1 / 4-2 physical-slot definitions) don't need this - they
+# don't carry dial-time options. We target sections of type
+# `modem-device` (created by qmodem's modem_scan.sh:498 when a modem
+# is detected, named after its logical interface, e.g. `qmodem.4_1`).
+contract_changed=0
+if uci -q get qmodem.main >/dev/null 2>&1; then
+        uci -q set qmodem.main.enable_dial='0'
+        uci -q set qmodem.main.try_preset_usb='0'
+        uci -q set qmodem.main.try_preset_pcie='0'
+        uci -q set qmodem.main.enable_pcie_scan='0'
+        uci -q set qmodem.main.block_auto_probe='1'
+        contract_changed=1
+fi
+for sec in $(uci -q show qmodem 2>/dev/null \
+                | sed -nE "s/^qmodem\.([^.=]+)=modem-device$/\1/p"); do
+        [ -n "$sec" ] || continue
+        uci -q set "qmodem.${sec}.do_not_add_dns=1"
+        uci -q set "qmodem.${sec}.donot_nat=1"
+        uci -q set "qmodem.${sec}.state=disabled"
+        uci -q set "qmodem.${sec}.monitor_enabled=0"
+        uci -q set "qmodem.${sec}.enable_dial=0"
+        uci -q set "qmodem.${sec}.metric=200"
+        contract_changed=1
+done
+
+# Pre-seed the conventional 4_1 entry too. On a freshly-flashed router
+# the modem section won't exist yet (qmodem creates it on first detect),
+# so the loop above is a no-op. Force-create the section with the
+# correct type (`modem-device`, NOT `modem`) so qmodem's first-detect
+# path takes the IF branch in modem_scan.sh:473 (which preserves both
+# our type and our flags) and downstream consumers that iterate
+# `config_foreach modem-device` (LuCI dial config, etc.) still find
+# this section.
+if ! uci -q get qmodem.4_1 >/dev/null 2>&1; then
+        uci -q set qmodem.4_1=modem-device
+        uci -q set qmodem.4_1.do_not_add_dns='1'
+        uci -q set qmodem.4_1.donot_nat='1'
+        uci -q set qmodem.4_1.state='disabled'
+        uci -q set qmodem.4_1.monitor_enabled='0'
+        uci -q set qmodem.4_1.enable_dial='0'
+        uci -q set qmodem.4_1.metric='200'
+        contract_changed=1
+fi
+
+[ "$contract_changed" = "1" ] && uci -q commit qmodem
+
+exit 0

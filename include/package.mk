@@ -61,6 +61,15 @@ ifdef CONFIG_USE_MOLD
   endif
 endif
 
+# loongarch64 sets CONFIG_PAGE_SIZE_16KB, all other targets set CONFIG_PAGE_SIZE_4KB only.
+ifeq ($(ARCH),loongarch64)
+  TARGET_CFLAGS += -Wl,-z,max-page-size=16384
+  TARGET_LDFLAGS += -zmax-page-size=16384
+else
+  TARGET_CFLAGS += -Wl,-z,max-page-size=4096
+  TARGET_LDFLAGS += -zmax-page-size=4096
+endif
+
 include $(INCLUDE_DIR)/hardening.mk
 include $(INCLUDE_DIR)/prereq.mk
 include $(INCLUDE_DIR)/unpack.mk
@@ -339,10 +348,6 @@ define BuildPackage
   # default, so wget-ssl can explicitly provide @wget-any as well.
   $(eval PROVIDES:=$(strip @$(1)-any $(PROVIDES)))
 
-ifdef DESCRIPTION
-$$(error DESCRIPTION:= is obsolete, use Package/PKG_NAME/description)
-endif
-
 ifndef Package/$(1)/description
 define Package/$(1)/description
 	$(TITLE)
@@ -395,7 +400,7 @@ prepare-package-install:
 $(PACKAGE_DIR):
 	mkdir -p $@
 
-compile:
+compile: prepare-package-install
 .install: .compile
 install: compile
 

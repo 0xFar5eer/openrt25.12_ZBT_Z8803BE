@@ -491,7 +491,7 @@ while true; do
         failed_count=0
     fi
     sleep "$Interval"
-    
+
     if [ "$failed_count" -ge "$Threshold" ]; then
         if no_sim_present; then
             record_no_sim_suspended

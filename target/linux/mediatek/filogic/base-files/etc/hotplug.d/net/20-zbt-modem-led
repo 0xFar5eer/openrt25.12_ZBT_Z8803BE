@@ -1,0 +1,89 @@
+#!/bin/sh
+# Wire the front-panel 5G1 / 5G2 status LEDs to the modem's data netif
+# using the kernel's netdev LED trigger.
+#
+# When a QMI (qmi_wwan) or MBIM (cdc_mbim / mhi_wwan_mbim) netif appears,
+# figure out which M.2 slot it hotplugged from by walking the USB device
+# tree, and bind the matching LED (blue:mobile-1 for slot 4-1,
+# blue:mobile-2 for slot 4-2) to the netdev trigger with link + tx + rx modes:
+#
+#   LED off      -> modem not linked (dialing, no signal, or PDP down)
+#   LED solid    -> modem has an active data call (wwan has an IP)
+#   LED blinking -> traffic flowing through the modem
+#
+# The trigger self-clears when the netif disappears (modem unplugged or
+# powered off via the 5g1/5g2 GPIO), so we only have work to do on `add`.
+#
+# This is intentionally hotplug-driven rather than uci-defaults'd into
+# /etc/config/system: the correct LED-to-netif binding depends on WHICH
+# slot the modem is actually in, which we can only know at runtime.
+# /etc/config/system led stanzas would need the netif name hard-coded
+# and would silently do nothing if the modem moved to the other slot.
+#
+# Board-guarded so this is a no-op on any target that shares this
+# base-files tree but doesn't have blue:mobile-1/blue:mobile-2 LEDs.
+
+[ "$ACTION" = "add" ] || exit 0
+[ -n "$DEVICENAME" ] || exit 0
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+SYS="/sys/class/net/$DEVICENAME"
+[ -d "$SYS" ] || exit 0
+
+# Only care about WWAN-class interfaces. qmi_wwan exposes /qmi/, mhi_net
+# exposes /mhi/, cdc_mbim exposes /device/net/ and is driven through the
+# cdc-wdm device. Covering qmi+mhi here is enough for the modem families
+# this board supports; extend if an MBIM-only modem shows up.
+if [ -d "$SYS/qmi" ] || [ -d "$SYS/mhi" ]; then
+	:
+else
+	exit 0
+fi
+
+# Walk up from $SYS/device until we hit the /sys/bus/usb/devices/<bus>-<port>
+# node. The QMI data-interface sits two levels deep under the USB device
+# (.../usb4/4-1/4-1:1.4/net/wwan0), so we resolve with a bounded loop to
+# avoid surprises if the driver topology changes.
+dev=$(readlink -f "$SYS/device" 2>/dev/null) || exit 0
+slot=""
+i=0
+while [ -n "$dev" ] && [ "$i" -lt 6 ]; do
+	base=$(basename "$dev")
+	case "$base" in
+		4-1|4-2|3-1|3-2|2-1|2-2|1-1|1-2)
+			slot="$base"
+			break
+			;;
+	esac
+	dev=$(dirname "$dev")
+	i=$((i + 1))
+done
+
+case "$slot" in
+	*-1)
+		LED="/sys/class/leds/blue:mobile-1"
+		;;
+	*-2)
+		LED="/sys/class/leds/blue:mobile-2"
+		;;
+	*)   exit 0 ;;
+esac
+
+[ -d "$LED" ] || {
+	logger -t zbt-modem-led "LED sysfs node $LED missing — stale DTS?"
+	exit 0
+}
+
+logger -t zbt-modem-led "binding $LED to $DEVICENAME (slot $slot)"
+
+# Switch the trigger first; writing device_name / link / tx / rx only
+# takes effect under the netdev trigger.
+printf 'netdev' > "$LED/trigger" 2>/dev/null
+printf '%s' "$DEVICENAME" > "$LED/device_name" 2>/dev/null
+printf '1' > "$LED/link" 2>/dev/null
+printf '1' > "$LED/tx" 2>/dev/null
+printf '1' > "$LED/rx" 2>/dev/null

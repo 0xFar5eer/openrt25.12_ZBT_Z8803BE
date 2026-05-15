@@ -113,6 +113,29 @@ slot_at_port() {
 	return 1
 }
 
+slot_netdev() {
+	local slot="$1" sys iface dev base i
+	for sys in /sys/class/net/*; do
+		[ -d "$sys" ] || continue
+		[ -d "$sys/qmi" ] || [ -d "$sys/mhi" ] || continue
+		iface=${sys##*/}
+		dev=$(readlink -f "$sys/device" 2>/dev/null) || continue
+		i=0
+		while [ -n "$dev" ] && [ "$i" -lt 6 ]; do
+			base=$(basename "$dev")
+			case "$slot:$base" in
+				1:*-1|2:*-2)
+					printf '%s\n' "$iface"
+					return 0
+					;;
+			esac
+			dev=$(dirname "$dev")
+			i=$((i + 1))
+		done
+	done
+	return 1
+}
+
 # Issue an AT command via sms_tool with a short timeout. Returns
 # the response on stdout, empty string on timeout/error. Strips the
 # echoed command and trailing OK/empty lines so callers can grep
@@ -160,7 +183,12 @@ classify() {
 apply_state() {
 	local slot="$1" state="$2"
 	[ -x "$HELPER" ] || return 0
-	"$HELPER" slot "$slot" "$state"
+	if [ "$state" = "wwan" ]; then
+		[ -n "$SLOT_NETDEV" ] || return 0
+		"$HELPER" slot "$slot" "$state" "$SLOT_NETDEV"
+	else
+		"$HELPER" slot "$slot" "$state"
+	fi
 }
 
 # --- main loop ---------------------------------------------------
@@ -169,10 +197,18 @@ detect_slot() {
 	local slot="$1"
 	SLOT_POWERED="$(slot_powered "$slot" 2>/dev/null)"
 	SLOT_PORT=""
+	SLOT_NETDEV=""
 	SLOT_RESP=""
 	SLOT_STATE=off
+	SLOT_KEY=off
 
 	if [ "$SLOT_POWERED" = "1" ]; then
+		SLOT_NETDEV=$(slot_netdev "$slot" 2>/dev/null || true)
+		if [ -n "$SLOT_NETDEV" ]; then
+			SLOT_STATE=wwan
+			SLOT_KEY="wwan:${SLOT_NETDEV}"
+			return
+		fi
 		SLOT_PORT=$(slot_at_port "$slot" 2>/dev/null || true)
 		if [ -n "$SLOT_PORT" ] && [ -c "$SLOT_PORT" ]; then
 			SLOT_RESP=$(at_query "$SLOT_PORT" 'AT+QENG="servingcell"' 2>/dev/null || true)
@@ -185,6 +221,7 @@ detect_slot() {
 			SLOT_STATE=no_signal
 		fi
 	fi
+	SLOT_KEY="$SLOT_STATE"
 }
 
 run_cycle() {
@@ -197,16 +234,16 @@ run_cycle() {
 			1) prev=$last1 ;;
 			2) prev=$last2 ;;
 		esac
-		if [ "$SLOT_STATE" != "$prev" ]; then
+		if [ "$SLOT_KEY" != "$prev" ]; then
 			apply_state "$slot" "$SLOT_STATE"
-			logger -t zbt-modem-leds "slot $slot: $prev -> $SLOT_STATE"
+			logger -t zbt-modem-leds "slot $slot: $prev -> $SLOT_KEY"
 			case "$slot" in
-				1) last1=$SLOT_STATE ;;
-				2) last2=$SLOT_STATE ;;
+				1) last1=$SLOT_KEY ;;
+				2) last2=$SLOT_KEY ;;
 			esac
 		fi
 		if [ "$once" = "1" ]; then
-			echo "slot=$slot powered=${SLOT_POWERED:-0} port=${SLOT_PORT:-none} state=$SLOT_STATE"
+			echo "slot=$slot powered=${SLOT_POWERED:-0} port=${SLOT_PORT:-none} netdev=${SLOT_NETDEV:-none} state=$SLOT_STATE"
 		fi
 	done
 }

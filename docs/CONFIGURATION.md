@@ -52,7 +52,7 @@ The seed config intentionally excludes some packages:
 
 | Package or group | Reason recorded in config |
 |------------------|---------------------------|
-| `adguardhome`, `luci-app-adguardhome` | Not baked into the image; installed post-flash from OpenWrt APK repositories when needed. |
+| `adguardhome`, `luci-app-adguardhome` | Not built from source; official prebuilt APKs are embedded under `/usr/share/zbt/apk/` and installed locally on first boot by `86-zbt-adguardhome-defaults`. |
 | `luci-app-attendedsysupgrade` | This firmware is released from GitHub, not OpenWrt buildbot. |
 | `modemmanager`, `luci-proto-modemmanager` | QModem owns modem management; ModemManager can race QModem for modem devices. |
 | `luci-proto-3g` | Legacy AT/PPP path is not the intended path for this M.2 QMI/MBIM board. |
@@ -147,7 +147,7 @@ WAN: eth1 eth2
 WAN and cellular failover defaults are applied by:
 
 ```text
-target/linux/mediatek/filogic/base-files/etc/uci-defaults/30-zbt-z8803be-wan-failover
+target/linux/mediatek/filogic/base-files/etc/uci-defaults/32-zbt-z8803be-wan-failover
 ```
 
 Key values:
@@ -174,11 +174,11 @@ DNS defaults are split across multiple uci-default scripts:
 
 | File | Role |
 |------|------|
-| `30-zbt-z8803be-wan-failover` | Sets `peerdns=0` on wired and cellular interface stubs. |
-| `35-zbt-qmodem-dns-suppress` | Suppresses QModem DNS injection. |
-| `90-zbt-z8803be-dns-cache` | Configures dnsmasq cache and fixed upstream resolvers. |
+| `32-zbt-z8803be-wan-failover` | Sets `peerdns=0` on wired and cellular interface stubs. |
+| `40-zbt-qmodem-dns-suppress` | Suppresses QModem DNS injection. |
+| `80-zbt-z8803be-dns-cache` | Configures dnsmasq cache and fixed upstream resolvers. |
 
-`90-zbt-z8803be-dns-cache` configures dnsmasq with:
+`80-zbt-z8803be-dns-cache` configures dnsmasq with:
 
 | Option | Value |
 |--------|-------|
@@ -193,7 +193,7 @@ Deployment scripts can replace the resolver list after first boot if a local DNS
 WiFi defaults are configured by:
 
 ```text
-target/linux/mediatek/filogic/base-files/etc/uci-defaults/70-zbt-z8803be-wifi
+target/linux/mediatek/filogic/base-files/etc/uci-defaults/72-zbt-z8803be-wifi
 ```
 
 Device-level defaults:
@@ -225,7 +225,7 @@ Band defaults:
 QModem monitor defaults are applied by:
 
 ```text
-target/linux/mediatek/filogic/base-files/etc/uci-defaults/45-zbt-qmodem-monitor-enable
+target/linux/mediatek/filogic/base-files/etc/uci-defaults/48-zbt-qmodem-monitor-defaults
 ```
 
 The monitor contract is:

@@ -29,24 +29,6 @@
 		reg = <0 0x40000000 0 0x40000000>;
 	};
 
-	reg_1p8v: regulator-1p8v {
-		compatible = "regulator-fixed";
-		regulator-name = "fixed-1.8V";
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
-		regulator-boot-on;
-		regulator-always-on;
-	};
-
-	reg_3p3v: regulator-3p3v {
-		compatible = "regulator-fixed";
-		regulator-name = "fixed-3.3V";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		regulator-boot-on;
-		regulator-always-on;
-	};
-
 	gpio-keys {
 		compatible = "gpio-keys";
 
@@ -95,13 +77,17 @@
 		 * interface) turns them solid on link and blinks on traffic.
 		 */
 		led-5g1 {
-			label = "5g1";
+			color = <LED_COLOR_ID_BLUE>;
+			function = LED_FUNCTION_MOBILE;
+			function-enumerator = <1>;
 			gpios = <&pio 61 GPIO_ACTIVE_LOW>;
 			default-state = "off";
 		};
 
 		led-5g2 {
-			label = "5g2";
+			color = <LED_COLOR_ID_BLUE>;
+			function = LED_FUNCTION_MOBILE;
+			function-enumerator = <2>;
 			gpios = <&pio 53 GPIO_ACTIVE_LOW>;
 			default-state = "off";
 		};
@@ -120,10 +106,10 @@
 		 * the 3FL wired-WAN deployment. Pre-flash power state is irrelevant: u-boot
 		 * doesn't drive these pins.
 		 *
-		 * Names match the front-panel silk so `/sys/class/gpio/5g1`
-		 * and the matching `/sys/class/leds/5g1` trigger/netdev node
-		 * stay in lockstep for userspace tooling (qmodem modem-slot,
-		 * LuCI "Switches" panel, hotplug-driven LED wiring).
+		 * GPIO names match the front-panel silk so `/sys/class/gpio/5g1`
+		 * and the matching mobile LED nodes stay in lockstep for
+		 * userspace tooling (qmodem modem-slot, LuCI "Switches" panel,
+		 * hotplug-driven LED wiring).
 		 */
 		modem0 {
 			gpio-export,name = "5g1";
@@ -413,7 +399,7 @@
 
 &gmac0 {
 	nvmem-cell-names = "mac-address";
-	nvmem-cells = <&gmac0_mac 0>;
+	nvmem-cells = <&gmac0_mac>;
 	status = "okay";
 };
 
@@ -422,7 +408,7 @@
 	phy-connection-type = "internal";
 	phy = <&int_2p5g_phy>;
 	nvmem-cell-names = "mac-address";
-	nvmem-cells = <&gmac1_mac 0>;
+	nvmem-cells = <&gmac1_mac>;
 	status = "okay";
 };
 
@@ -431,7 +417,7 @@
 	managed = "in-band-status";
 	phy-mode = "10gbase-r";
 	nvmem-cell-names = "mac-address";
-	nvmem-cells = <&gmac2_mac 0>;
+	nvmem-cells = <&gmac2_mac>;
 	status = "okay";
 };
 

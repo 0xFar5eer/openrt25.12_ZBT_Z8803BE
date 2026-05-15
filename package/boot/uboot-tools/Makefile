@@ -1,16 +1,15 @@
 include $(TOPDIR)/rules.mk
 
 PKG_DISTNAME:=u-boot
-PKG_VERSION:=2025.10
+PKG_VERSION:=2026.04
 PKG_RELEASE:=1
 
 PKG_SOURCE:=$(PKG_DISTNAME)-$(PKG_VERSION).tar.bz2
 PKG_SOURCE_URL:= \
 	https://ftp.denx.de/pub/u-boot \
-	https://mirror.cyberbits.eu/u-boot \
-	ftp://ftp.denx.de/pub/u-boot
-PKG_URL:=http://www.denx.de/wiki/U-Boot
-PKG_HASH:=b4f032848e56cc8f213ad59f9132c084dbbb632bc29176d024e58220e0efdf4a
+	https://mirror.cyberbits.eu/u-boot
+PKG_URL:=https://docs.u-boot.org/en/latest/
+PKG_HASH:=ac7c04b8b7004923b00a4e5d6699c5df4d21233bac9fda690d8cfbc209fff2fd
 PKG_SOURCE_SUBDIR:=$(PKG_DISTNAME)-$(PKG_VERSION)
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_DISTNAME)-$(PKG_VERSION)
 
@@ -70,14 +69,19 @@ endef
 
 define Build/Configure
 	$(call Build/Compile/Default,tools-only_defconfig)
-	$(SED) 's/CONFIG_TOOLS_LIBCRYPTO=y/# CONFIG_TOOLS_LIBCRYPTO is not set/' $(PKG_BUILD_DIR)/.config
-	$(SED) 's/CONFIG_TOOLS_KWBIMAGE=y/# CONFIG_TOOLS_KWBIMAGE is not set/' $(PKG_BUILD_DIR)/.config
+
+	$(PKG_BUILD_DIR)/scripts/config \
+		--file $(PKG_BUILD_DIR)/.config \
+		--disable TOOLS_KWBIMAGE \
+		--disable TOOLS_LIBCRYPTO \
+		--disable TOOLS_MKEFICAPSULE
 endef
 
 MAKE_FLAGS += \
 	ARCH="sandbox" \
 	TARGET_CFLAGS="$(TARGET_CFLAGS)" \
 	TARGET_LDFLAGS="$(TARGET_LDFLAGS)" \
+	PKG_CONFIG_SYSROOT_DIR="$(STAGING_DIR_HOST)" \
 	NO_PYTHON=1 \
 	V=$(if $(findstring c,$(OPENWRT_VERBOSE)),1,)
 

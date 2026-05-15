@@ -71,7 +71,7 @@ QOSMATE_FILES_REG_PATH_FRONTEND=${QOSMATE_D}/frontend_reg.md5
 ### Backend files
 QOSMATE_SERVICE_PATH=/etc/init.d/qosmate
 QOSMATE_MAIN_SCRIPT=/etc/qosmate.sh
-QOSMATE_HOTPLUG_SCRIPT=/etc/hotplug.d/iface/13-qosmateHotplug
+QOSMATE_HOTPLUG_SCRIPT=/etc/hotplug.d/iface/20-qosmate-hotplug
 
 # stores the version and update channel
 QOSMATE_VERSION_FILE_BACKEND=$QOSMATE_SERVICE_PATH

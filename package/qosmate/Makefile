@@ -44,7 +44,7 @@ define Package/qosmate/install
 	$(INSTALL_BIN) ./etc/qosmate-autorate-tc.sh $(1)/etc/
 	$(INSTALL_BIN) ./etc/init.d/qosmate $(1)/etc/init.d/
 	$(INSTALL_BIN) ./etc/init.d/qosmate-autorate $(1)/etc/init.d/
-	$(INSTALL_CONF) ./etc/hotplug.d/iface/13-qosmateHotplug $(1)/etc/hotplug.d/iface/
+	$(INSTALL_CONF) ./etc/hotplug.d/iface/20-qosmate-hotplug $(1)/etc/hotplug.d/iface/
 	$(INSTALL_CONF) ./etc/config/qosmate $(1)/etc/config/
 	$(INSTALL_CONF) ./etc/config/qosmate $(1)/etc/qosmate.d/qosmate-defaults
 	$(INSTALL_DATA) ./usr/lib/tc/*.dist $(1)/usr/lib/tc/

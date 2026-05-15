@@ -1,22 +1,22 @@
 ![OpenWrt logo](include/logo.png)
 
-# ZBTLink ZBT-Z8803BE OpenWrt 固件
+# ZBTLink ZBT-Z8803BE OpenWrt main 固件
 
 [English](README.md) | [中文](README.zh-CN.md)
 
 > **社区版本。** 此固件由个人独立维护，并非来自厂商或 OpenWrt 官方项目，难免存在 bug 和粗糙之处。欢迎大家提交 Issue 与 PR。
 
-这是面向 **ZBTLink ZBT-Z8803BE** WiFi 7 路由器的当前自定义 OpenWrt 固件。
+面向 **ZBTLink ZBT-Z8803BE** WiFi 7 路由器的自定义 OpenWrt 固件。
 
-- **OpenWrt 基线:** 官方 `v25.12.2` / `r32802-f505120278`
-- **内核:** Linux `6.12.74`
+- **OpenWrt 基线:** 当前 OpenWrt `main`
+- **内核:** MediaTek target `6.18`
 - **目标平台:** `mediatek/filogic`
 - **设备:** MediaTek MT7988A / Filogic 880 + MT7996 系列三频 WiFi 7
-- **发布标签:** `v25.12.2-6-zbt8803be`
+- **发布标签:** 等待 main/6.18 测试构建
 
 ## 下载
 
-请使用 GitHub 最新 Release 中的文件：
+发布构建完成后，请使用 GitHub 最新 Release 中的文件：
 
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
@@ -30,43 +30,37 @@
 
 ## 校验值
 
-```text
-373420c401352f4890c4480de24d333174f8decdae5d3631d58e91fc0ffeed0b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-77cb8e7a2c7840170d35bfbdf9669d2e6caa7397ea43295899bd57f6d294ff8f  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-2d9410ca9a1d15617fe715256e67a0d5e2a365a2ff1f132f9bfcbc6d0c7dbdb8  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-```
+等待重构建。执行 `./.buildenv/build.sh extract` 后从 `releases/sha256sums` 刷新本节。
 
 ## 已包含功能
 
-- **主线 OpenWrt 25.12.2:** 不依赖 MediaTek vendor feed。
+- **主线 OpenWrt main:** 不依赖 MediaTek vendor feed。
 - **WiFi 7 三频:** 2.4 GHz、5 GHz、6 GHz、EHT320、WPA3、支持 MLO。
-- **PH WiFi 默认值:** 国家码 `PH`，启用 PH 允许的完整信道集合，固件不再额外限制 txpower/channel，并由驱动按法规自动选择最大发射功率。
+- **PH WiFi 默认值:** 国家码 `PH`，启用 PH 允许的完整信道集合，固件不额外限制 txpower/channel，并由驱动按法规自动选择最大发射功率。
 - **LuCI:** HTTPS、Argon 深色主题、中文翻译、软件包管理器、整理后的 Services/服务菜单顺序，以及覆盖自定义固件应用的共享 ZBT 样式。
+- **自定义 LuCI 应用:** About、Health、Temperature、Modem Events、Speedtest、WiFi Clients、Traffic Statistics 和 MLO 工具。
+- **流量与 QoS 工具:** wrtbwmon 设备/域名流量视图，以及可手动启用调优的 QoSmate。
 - **QModem Next:** 现代 JS 调制解调器界面，内置短信、监控、AT 调试和调制解调器控制。
 - **调制解调器栈:** QMI、MBIM、NCM、MHI、USB serial、QModem、`sms_tool_q`。
-- **Z8803BE-T SIM 接线说明:** 此精确型号/版本中，SIM1 固定连接 modem1，SIM2 固定连接 modem2；单个模块不能控制两张 SIM 卡，因此不支持 SIM 切换。供应商说明另有一个 Z8803BE-T 版本支持一个模块控制两张 SIM 卡。
-- **调制解调器 LED:** 固件默认启用 LED 服务和状态轮询。
-- **默认调制解调器供电:** 槽位 1 开启（`5g1=1`），槽位 2 关闭（`5g2=0`）。
-- **网络:** WireGuard、SQM/CAKE、DDNS、firewall4/nftables。
-- **WAN 故障切换默认值:** 首次启动即写入 WAN metric `10` 与 WWAN/QModem metric `20`，支持拔网线自动切换。
+- **Z8803BE-T SIM 接线说明:** 此精确型号/版本中，SIM1 固定连接 modem1，SIM2 固定连接 modem2；单个模块不能控制两张 SIM 卡，因此不支持 SIM 切换。
+- **公开固件 WAN-only 默认值:** 有线 WAN 优先，modem 电源默认关闭，cellular 默认休眠并使用 metric `200` 且不作为默认路由，QoSmate 默认关闭，防火墙 flow offload 默认开启。
+- **不内置 crash-forensics 包:** 详细重启/崩溃调查工具只通过私有 setup 脚本在刷机后安装。
 - **存储:** USB 3.0、ext4、vfat、exfat、ntfs3、Samba 4、SFTP。
-- **监控:** 路由器健康状态、autocore、cpufreq、collectd/statistics、WiFi 客户端/历史，以及 wrtbwmon Traffic Statistics 设备/域名视图。
-- **温度监控:** 内置 ZBT 温度图表，支持不同模块的避让温度线和风扇 PWM 记录。
-- **路由器健康页面:** 内置 ZBT Health 页面，显示 overlay/存储、RAM、conntrack、uptime 和写入热点。
+- **监控:** 路由器健康状态、autocore、cpufreq、collectd/statistics、WiFi 客户端/历史、温度历史和 modem 事件历史。
 - **Shell 默认项:** banner、彩色提示符、常用别名和工具，包含 `git`、`git-http` 以及 BusyBox 兼容的 `install` shim。
 - **软件源:** 已配置 OpenWrt + ImmortalWrt overlay APK 源。
 
-## 已验证
+## 私有 setup-only crash forensics
 
-已验证：
+公开固件镜像保持通用化，适合普通用户。镜像中**不**包含 `zbt-crash-forensics`，也不启用定时重启工具。
 
-- WAN 主路由正常
-- WAN 链路断开时 WWAN 备线路由可正常接管
-- 重启后故障切换 metric 持久化正常
-- DNS/互联网正常
-- WiFi/MLO 正常
-- QModem Next 调制解调器控制正常；此精确机器上 SIM1 固定对应 modem1，SIM2 固定对应 modem2
-- 调制解调器 LED 服务正常
+如果需要在已刷机路由器上做私有 crash 调查，请运行 setup 仓库阶段：
+
+```sh
+/Users/numwan/Documents/Remix/bitbucket/wrt/setup/015-crash-forensics.sh root@3fl.lan
+```
+
+该阶段会在目标路由器上安装增强版 flight recorder、每分钟 snapshot、重启上下文归档，以及 `/etc/sysupgrade.conf` 保留项。
 
 ## 安装
 
@@ -104,7 +98,6 @@ sysupgrade -n openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.b
 ```sh
 ./.buildenv/build.sh init
 ./.buildenv/build.sh feeds
-cp .buildenv/zbt8803be.config .config
 ./.buildenv/build.sh config
 ./.buildenv/build.sh download
 ./.buildenv/build.sh build
@@ -120,15 +113,15 @@ output/mediatek/filogic/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sy
 ## 说明
 
 - SFP+ 已包含，但此处未做实体硬件验证。
-- 未启用硬件 NAT/offload；本固件保持主线 OpenWrt 路线。
-- PH WiFi 默认值遵循 `wireless-regdb`，仅移除固件侧额外的 txpower/channel 限制；修改国家码、信道或天线增益前请自行确认当地合规性。
+- 当前分支基于 OpenWrt main 和 MediaTek 6.18 target kernel。
+- PH WiFi 默认值遵循 `wireless-regdb`；修改国家码、信道或天线增益前请自行确认当地合规性。
 
 ## 反馈与联系
 
 - **Issue / PR:** https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/issues
 - **Telegram:** https://t.me/Far5eer
 
-由于本固件是社区版本，欢迎各位提交 Issue 与 PR，发现任何问题请直接反馈。同样的信息也会显示在路由器的 SSH 登录 banner 与 LuCI 中 **系统 -> 关于此固件** 页面。
+欢迎提交 Issue 与 PR。同样的信息也会显示在路由器的 SSH 登录 banner 与 LuCI 中 **系统 -> 关于此固件** 页面。
 
 ## 致谢
 
@@ -136,5 +129,5 @@ output/mediatek/filogic/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sy
 - [@sjanulonoks](https://github.com/sjanulonoks) —— 建议加入风扇控制优化，并参与本版本的整体测试，帮助调校和验证这版 ZBT-Z8803BE 固件。
 - [FUjr/QModem](https://github.com/FUjr/QModem) —— 本固件采用的 QModem Next 现代 JS 界面；此精确 Z8803BE-T 版本中 SIM1/SIM2 分别接到两个 M.2 调制解调器，因此已禁用 SIM 切换。
 - [OneB1t/Z8803BE-research](https://github.com/OneB1t/Z8803BE-research) —— 对原厂 21.02-SNAPSHOT 固件的研究，揭示了失效的 opkg 软件源以及内置的回传通道。
-- [OpenWrt mainline](https://openwrt.org) —— 本固件的基础发行版，不依赖联发科 vendor feed。
+- [OpenWrt mainline](https://openwrt.org) —— 本固件的基础发行版。
 - [ImmortalWrt](https://github.com/immortalwrt) —— 构建过程中使用的补充软件包与 LuCI 资源。

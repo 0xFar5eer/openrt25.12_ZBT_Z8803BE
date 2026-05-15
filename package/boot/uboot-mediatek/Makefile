@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
-PKG_VERSION:=2025.10
-PKG_HASH:=b4f032848e56cc8f213ad59f9132c084dbbb632bc29176d024e58220e0efdf4a
+PKG_VERSION:=2026.01
+PKG_HASH:=b60d5865cefdbc75da8da4156c56c458e00de75a49b80c1a2e58a96e30ad0d54
 PKG_BUILD_DEPENDS:=!(TARGET_ramips||TARGET_mediatek_mt7623):arm-trusted-firmware-tools/host
 
 UBOOT_USE_INTREE_DTC:=1
@@ -263,8 +263,8 @@ define U-Boot/mt7981_cmcc_rax3000m-emmc-ddr3
   UBOOT_IMAGE:=u-boot.fip
   BL2_BOOTDEV:=emmc
   BL2_SOC:=mt7981
-  BL2_DDRTYPE:=ddr3-1866mhz
-  DEPENDS:=+trusted-firmware-a-mt7981-emmc-ddr3-1866mhz
+  BL2_DDRTYPE:=ddr3-1866
+  DEPENDS:=+trusted-firmware-a-mt7981-emmc-ddr3-1866
 endef
 
 define U-Boot/mt7981_cmcc_rax3000m-emmc-ddr4
@@ -287,8 +287,8 @@ define U-Boot/mt7981_cmcc_rax3000m-nand-ddr3
   UBOOT_IMAGE:=u-boot.fip
   BL2_BOOTDEV:=spim-nand
   BL2_SOC:=mt7981
-  BL2_DDRTYPE:=ddr3-1866mhz
-  DEPENDS:=+trusted-firmware-a-mt7981-spim-nand-ddr3-1866mhz
+  BL2_DDRTYPE:=ddr3-1866
+  DEPENDS:=+trusted-firmware-a-mt7981-spim-nand-ddr3-1866
 endef
 
 define U-Boot/mt7981_cmcc_rax3000m-nand-ddr4
@@ -335,6 +335,54 @@ define U-Boot/mt7981_cudy_wbr3000uax-v1
   BL2_BOOTDEV:=cudy-ddr3
   BL2_SOC:=mt7981
   DEPENDS:=+trusted-firmware-a-mt7981-cudy-ddr3
+endef
+
+define U-Boot/mt7981_cudy_wr3000e-v1
+  NAME:=Cudy WR3000E v1
+  BUILD_SUBTARGET:=filogic
+  BUILD_DEVICES:=cudy_wr3000e-v1-ubootmod
+  UBOOT_CONFIG:=mt7981_cudy_wr3000e-v1
+  UBOOT_IMAGE:=u-boot.fip
+  BL2_BOOTDEV:=cudy
+  BL2_SOC:=mt7981
+  BL2_DDRTYPE:=ddr3
+  DEPENDS:=+trusted-firmware-a-mt7981-cudy-ddr3
+endef
+
+define U-Boot/mt7981_cudy_wr3000s-v1
+  NAME:=Cudy WR3000S v1
+  BUILD_SUBTARGET:=filogic
+  BUILD_DEVICES:=cudy_wr3000s-v1-ubootmod
+  UBOOT_CONFIG:=mt7981_cudy_wr3000s-v1
+  UBOOT_IMAGE:=u-boot.fip
+  BL2_BOOTDEV:=cudy
+  BL2_SOC:=mt7981
+  BL2_DDRTYPE:=ddr3
+  DEPENDS:=+trusted-firmware-a-mt7981-cudy-ddr3
+endef
+
+define U-Boot/mt7981_cudy_wr3000h-v1
+  NAME:=Cudy WR3000H v1
+  BUILD_SUBTARGET:=filogic
+  BUILD_DEVICES:=cudy_wr3000h-v1-ubootmod
+  UBOOT_CONFIG:=mt7981_cudy_wr3000h-v1
+  UBOOT_IMAGE:=u-boot.fip
+  BL2_BOOTDEV:=cudy
+  BL2_SOC:=mt7981
+  BL2_DDRTYPE:=ddr3
+  DEPENDS:=+trusted-firmware-a-mt7981-cudy-ddr3
+endef
+
+define U-Boot/mt7981_cudy_wr3000p-v1
+  NAME:=Cudy WR3000P v1
+  BUILD_SUBTARGET:=filogic
+  BUILD_DEVICES:=cudy_wr3000p-v1-ubootmod
+  UBOOT_CONFIG:=mt7981_cudy_wr3000p-v1
+  UBOOT_IMAGE:=u-boot.fip
+  BL2_BOOTDEV:=cudy
+  BL2_SOC:=mt7981
+  BL2_DDRTYPE:=ddr4
+  DEPENDS:=+trusted-firmware-a-mt7981-cudy-ddr4
 endef
 
 define U-Boot/mt7981_glinet_gl-mt2500
@@ -587,8 +635,20 @@ define U-Boot/mt7981_qihoo_360t7
   UBOOT_IMAGE:=u-boot.fip
   BL2_BOOTDEV:=spim-nand
   BL2_SOC:=mt7981
-  BL2_DDRTYPE:=ddr3
-  DEPENDS:=+trusted-firmware-a-mt7981-spim-nand-ddr3
+  BL2_DDRTYPE:=ddr3-1866
+  DEPENDS:=+trusted-firmware-a-mt7981-spim-nand-ddr3-1866
+endef
+
+define U-Boot/mt7981_qihoo_360t7-ubi
+  NAME:=Qihoo 360T7 (UBI)
+  BUILD_SUBTARGET:=filogic
+  BUILD_DEVICES:=qihoo_360t7-ubi
+  UBOOT_CONFIG:=mt7981_qihoo-360t7-ubi
+  UBOOT_IMAGE:=u-boot.fip
+  BL2_BOOTDEV:=spim-nand-ubi
+  BL2_SOC:=mt7981
+  BL2_DDRTYPE:=ddr3-1866
+  DEPENDS:=+trusted-firmware-a-mt7981-spim-nand-ubi-ddr3-1866
 endef
 
 define U-Boot/mt7981_snr_snr-cpe-ax2
@@ -856,6 +916,18 @@ define U-Boot/mt7986_zyxel_ex5601-t0
   DEPENDS:=+trusted-firmware-a-mt7986-spim-nand-4k-ddr4
 endef
 
+define U-Boot/mt7986_zyxel_wx5600-t0
+  NAME:=Zyxel WX5600-T0
+  BUILD_SUBTARGET:=filogic
+  BUILD_DEVICES:=zyxel_wx5600-t0-ubootmod
+  UBOOT_CONFIG:=mt7986_zyxel_wx5600-t0
+  UBOOT_IMAGE:=u-boot.fip
+  BL2_BOOTDEV:=spim-nand-4k
+  BL2_SOC:=mt7986
+  BL2_DDRTYPE:=ddr3
+  DEPENDS:=+trusted-firmware-a-mt7986-spim-nand-4k-ddr3
+endef
+
 define U-Boot/mt7987_bananapi_bpi-r4-lite-emmc
   NAME:=BananaPi BPi-R4 Lite
   BUILD_SUBTARGET:=filogic
@@ -949,7 +1021,7 @@ define U-Boot/mt7988_bananapi_bpi-r4-emmc
   BL2_BOOTDEV:=emmc
   BL2_SOC:=mt7988
   BL2_DDRTYPE:=comb
-  DEPENDS:=+trusted-firmware-a-mt7988-emmc-comb
+  DEPENDS:=+trusted-firmware-a-mt7988-emmc-comb +trusted-firmware-a-mt7988-emmc-comb-4bg
 endef
 
 define U-Boot/mt7988_bananapi_bpi-r4-sdmmc
@@ -961,7 +1033,7 @@ define U-Boot/mt7988_bananapi_bpi-r4-sdmmc
   BL2_BOOTDEV:=sdmmc
   BL2_SOC:=mt7988
   BL2_DDRTYPE:=comb
-  DEPENDS:=+trusted-firmware-a-mt7988-sdmmc-comb
+  DEPENDS:=+trusted-firmware-a-mt7988-sdmmc-comb +trusted-firmware-a-mt7988-sdmmc-comb-4bg
 endef
 
 define U-Boot/mt7988_bananapi_bpi-r4-snand
@@ -973,7 +1045,7 @@ define U-Boot/mt7988_bananapi_bpi-r4-snand
   BL2_BOOTDEV:=spim-nand-ubi
   BL2_SOC:=mt7988
   BL2_DDRTYPE:=comb
-  DEPENDS:=+trusted-firmware-a-mt7988-spim-nand-ubi-comb
+  DEPENDS:=+trusted-firmware-a-mt7988-spim-nand-ubi-comb +trusted-firmware-a-mt7988-spim-nand-ubi-comb-4bg
 endef
 
 define U-Boot/mt7988_bananapi_bpi-r4-poe-emmc
@@ -985,7 +1057,7 @@ define U-Boot/mt7988_bananapi_bpi-r4-poe-emmc
   BL2_BOOTDEV:=emmc
   BL2_SOC:=mt7988
   BL2_DDRTYPE:=comb
-  DEPENDS:=+trusted-firmware-a-mt7988-emmc-comb
+  DEPENDS:=+trusted-firmware-a-mt7988-emmc-comb +trusted-firmware-a-mt7988-emmc-comb-4bg
 endef
 
 define U-Boot/mt7988_bananapi_bpi-r4-poe-sdmmc
@@ -997,7 +1069,7 @@ define U-Boot/mt7988_bananapi_bpi-r4-poe-sdmmc
   BL2_BOOTDEV:=sdmmc
   BL2_SOC:=mt7988
   BL2_DDRTYPE:=comb
-  DEPENDS:=+trusted-firmware-a-mt7988-sdmmc-comb
+  DEPENDS:=+trusted-firmware-a-mt7988-sdmmc-comb +trusted-firmware-a-mt7988-sdmmc-comb-4bg
 endef
 
 define U-Boot/mt7988_bananapi_bpi-r4-poe-snand
@@ -1009,7 +1081,7 @@ define U-Boot/mt7988_bananapi_bpi-r4-poe-snand
   BL2_BOOTDEV:=spim-nand-ubi
   BL2_SOC:=mt7988
   BL2_DDRTYPE:=comb
-  DEPENDS:=+trusted-firmware-a-mt7988-spim-nand-ubi-comb
+  DEPENDS:=+trusted-firmware-a-mt7988-spim-nand-ubi-comb +trusted-firmware-a-mt7988-spim-nand-ubi-comb-4bg
 endef
 
 define U-Boot/mt7987_rfb-emmc
@@ -1139,6 +1211,10 @@ UBOOT_TARGETS := \
 	mt7981_comfast_cf-wr632ax \
 	mt7981_cudy_tr3000-v1 \
 	mt7981_cudy_wbr3000uax-v1 \
+	mt7981_cudy_wr3000e-v1 \
+	mt7981_cudy_wr3000s-v1 \
+	mt7981_cudy_wr3000h-v1 \
+	mt7981_cudy_wr3000p-v1 \
 	mt7981_gatonetworks_gdsp \
 	mt7981_glinet_gl-mt2500 \
 	mt7981_glinet_gl-x3000 \
@@ -1160,6 +1236,7 @@ UBOOT_TARGETS := \
 	mt7981_rfb-snfi \
 	mt7981_routerich_ax3000 \
 	mt7981_qihoo_360t7 \
+	mt7981_qihoo_360t7-ubi \
 	mt7981_snr_snr-cpe-ax2 \
 	mt7981_xiaomi_mi-router-ax3000t \
 	mt7981_xiaomi_mi-router-wr30u \
@@ -1181,6 +1258,7 @@ UBOOT_TARGETS := \
 	mt7986_tplink_tl-xtr8488 \
 	mt7986_xiaomi_redmi-router-ax6000 \
 	mt7986_zyxel_ex5601-t0 \
+	mt7986_zyxel_wx5600-t0 \
 	mt7986_rfb \
 	mt7987_bananapi_bpi-r4-lite-emmc \
 	mt7987_bananapi_bpi-r4-lite-sdmmc \

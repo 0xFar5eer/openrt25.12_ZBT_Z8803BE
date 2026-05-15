@@ -1,22 +1,22 @@
 ![OpenWrt logo](include/logo.png)
 
-# OpenWrt for ZBTLink ZBT-Z8803BE
+# OpenWrt main for ZBTLink ZBT-Z8803BE
 
 [English](README.md) | [中文](README.zh-CN.md)
 
 > **Community build.** This firmware is maintained by a single contributor outside of any vendor or the OpenWrt Project. Expect rough edges. Bug reports and pull requests are very welcome.
 
-Current custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
+Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
-- **OpenWrt base:** official `v25.12.2` / `r32802-f505120278`
-- **Kernel:** Linux `6.12.74`
+- **OpenWrt base:** current OpenWrt `main`
+- **Kernel:** MediaTek target `6.18`
 - **Target:** `mediatek/filogic`
 - **Device:** MediaTek MT7988A / Filogic 880 + MT7996-family tri-band WiFi 7
-- **Release tag:** `v25.12.2-6-zbt8803be`
+- **Release tag:** pending main/6.18 test build
 
 ## Download
 
-Use the latest GitHub release assets:
+Use the latest GitHub release assets after a release build is published:
 
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
@@ -30,43 +30,37 @@ Use the latest GitHub release assets:
 
 ## Checksums
 
-```text
-373420c401352f4890c4480de24d333174f8decdae5d3631d58e91fc0ffeed0b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-77cb8e7a2c7840170d35bfbdf9669d2e6caa7397ea43295899bd57f6d294ff8f  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-2d9410ca9a1d15617fe715256e67a0d5e2a365a2ff1f132f9bfcbc6d0c7dbdb8  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-```
+Pending rebuild. Refresh this section from `releases/sha256sums` after `./.buildenv/build.sh extract`.
 
 ## Included features
 
-- **Mainline OpenWrt 25.12.2 base:** no MediaTek vendor feed required.
+- **Mainline OpenWrt main base:** no MediaTek vendor feed required.
 - **WiFi 7 tri-band:** 2.4 GHz, 5 GHz, 6 GHz, EHT320, WPA3, MLO-capable.
 - **PH WiFi defaults:** country `PH`, full PH-allowed channel set, no firmware txpower/channel clamps, and automatic regulatory max power.
 - **LuCI:** HTTPS, Argon dark theme, Chinese translations, package manager, curated Services menu ordering, and shared ZBT styling across custom firmware apps.
+- **Custom LuCI apps:** About, Health, Temperature, Modem Events, Speedtest, WiFi Clients, Traffic Statistics, and MLO tooling.
+- **Traffic and QoS tooling:** wrtbwmon device/domain traffic views and QoSmate available for manual tuning.
 - **QModem Next:** modern JS modem UI with built-in SMS, Monitor, AT Debug, and modem controls.
 - **Modem stack:** QMI, MBIM, NCM, MHI, USB serial, QModem, `sms_tool_q`.
-- **Z8803BE-T SIM wiring note:** on this exact model/variant, SIM1 is wired to modem1 and SIM2 is wired to modem2; one module cannot control both SIM cards, so SIM switching is not supported. Supplier notes that another Z8803BE-T version does support one module controlling two SIM cards.
-- **Modem LEDs:** firmware-enabled LED services and state poller.
-- **Default modem power:** slot 1 on (`5g1=1`), slot 2 off (`5g2=0`).
-- **Networking:** WireGuard, SQM/CAKE, DDNS, firewall4/nftables.
-- **WAN failover defaults:** first boot seeds WAN metric `10` and WWAN/QModem metric `20` for carrier-driven cable-unplug failover.
+- **Z8803BE-T SIM wiring note:** on this exact model/variant, SIM1 is wired to modem1 and SIM2 is wired to modem2; one module cannot control both SIM cards, so SIM switching is not supported.
+- **Public WAN-only defaults:** wired WAN is primary, modem rails default off, cellular is dormant with metric `200` and no default route, QoSmate is disabled by default, and firewall flow offload is enabled.
+- **No built-in crash-forensics package:** detailed reboot/crash investigation tooling is intentionally installed only by private setup scripts after flashing.
 - **Storage:** USB 3.0, ext4, vfat, exfat, ntfs3, Samba 4, SFTP.
-- **Monitoring:** router health, autocore, cpufreq, collectd/statistics, WiFi clients/history, and wrtbwmon Traffic Statistics device/domain views.
-- **Temperature monitor:** built-in ZBT temperature charts with per-module avoid-limit overlays and fan PWM logging.
-- **Router health page:** built-in ZBT Health page for overlay/storage, RAM, conntrack, uptime, and write-hotspot checks.
+- **Monitoring:** router health, autocore, cpufreq, collectd/statistics, WiFi clients/history, temperature history, and modem event history.
 - **Shell defaults:** banner, color prompt, useful aliases/tools, `git`, `git-http`, and a BusyBox-compatible `install` shim.
 - **Package feeds:** OpenWrt + ImmortalWrt overlay feeds configured for APK.
 
-## Verified setup
+## Private setup-only crash forensics
 
-Validated:
+The public firmware image is kept generalized for normal users. It does **not** include `zbt-crash-forensics` or enable scheduled reboot tooling.
 
-- WAN primary route OK
-- WWAN failover works when the WAN link drops
-- failover metrics persist correctly after reboot
-- DNS/internet OK
-- WiFi/MLO active
-- QModem Next modem controls working; SIM1 is fixed to modem1 and SIM2 is fixed to modem2 on this exact unit
-- modem LED services active
+For private investigation on a flashed router, use the setup repository phase:
+
+```sh
+/Users/numwan/Documents/Remix/bitbucket/wrt/setup/015-crash-forensics.sh root@3fl.lan
+```
+
+That phase installs the enhanced flight recorder, per-minute snapshots, reboot context archives, and `/etc/sysupgrade.conf` keep entries on the target router.
 
 ## Install
 
@@ -104,7 +98,6 @@ Use the included Docker build harness:
 ```sh
 ./.buildenv/build.sh init
 ./.buildenv/build.sh feeds
-cp .buildenv/zbt8803be.config .config
 ./.buildenv/build.sh config
 ./.buildenv/build.sh download
 ./.buildenv/build.sh build
@@ -120,15 +113,15 @@ output/mediatek/filogic/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sy
 ## Notes
 
 - SFP+ is included but not physically verified here.
-- Hardware NAT/offload is not enabled; this build stays on mainline OpenWrt.
-- PH WiFi defaults follow `wireless-regdb` and remove only firmware-side txpower/channel clamps; confirm local compliance before changing country, channels, or antenna gain.
+- This branch is based on OpenWrt main and the MediaTek 6.18 target kernel.
+- PH WiFi defaults follow `wireless-regdb`; confirm local compliance before changing country, channels, or antenna gain.
 
 ## Support / contact
 
 - **Issues / PRs:** https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/issues
 - **Telegram:** https://t.me/Far5eer
 
-PRs and issue reports are very welcome — this is a community build, so please file anything you spot. The same info is also surfaced on the router itself in the SSH banner and at **LuCI -> System -> About this build**.
+PRs and issue reports are very welcome. The same info is also surfaced on the router itself in the SSH banner and at **LuCI -> System -> About this build**.
 
 ## Credits
 
@@ -136,7 +129,7 @@ PRs and issue reports are very welcome — this is a community build, so please 
 - [@sjanulonoks](https://github.com/sjanulonoks) — fan-control suggestion and general release testing that helped tune and validate this ZBT-Z8803BE build.
 - [FUjr/QModem](https://github.com/FUjr/QModem) — QModem Next modern JS UI shipped with this build; SIM switching is disabled for this exact Z8803BE-T variant because SIM1/SIM2 are wired to separate M.2 modems.
 - [OneB1t/Z8803BE-research](https://github.com/OneB1t/Z8803BE-research) — vendor firmware research that documented the dead opkg feeds and phone-home tunnel in stock 21.02-SNAPSHOT.
-- [OpenWrt mainline](https://openwrt.org) — the underlying distribution this build is based on (no MediaTek vendor feed required).
+- [OpenWrt mainline](https://openwrt.org) — the underlying distribution this build is based on.
 - [ImmortalWrt](https://github.com/immortalwrt) — additional package and LuCI overlays used during build.
 
 ## More documentation

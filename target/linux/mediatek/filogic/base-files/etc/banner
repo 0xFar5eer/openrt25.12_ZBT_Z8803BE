@@ -5,7 +5,7 @@
           |__| W I R E L E S S   F R E E D O M
  -----------------------------------------------------
  ZBT-Z8803BE community build  -  WiFi 7 / BE19000
- %D %V  -  kernel 6.12  -  build %C
+ %D %V  -  kernel 6.18  -  build %C
  -----------------------------------------------------
  Releases : https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/releases
  Issues   : https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/issues  (PRs welcome)

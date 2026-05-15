@@ -5,7 +5,8 @@ board_config_update
 board=$(board_name)
 
 case "$board" in
-huasifei,wh3000-pro)
+huasifei,wh3000-pro-emmc|\
+huasifei,wh3000-pro-nand)
 	ucidef_add_gpio_switch "modem_power" "Modem power" "modem_power" "0"
 	;;
 teltonika,rutc50)
@@ -20,19 +21,13 @@ zbtlink,zbt-z8102ax-v2)
 	ucidef_add_gpio_switch "sim1" "SIM 1" "sim1" "1"
 	ucidef_add_gpio_switch "sim2" "SIM 2" "sim2" "1"
 	;;
+zbtlink,zbt-z8106ax-s|\
+zbtlink,zbt-z8106ax-t)
+	ucidef_add_gpio_switch "4g" "Power modem" "4g" "1"
+	ucidef_add_gpio_switch "sim" "SIM" "sim" "1"
+	;;
 zbtlink,zbt-z8803be|\
 zbtlink,zbt-z8803be,mt7988a-nand)
-	# Two M.2 Key-B modem slots (front-panel silk "5G1" / "5G2") and
-	# a single on-board SIM mux selecting between the two SIM card
-	# holders ("SIM1" / "SIM2"). Defaults match DTS gpio-export,output
-	# so LuCI's Switches panel reflects the real at-boot hardware
-	# state (5G1 off, 5G2 off, SIM mux on SIM1) instead of
-	# pretending everything is OFF.
-	#
-	# The SIM mux is a single binary GPIO, not two independent enables,
-	# so it surfaces as ONE toggle called "sim1": ON = SIM1 card routed
-	# through, OFF = SIM2 card routed through. Labels avoid the
-	# two-row fiction that a dual-holder board like z8102ax uses.
 	ucidef_add_gpio_switch "5g1" "Power 5G1 modem slot" "5g1" "0"
 	ucidef_add_gpio_switch "5g2" "Power 5G2 modem slot" "5g2" "0"
 	ucidef_add_gpio_switch "sim1" "SIM1 slot active (off = SIM2 slot)" "sim1" "1"

@@ -1,0 +1,60 @@
+#!/bin/sh
+# Seed qmodem's modem-slot UCI sections so its "Hard Reboot" button in
+# Advance Modem Settings is enabled.
+#
+# qmodem's generic.sh::hard_reboot() walks /etc/config/qmodem looking
+# for a `modem-slot` section whose `slot` matches the basename of the
+# detected modem's USB path (e.g., "4-1" from /sys/bus/usb/devices/4-1/)
+# and reads `gpio`, `gpio_up`, `gpio_down` from that section. If any
+# are missing, hard_reboot_caps returns 0 and the button is greyed out;
+# with all three present the button power-cycles the M.2 slot via:
+#
+#     echo $gpio_down > /sys/class/gpio/$gpio/value
+#     sleep 1
+#     echo $gpio_up   > /sys/class/gpio/$gpio/value
+#
+# For this board:
+#   USB slot 4-1 -> 5G1 modem slot -> gpio-export "5g1" -> active-high
+#   USB slot 4-2 -> 5G2 modem slot -> gpio-export "5g2" -> active-high
+#
+# WAN-only firmware defaults keep both 5G modem slots powered off.
+# These modem-slot entries only make hard reboot / manual
+# slot power control possible; they do NOT change the at-boot power state.
+#
+# Board-guarded so the script is a no-op on any other target that
+# ships this base-files tree.
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+# If qmodem isn't installed in this build, skip gracefully. touching
+# the UCI file would otherwise create a stray /etc/config/qmodem on
+# non-qmodem builds.
+[ -e /etc/config/qmodem ] || exit 0
+
+# Idempotent: remove any previous modem-slot entries we might have
+# added so re-running produces a clean, deterministic state. Anonymous
+# sections are identified by their `slot` value.
+uci -q show qmodem 2>/dev/null | grep -E "^qmodem\.@modem-slot\[[0-9]+\]\.slot='4-[12]'" | \
+	awk -F'.' '{print $2}' | awk -F'=' '{print $1}' | \
+	sort -u | while read sec; do
+		uci -q delete "qmodem.$sec"
+	done
+
+uci -q batch <<EOF >/dev/null
+add qmodem modem-slot
+set qmodem.@modem-slot[-1].slot='4-1'
+set qmodem.@modem-slot[-1].gpio='5g1'
+set qmodem.@modem-slot[-1].gpio_up='1'
+set qmodem.@modem-slot[-1].gpio_down='0'
+add qmodem modem-slot
+set qmodem.@modem-slot[-1].slot='4-2'
+set qmodem.@modem-slot[-1].gpio='5g2'
+set qmodem.@modem-slot[-1].gpio_up='1'
+set qmodem.@modem-slot[-1].gpio_down='0'
+commit qmodem
+EOF
+
+exit 0

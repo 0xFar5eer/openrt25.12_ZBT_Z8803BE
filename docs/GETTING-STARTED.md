@@ -82,7 +82,7 @@ Change the password immediately after first login.
 
 ## Factory WiFi defaults
 
-On first boot, `70-zbt-z8803be-wifi` creates per-band WPA3-SAE networks using a MAC suffix in the SSID.
+On first boot, `72-zbt-z8803be-wifi` creates per-band WPA3-SAE networks using a MAC suffix in the SSID.
 
 | Band | SSID pattern | Channel | Width |
 |------|--------------|---------|-------|

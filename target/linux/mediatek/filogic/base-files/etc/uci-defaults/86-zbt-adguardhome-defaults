@@ -1,0 +1,241 @@
+#!/bin/sh
+set -e
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+APK_DIR=/usr/share/zbt/apk
+
+install_adguardhome() {
+	if apk info -e adguardhome >/dev/null 2>&1 && apk info -e luci-app-adguardhome >/dev/null 2>&1; then
+		return 0
+	fi
+
+	set -- "$APK_DIR"/adguardhome-*.apk "$APK_DIR"/luci-app-adguardhome-*.apk
+	if [ -f "$1" ] && [ -f "$2" ]; then
+		apk add --allow-untrusted --force-non-repository "$1" "$2"
+		return 0
+	fi
+
+	apk update
+	apk add adguardhome luci-app-adguardhome
+}
+
+install_adguardhome
+
+sed -i '/# DoH-bootstrap-pinned/d' /etc/hosts
+cat >> /etc/hosts <<'HOSTS'
+172.64.41.4 mozilla.cloudflare-dns.com # DoH-bootstrap-pinned
+162.159.61.4 mozilla.cloudflare-dns.com # DoH-bootstrap-pinned
+45.90.28.0 dns.nextdns.io # DoH-bootstrap-pinned
+45.90.30.0 dns.nextdns.io # DoH-bootstrap-pinned
+HOSTS
+
+mkdir -p /etc/adguardhome/work
+cat > /etc/adguardhome/adguardhome.yaml <<'YAML'
+bind_host: 0.0.0.0
+bind_port: 3000
+users: []
+auth_attempts: 5
+block_auth_min: 15
+http_proxy: ""
+language: en
+theme: auto
+dns:
+  bind_hosts:
+    - 0.0.0.0
+  port: 5454
+  protection_enabled: true
+  blocking_mode: default
+  upstream_dns:
+    - https://mozilla.cloudflare-dns.com/dns-query
+    - https://dns.nextdns.io/dns-query
+    - https://dns.quad9.net/dns-query
+  bootstrap_dns:
+    - 172.64.41.4
+    - 162.159.61.4
+    - 45.90.28.0
+  fallback_dns:
+    - https://mozilla.cloudflare-dns.com/dns-query
+    - https://dns.nextdns.io/dns-query
+  all_servers: true
+  cache_size: 4194304
+  cache_optimistic: true
+  refuse_any: true
+  upstream_timeout: 10s
+  blocked_response_ttl: 10
+  aaaa_disabled: true
+  filtering_enabled: true
+  filters_update_interval: 24
+  parental_enabled: false
+  safebrowsing_enabled: false
+  enable_dnssec: false
+  use_private_ptr_resolvers: false
+  local_ptr_upstreams: []
+  blocked_hosts:
+    - version.bind
+    - id.server
+    - hostname.bind
+querylog:
+  enabled: true
+  file_enabled: false
+  interval: 1h
+  size_memory: 1000
+statistics:
+  enabled: true
+  interval: 24h
+filters:
+  - enabled: true
+    url: https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt
+    name: AdGuard DNS filter
+    id: 1
+  - enabled: true
+    url: https://adaway.org/hosts.txt
+    name: AdAway Default Blocklist
+    id: 2
+  - enabled: false
+    url: https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
+    name: StevenBlack Unified
+    id: 3
+  - enabled: false
+    url: https://big.oisd.nl/domainswild
+    name: OISD Big
+    id: 4
+  - enabled: false
+    url: https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/pro.txt
+    name: Hagezi Multi Pro
+    id: 5
+  - enabled: false
+    url: https://easylist.to/easylist/easyprivacy.txt
+    name: EasyPrivacy
+    id: 6
+  - enabled: false
+    url: https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/tif.txt
+    name: Hagezi Threat Intelligence Feeds
+    id: 7
+  - enabled: false
+    url: https://raw.githubusercontent.com/crazy-max/WindowsSpyBlocker/master/data/hosts/spy.txt
+    name: WindowsSpyBlocker - Telemetry
+    id: 8
+  - enabled: false
+    url: https://someonewhocares.org/hosts/zero/hosts
+    name: Dan Pollock Hosts
+    id: 9
+  - enabled: true
+    url: https://phishing.army/download/phishing_army_blocklist_extended.txt
+    name: Phishing Army Extended
+    id: 10
+  - enabled: false
+    url: https://s3.amazonaws.com/lists.disconnect.me/simple_tracking.txt
+    name: Disconnect.me Tracking
+    id: 11
+  - enabled: true
+    url: https://raw.githubusercontent.com/anudeepND/blacklist/master/CoinMiner.txt
+    name: NoCoin / Cryptominer Blocklist
+    id: 12
+whitelist_filters: []
+user_rules:
+  - '||adsrvr.org^'
+  - '||doubleclick.net^'
+  - '||googlesyndication.com^'
+  - '||googleadservices.com^'
+  - '||adservice.google.com^'
+  - '||2mdn.net^'
+  - '||insight.adsrvr.org^'
+  - '||tpc.googlesyndication.com^'
+  - '||pagead2.googlesyndication.com^'
+  - '||s0.2mdn.net^'
+  - '||baidu.com^'
+  - '||bdstatic.com^'
+  - '||bdimg.com^'
+  - '||baiducontent.com^'
+  - '||baidupcs.com^'
+  - '||bcebos.com^'
+  - '||baidustatic.com^'
+  - '||hao123.com^'
+  - '||iqiyi.com^'
+  - '||qiyi.com^'
+  - '@@||speedtest.net^$important'
+  - '@@||speedtest.com^$important'
+  - '@@||ookla.com^$important'
+  - '@@||chatgpt.com^$important'
+  - '@@||openai.com^$important'
+  - '@@||oaistatic.com^$important'
+  - '@@||oaiusercontent.com^$important'
+  - '@@||claude.ai^$important'
+  - '@@||anthropic.com^$important'
+  - '@@||codeium.com^$important'
+  - '@@||windsurf.com^$important'
+  - '@@||cursor.com^$important'
+  - '@@||cursor.sh^$important'
+  - '@@||primevideo.com^$important'
+  - '@@||amazonvideo.com^$important'
+  - '@@||aiv-cdn.net^$important'
+  - '@@||aiv-delivery.net^$important'
+  - '@@||media-amazon.com^$important'
+  - '@@||images-amazon.com^$important'
+  - '@@||ssl-images-amazon.com^$important'
+  - '@@||amazonusercontent.com^$important'
+  - '@@||telemetry.insights.video.a2z.com^$important'
+  - '@@||minerva.devices.a2z.com^$important'
+  - '@@||atv-ps.amazon.com^$important'
+  - '@@||atv-ext.amazon.com^$important'
+  - '@@||captive.apple.com^$important'
+  - '@@||apple.com^$important'
+  - '@@||icloud.com^$important'
+  - '@@||icloud-content.com^$important'
+  - '@@||mzstatic.com^$important'
+  - '@@||apple-dns.net^$important'
+  - '@@||cdn-apple.com^$important'
+  - '@@||apple-cloudkit.com^$important'
+  - '@@||push.apple.com^$important'
+  - '@@||itunes.apple.com^$important'
+  - '@@||apps.apple.com^$important'
+  - '@@||aaplimg.com^$important'
+  - '@@||akadns.net^$important'
+dhcp:
+  enabled: false
+  interface_name: ""
+  local_domain_name: lan
+tls:
+  enabled: false
+log_file: ""
+verbose: false
+os:
+  group: ""
+  user: ""
+  rlimit_nofile: 0
+schema_version: 28
+YAML
+
+chown -R root:root /etc/adguardhome
+/etc/init.d/adguardhome stop >/dev/null 2>&1 || true
+rm -f /etc/adguardhome/AdGuardHome.log*
+
+uci -q set dhcp.@dnsmasq[0].noresolv='1'
+uci -q delete dhcp.@dnsmasq[0].server
+uci -q add_list dhcp.@dnsmasq[0].server='127.0.0.1#5454'
+uci -q set dhcp.@dnsmasq[0].cachesize='1000'
+uci -q set dhcp.@dnsmasq[0].localise_queries='1'
+uci -q set dhcp.@dnsmasq[0].expandhosts='1'
+uci -q set dhcp.@dnsmasq[0].domain='lan'
+uci -q set dhcp.@dnsmasq[0].local='/lan/'
+uci -q set dhcp.@dnsmasq[0].filter_aaaa='1'
+uci -q set dhcp.@dnsmasq[0].logqueries='0'
+uci -q commit dhcp
+
+if ! uci -q get adguardhome.config >/dev/null 2>&1; then
+	uci -q set adguardhome.config='adguardhome'
+fi
+uci -q set adguardhome.config.enabled='1'
+uci -q set adguardhome.config.work_dir='/etc/adguardhome/work'
+chmod 755 /etc/adguardhome/work
+uci -q commit adguardhome
+
+/etc/init.d/adguardhome enable >/dev/null 2>&1 || true
+/etc/init.d/adguardhome restart >/dev/null 2>&1 || /etc/init.d/adguardhome start >/dev/null 2>&1 || true
+/etc/init.d/dnsmasq restart >/dev/null 2>&1 || true
+
+exit 0

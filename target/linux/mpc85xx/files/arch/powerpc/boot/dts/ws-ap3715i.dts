@@ -140,6 +140,9 @@
 	};
 
 	ifc: ifc@ffe1e000 {
+		reg = <0x0 0xffe1e000 0 0x2000>;
+
+		status = "disabled";
 	};
 
 	pci0: pcie@ffe09000 {
@@ -231,13 +234,11 @@
 				partition@120000 {
 					reg = <0x120000 0x10000>;
 					label = "cfg1";
-					read-only;
 				};
 
 				partition@130000 {
 					reg = <0x130000 0x10000>;
 					label = "cfg2";
-					read-only;
 				};
 
 				partition@140000 {

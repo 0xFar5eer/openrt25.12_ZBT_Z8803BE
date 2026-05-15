@@ -15,7 +15,7 @@ const REPO_URL     = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE';
 const ISSUES_URL   = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/issues';
 const CONTACT_URL  = 'https://t.me/Far5eer';
 const BUILD_CHANNEL = 'ZBT-Z8803BE community build';
-const OPENWRT_BASE = 'OpenWrt 25.12 stable branch';
+const OPENWRT_BASE = 'OpenWrt main branch with MediaTek kernel 6.18';
 
 function loadCss(path) {
 	const head = document.head || document.getElementsByTagName('head')[0];
@@ -109,11 +109,11 @@ return view.extend({
 			[ release_lines['DISTRIB_ID'], release_lines['DISTRIB_RELEASE'], release_lines['DISTRIB_REVISION'] ]
 			.filter(Boolean).join(' ');
 
-		const branch = '25.12 stable';
+		const branch = 'OpenWrt main';
 
 		const featureGroups = [
 			[ _('Platform / board support'), [
-				_('Mainline OpenWrt 25.12 base for ZBTLink ZBT-Z8803BE, target mediatek/filogic, kernel 6.12, no MediaTek vendor feed required.'),
+				_('Mainline OpenWrt main base for ZBTLink ZBT-Z8803BE, target mediatek/filogic, kernel 6.18, no MediaTek vendor feed required.'),
 				_('Board DTS/image profile, NAND sysupgrade support, LED/network/GPIO switch defaults, modem LED services, APK feed defaults, shell/banner defaults, and first-boot LuCI defaults.'),
 				_('WiFi 7 tri-band defaults: 2.4 GHz ch11/EHT20, 5 GHz ch149/EHT80, 6 GHz ch37/EHT160, country PH, no firmware-side txpower/channel clamps.')
 			] ],
@@ -127,24 +127,25 @@ return view.extend({
 			[ _('Traffic, DNS, and QoS'), [
 				_('wrtbwmon Traffic Statistics with daily SQLite schema, device traffic, live speed stats, per-device domain views, top domains, domain tracking defaults, and warning messages when monitoring/domain data is disabled or empty.'),
 				_('AdGuard Home integration with bounded memory query log/statistics settings and robust query-log parsing for current answer/value/client_info formats.'),
-				_('QoSmate replaces SQM as the primary QoS/tinkering UI and is placed in Services after Modem Events.')
+				_('QoSmate remains available for manual tuning, but defaults stay disabled for the public wired-WAN profile.')
 			] ],
 			[ _('Modem and WAN resilience'), [
-				_('QModem Next JS UI with SMS, Monitor, AT Debug, watchdog defaults, no-SIM guard, startup/action cooldown, direct-IP HTTP/204 probe, and robust soft reboot helper.'),
-				_('QMI/MBIM/NCM/MHI/USB modem stack with sms_tool_q, tom_modem, quectel-CM-5G-M, modem event hooks, and WAN/WWAN failover defaults: WAN metric 10, WWAN/QModem metric 20.'),
+				_('QModem Next JS UI with SMS, Monitor, AT Debug, modem controls, and opt-in cellular monitoring helpers.'),
+				_('QMI/MBIM/NCM/MHI/USB modem stack with sms_tool_q, tom_modem, quectel-CM-5G-M, modem event hooks, and WAN-only defaults: wired WAN metric 10, dormant cellular metric 200 with no default route.'),
 				_('On this exact Z8803BE-T variant SIM1 is wired to modem1 and SIM2 is wired to modem2, so SIM switching is intentionally disabled.')
 			] ],
 			[ _('Included package families'), [
 				_('Network services: WireGuard, DDNS, AdGuard Home, youtubeUnblock, Samba, Diskman, statistics, wifihistory, MLO tooling, diagnostics, and CLI utilities.'),
 				_('Developer/runtime convenience: git, git-http, and a BusyBox-compatible install shim for setup scripts and ad-hoc deployments.'),
 				_('Custom ZBT LuCI apps: About, Health, Temperature, Modem Events, WiFi Clients, and Traffic Statistics.'),
-				_('Build overlays: FUjr/QModem, selected ImmortalWrt packages/LuCI overlays, vendored autocore/cpufreq, and board-specific base-files customizations.')
+				_('Build overlays: FUjr/QModem, selected ImmortalWrt packages/LuCI overlays, vendored autocore/cpufreq/QoSmate/MLO tooling, and board-specific base-files customizations.')
 			] ],
 			[ _('Fixes and hardening vs stock/vendor firmware'), [
-				_('Moves away from old vendor 21.02-SNAPSHOT behavior and dead vendor feeds toward a current OpenWrt stable base.'),
+				_('Moves away from old vendor 21.02-SNAPSHOT behavior and dead vendor feeds toward current OpenWrt main.'),
 				_('Hardened modem monitoring to avoid no-SIM reset loops, early boot restart storms, and DNS-dependent false failures.'),
 				_('BusyBox-compatible deployments avoid GNU install assumptions; setup scripts copy files with cp/chmod and firmware includes an install compatibility shim.'),
-				_('Improved LuCI UX: no duplicate About alias under System, no recursive WiFi Clients iframe, clear Traffic Statistics warnings, and safer direct Services menu placement.')
+				_('Improved LuCI UX: no duplicate About alias under System, no recursive WiFi Clients iframe, clear Traffic Statistics warnings, and safer direct Services menu placement.'),
+				_('Detailed crash flight recording is intentionally not built into the public firmware; private investigation tooling is installed only by setup scripts after flashing.')
 			] ]
 		];
 

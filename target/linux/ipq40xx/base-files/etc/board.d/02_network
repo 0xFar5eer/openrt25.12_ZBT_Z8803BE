@@ -46,6 +46,9 @@ ipq40xx_setup_interfaces()
 	netgear,rbr20|\
 	netgear,wac510|\
 	sony,ncp-hg100-cellular|\
+	tplink,deco-m5-v1|\
+	tplink,deco-m5-v2|\
+	tplink,deco-m5-v3|\
 	wallys,dr40x9|\
 	zte,mf18a|\
 	zte,mf289f)
@@ -57,7 +60,10 @@ ipq40xx_setup_interfaces()
 	dlink,dap-2610|\
 	engenius,eap1300|\
 	extreme-networks,ws-ap3915i|\
+	huawei,ap4050dn|\
+	meraki,mr20|\
 	meraki,mr33|\
+	meraki,mr70|\
 	meraki,mr74|\
 	mikrotik,lhgg-60ad|\
 	mikrotik,sxtsq-5-ac|\
@@ -102,7 +108,8 @@ ipq40xx_setup_interfaces()
 		ucidef_set_interfaces_lan_wan "lan1 lan2" "wan"
 		;;
 	meraki,gx20|\
-	meraki,z3)
+	meraki,z3|\
+	meraki,z3c)
 		ucidef_set_interfaces_lan_wan "lan2 lan3 lan4 lan5" "wan"
 		;;
 	meraki,mr30h)

@@ -15,7 +15,7 @@ No router action should run until the explicit green flag is given.
 - **`@openwrt-ai`: review confirmation and WiFi reset wording.** Confirmed the DTS cleanup addressed earlier feedback and restored the empirical explanation for keeping reset on `&pcie3`. Links: <https://github.com/openwrt/openwrt/pull/23053#pullrequestreview-4258463777>, <https://github.com/openwrt/openwrt/pull/23053#discussion_r3214206703>.
 - **`@openwrt-ai`: modem slot asymmetry.** The DTS already documents why `5g1` is powered by default and `5g2` is off by default. Link: <https://github.com/openwrt/openwrt/pull/23053#discussion_r3214206797>.
 - **`@pttuan`: RT5190A / CPUFreq confirmation.** Local CPUFreq fix follows the restored RT5190A CPU/CCI `proc-supply` path and matches `@pttuan`'s reported available frequencies. Links: <https://github.com/openwrt/openwrt/pull/23053#issuecomment-4414098516>, <https://github.com/openwrt/openwrt/pull/23053#issuecomment-4414354486>.
-- **Local-only fix: WiFi reset during preserved-config sysupgrade.** Root cause was this firmware's `70-zbt-z8803be-wifi` uci-defaults script overwriting `/etc/config/wireless`; fixed by exiting early when custom non-`OpenWrt` SSIDs are present.
+- **Local-only fix: WiFi reset during preserved-config sysupgrade.** Root cause was this firmware's `72-zbt-z8803be-wifi` uci-defaults script overwriting `/etc/config/wireless`; fixed by exiting early when custom non-`OpenWrt` SSIDs are present.
 
 ## Correct Host Flow
 

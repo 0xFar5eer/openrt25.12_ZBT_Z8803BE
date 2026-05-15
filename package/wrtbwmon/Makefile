@@ -41,9 +41,9 @@ define Package/wrtbwmon/install
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) files/etc/init.d/wrtbwmon $(1)/etc/init.d/wrtbwmon
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
-	$(INSTALL_BIN) files/etc/hotplug.d/iface/99-wrtbwmon $(1)/etc/hotplug.d/iface/99-wrtbwmon
+	$(INSTALL_BIN) files/etc/hotplug.d/iface/80-wrtbwmon $(1)/etc/hotplug.d/iface/80-wrtbwmon
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/firewall
-	$(INSTALL_BIN) files/etc/hotplug.d/firewall/20-wrtbwmon $(1)/etc/hotplug.d/firewall/20-wrtbwmon
+	$(INSTALL_BIN) files/etc/hotplug.d/firewall/50-wrtbwmon $(1)/etc/hotplug.d/firewall/50-wrtbwmon
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) files/etc/config/wrtbwmon $(1)/etc/config/wrtbwmon
 	$(INSTALL_CONF) files/etc/wrtbwmon.conf $(1)/etc/wrtbwmon.conf

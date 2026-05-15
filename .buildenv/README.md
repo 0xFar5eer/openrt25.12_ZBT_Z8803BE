@@ -37,7 +37,7 @@ feeds in `feeds.conf.default`:
 | `luci`                 | git.openwrt.org/project/luci              | upstream LuCI + core LuCI apps    |
 | `routing` / `telephony`/`video` | openwrt stock                    | rarely-used upstream feeds        |
 | `iwrt_packages`        | github.com/immortalwrt/packages (SHA-pinned) | AGH + a few utilities not upstream|
-| `iwrt_luci`            | github.com/immortalwrt/luci (SHA-pinned)  | luci-theme-argon, luci-app-wifihistory, luci-app-diskman, luci-app-autoreboot, luci-app-adguardhome (post-flash) |
+| `iwrt_luci`            | github.com/immortalwrt/luci (SHA-pinned)  | luci-theme-argon, luci-app-wifihistory, luci-app-diskman, luci-app-autoreboot, optional LuCI overlays |
 | `qmodem`               | github.com/FUjr/QModem (SHA-pinned)       | Quectel/Fibocom/SimCom modem management LuCI UI + drivers |
 
 Vendored in-tree (copied, not submodules, GPL-2.0-only):

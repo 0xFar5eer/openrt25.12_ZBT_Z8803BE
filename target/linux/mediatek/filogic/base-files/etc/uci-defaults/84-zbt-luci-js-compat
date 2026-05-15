@@ -1,0 +1,48 @@
+#!/bin/sh
+set -e
+
+board="$(cat /tmp/sysinfo/board_name 2>/dev/null || true)"
+case "$board" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+LUCI_JS=/www/luci-static/resources/luci.js
+UI_JS=/www/luci-static/resources/ui.js
+VERSION_UC=/usr/share/ucode/luci/version.uc
+
+if [ -f "$LUCI_JS" ] && ! grep -q 'zbt_luci_format_compat3' "$LUCI_JS"; then
+	tmp="$LUCI_JS.tmp.$$"
+	cat > "$tmp" <<'EOF'
+(function(){var z='zbt_luci_format_compat3';if(window[z])return;window[z]=true;if(typeof String.prototype.format!='function'){String.prototype.format=function(){if(!RegExp)return;const html_esc=[/&/g,'&#38;',/"/g,'&#34;',/'/g,'&#39;',/</g,'&#60;',/>/g,'&#62;'];const quot_esc=[/"/g,'&#34;',/'/g,'&#39;'];function esc(s,r){const t=typeof(s);if(s==null||t==='object'||t==='function')return'';if(t!=='string')s=String(s);for(let i=0;i<r.length;i+=2)s=s.replace(r[i],r[i+1]);return s;}let str=this;let subst,n,pad;let out='';const re=/^(([^%]*)%('.|0|\x20)?(-)?(\d+)?(\.\d+)?(%|b|c|d|u|f|o|s|x|X|q|h|j|t|m))/;let a=[],numSubstitutions=0;while((a=re.exec(str))!==null){const m=a[1];let leftpart=a[2],pPad=a[3],pJustify=a[4],pMinLength=a[5];let pPrecision=a[6],pType=a[7];let precision;if(pType=='%'){subst='%';}else{if(numSubstitutions<arguments.length){let param=arguments[numSubstitutions++];pad='';if(pPad&&pPad.substr(0,1)=="'")pad=pPad.substr(1,1);else if(pPad)pad=pPad;else pad=' ';precision=-1;if(pPrecision&&pType=='f')precision=+pPrecision.substring(1);subst=param;switch(pType){case'b':subst=Math.floor(+param||0).toString(2);break;case'c':subst=String.fromCharCode(+param||0);break;case'd':subst=Math.floor(+param||0).toFixed(0);break;case'u':n=+param||0;subst=Math.floor((n<0)?0x100000000+n:n).toFixed(0);break;case'f':subst=(precision>-1)?((+param||0.0)).toFixed(precision):(+param||0.0);break;case'o':subst=Math.floor(+param||0).toString(8);break;case's':subst=param;break;case'x':subst=Math.floor(+param||0).toString(16).toLowerCase();break;case'X':subst=Math.floor(+param||0).toString(16).toUpperCase();break;case'h':subst=esc(param,html_esc);break;case'q':subst=esc(param,quot_esc);break;case't':var td=0,th=0,tm=0,ts=(param||0);if(ts>59){tm=Math.floor(ts/60);ts=(ts%60);}if(tm>59){th=Math.floor(tm/60);tm=(tm%60);}if(th>23){td=Math.floor(th/24);th=(th%24);}subst=(td>0)?String.format('%dd %dh %dm %ds',td,th,tm,ts):String.format('%dh %dm %ds',th,tm,ts);break;case'm':var mf=pMinLength?+pMinLength:1000;var pr=pPrecision?Math.floor(10*+('0'+pPrecision)):2;var sz=+param||0;var u=['','K','M','G','T','P','E'];var ui=0;while(Math.abs(sz)>=mf&&ui<u.length-1){sz/=mf;ui++;}subst=sz.toFixed(pr)+u[ui];if(mf==1024&&ui>0)subst+='i';break;case'j':try{subst=JSON.stringify(param);}catch(e){subst=String(param);}break;}}else{subst='';}}if(typeof subst!=='string')subst=String(subst);if(pMinLength){var min=+pMinLength;if(subst.length<min){var fill=new Array(min-subst.length+1).join(pad);subst=pJustify?subst+fill:fill+subst;}}out+=leftpart+subst;str=str.substr(m.length);}return out+str;};}if(typeof String.prototype.nobr!='function'){String.prototype.nobr=function(){return this.replace(/[\s\n]+/g,'&#160;');};}if(typeof String.format!='function'){String.format=function(){const a=[];for(let i=1;i<arguments.length;i++)a.push(arguments[i]);return ''.format.apply(arguments[0],a);};}if(typeof String.nobr!='function'){String.nobr=function(){const a=[];for(let i=1;i<arguments.length;i++)a.push(arguments[i]);return ''.nobr.apply(arguments[0],a);};}})();
+EOF
+	cat "$LUCI_JS" >> "$tmp"
+	cat "$tmp" > "$LUCI_JS"
+	rm -f "$tmp"
+fi
+
+if [ -f "$UI_JS" ] && [ -x /usr/bin/python3 ]; then
+	/usr/bin/python3 - "$UI_JS" <<'PY'
+import sys
+from pathlib import Path
+p = Path(sys.argv[1])
+s = p.read_text()
+old = "menu.querySelector('[data-tab=\"%s\"]'.format(pane.getAttribute('data-tab')))"
+new = "Array.prototype.find.call(menu.querySelectorAll('[data-tab]'), function(tab) { return tab.getAttribute('data-tab') === pane.getAttribute('data-tab'); })"
+if old in s and new not in s:
+    p.write_text(s.replace(old, new))
+PY
+fi
+
+if [ -f "$VERSION_UC" ]; then
+	if grep -q 'zbt_luci_compat' "$VERSION_UC"; then
+		sed -i "s/zbt_luci_compat[0-9][A-Za-z0-9_.-]*/zbt_luci_compat3/g" "$VERSION_UC"
+	else
+		sed -i "s/export const revision = '\([^']*\)'/export const revision = '\1-zbt_luci_compat3'/" "$VERSION_UC"
+	fi
+fi
+
+rm -f /tmp/luci-indexcache*.json /tmp/luci-modulecache/* 2>/dev/null || true
+/etc/init.d/rpcd reload >/dev/null 2>&1 || true
+/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
+exit 0

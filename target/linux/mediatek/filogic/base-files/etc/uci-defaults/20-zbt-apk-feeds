@@ -1,0 +1,82 @@
+#!/bin/sh
+#
+# ZBT-Z8803BE first-boot script (runs once, then self-removes):
+#
+# 1. Populate /etc/apk/repositories.d/customfeeds.list with the
+#    ImmortalWrt overlay URLs. (We can't ship this file directly from
+#    base-files because apk-mbedtls already owns an empty customfeeds.list
+#    as a conffile - two owners of the same file fails apk install.)
+#
+# 2. Strip local-only build feeds from /etc/apk/repositories.d/distfeeds.list
+#    base-files' FeedSourcesAppendAPK helper writes EVERY CONFIG_FEED_*
+#    into distfeeds.list pointing at downloads.openwrt.org, including
+#    our three local overlays (iwrt_luci, iwrt_packages, qmodem) which
+#    only live on our build host. Those URLs 404 on the OpenWrt CDN and
+#    break `apk update`. We keep them at build time (to compile QModem
+#    and vendored ImmortalWrt packages) and drop them at first boot.
+#
+# If you want reproducibility across reboots instead of rolling
+# snapshots, edit the URLs below and swap `snapshots` for a tagged
+# ImmortalWrt release.
+
+CUSTOM=/etc/apk/repositories.d/customfeeds.list
+DIST=/etc/apk/repositories.d/distfeeds.list
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+# -- 1. ImmortalWrt overlay customfeeds -----------------------------
+# ImmortalWrt serves apk indexes at <feed>/packages.adb, NOT at the
+# Alpine-style <feed>/<arch>/APKINDEX.tar.gz. The explicit .adb suffix
+# is what OpenWrt's base-files does in distfeeds.list too.
+cat > "${CUSTOM}" <<'EOF'
+# ImmortalWrt overlay apk feeds (aarch64_cortex-a53, rolling snapshots).
+#
+# Provides packages not shipped in the OpenWrt upstream apk repo:
+#   - luci-theme-argon / luci-app-argon-config
+#   - luci-app-adguardhome (also in OpenWrt upstream; either repo works)
+#   - ddns-go / netdata / diskman / wifihistory / ... (superset of upstream)
+#
+# Install examples:
+#   apk update
+#   apk add luci-theme-argon luci-app-argon-config
+#   apk add luci-app-adguardhome adguardhome
+#
+# Chinese LuCI translations (installed post-flash to keep image small):
+#   apk add luci-i18n-base-zh-cn luci-i18n-firewall-zh-cn \
+#           luci-i18n-opkg-zh-cn luci-i18n-package-manager-zh-cn \
+#           luci-i18n-qmodem-zh-cn
+#
+# Binary-compat notes:
+#   ImmortalWrt userspace-only Lua/JS apps and static Go binaries (AGH,
+#   ddns-go) port cleanly onto an OpenWrt main build. Packages that link
+#   musl tightly or ship kmods MAY fail - if so, `apk del <pkg>` and use
+#   the OpenWrt upstream equivalent.
+https://downloads.immortalwrt.org/snapshots/packages/aarch64_cortex-a53/base/packages.adb
+https://downloads.immortalwrt.org/snapshots/packages/aarch64_cortex-a53/luci/packages.adb
+https://downloads.immortalwrt.org/snapshots/packages/aarch64_cortex-a53/packages/packages.adb
+https://downloads.immortalwrt.org/snapshots/packages/aarch64_cortex-a53/routing/packages.adb
+https://downloads.immortalwrt.org/snapshots/packages/aarch64_cortex-a53/telephony/packages.adb
+EOF
+
+chmod 0644 "${CUSTOM}"
+
+# -- 2. Strip dead local-only feeds from distfeeds.list -------------
+# These feeds only exist on our build host (iwrt_luci, iwrt_packages,
+# qmodem). base-files added them to distfeeds.list pointing at the
+# OpenWrt CDN where they 404. Remove them; everything they built into
+# the image is already installed, and runtime extras come from the
+# ImmortalWrt overlay in customfeeds.list above.
+if [ -f "${DIST}" ]; then
+	# 'ytub' joins this list because it's our private DPI-bypass feed
+	# (only registered as a build-time source feed for youtubeUnblock and
+	# luci-app-youtubeUnblock, both of which are baked into the image).
+	# Without this, every `apk update` invocation prints
+	#   ERROR: wget: exited with error 8
+	#   WARNING: ...ytub/packages.adb: unexpected end of file
+	sed -i -E '\#/(iwrt_luci|iwrt_packages|qmodem|ytub)/packages\.adb$#d' "${DIST}"
+fi
+
+exit 0

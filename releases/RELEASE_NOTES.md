@@ -1,4 +1,4 @@
-# ZBT-Z8803BE OpenWrt v25.12.2-7-zbt8803be speedtest maintenance release
+# ZBT-Z8803BE OpenWrt main / kernel 6.18 release candidate
 
 [English](RELEASE_NOTES.md) | [中文](RELEASE_NOTES.zh-CN.md)
 
@@ -6,52 +6,59 @@
 
 Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
-- **Release tag:** `v25.12.2-7-zbt8803be`
-- **OpenWrt base:** official `v25.12.2` / `r32802-f505120278`
-- **Kernel:** `6.12.74`
+- **Release tag:** `v25.12.4-zbt8803be-main6.18`
+- **OpenWrt base:** current OpenWrt `main` / `r303+1-d841179375`
+- **Kernel:** `6.18.28`
 - **Target:** `mediatek/filogic`
 - **Default login:** `root` / `admin`
 
-## What's new since `v25.12.2-6-zbt8803be`
+## What's new
 
-### Speedtest LuCI app
+### OpenWrt main / kernel 6.18 rebase
 
-- **Speedtest.net-only backend.** The Speedtest page no longer exposes backend selection and now uses the Speedtest.net backend exclusively.
-- **Pinned international presets.** Added curated Speedtest.net server presets for PH, KH, SG, MY, US, DE, NL, FR, and TH, including fixed server IDs and legacy alias handling.
-- **More reliable preset execution.** Pinned presets skip location-biased XML discovery, validate configured HTTP/HTTPS URLs before test traffic, and normalize saved country codes.
-- **Persistent app config.** The LuCI page loads `/etc/config/zbt-speedtest` through `/usr/sbin/zbt-speedtest-json --config` and saves selected country, preset, transfer sizes, and connection count after a run.
-- **Persistent result history.** Completed tests are stored in `/etc/zbt-speedtest/history.json` with timestamp, country, preset, server, download/upload Mbps, ping, byte counts, and duration. History is capped at 100 entries and uses a file lock to avoid lost concurrent appends.
-- **History UI in LuCI.** The Speedtest page now renders previous tests in a table and refreshes it after each run.
-- **LuCI compatibility fixes.** Removed JavaScript `.format()` calls and fixed nested table-row rendering that could show `[object HTMLTableRowElement]`.
-- **ACL and backup coverage.** rpcd ACLs allow the app to read/write the history DB, and app-history backup/restore preserves `/etc/zbt-speedtest/history.json`.
+- **Rebased firmware source onto OpenWrt main.** The ZBT-Z8803BE board support and custom package layer are now carried on top of current OpenWrt main instead of the older 25.12 branch.
+- **MediaTek 6.18 kernel path.** The MediaTek target now uses `KERNEL_PATCHVER:=6.18`.
+- **ZBT-Z8803BE image profile preserved.** The image profile remains `zbtlink_zbt-z8803be` with legacy `SUPPORTED_DEVICES += zbtlink,zbt-z8803be,mt7988a-nand` compatibility for older flashed images.
+- **Custom firmware apps restored on the new base.** The build includes the previous custom app layer: About, Health, Temperature, Modem Events, Speedtest, WiFi Clients, Traffic Statistics / wrtbwmon, MLO tooling, QoSmate, autocore, and cpufreq.
+- **AdGuard Home is now firmware-level.** Official prebuilt AdGuardHome APKs are embedded in the image and installed locally on first boot, then dnsmasq is wired to AdGuard on `127.0.0.1#5454` with the same DoH upstreams, filters, block rules, and allowlists used by the setup scripts.
+- **LuCI `.format()` compatibility is cache-busted.** The image carries the `zbt_luci_format_compat3` formatter shim and `zbt_luci_compat3` revision suffix so current LuCI menu/view code using `_('...').format(...)` works after browser cache refresh.
 
-## Validation
+### Board/DTS cleanup credited to Hauke's OpenWrt review
 
-- Firmware rebuilt from commit `58a983ad76` and extracted to `output/mediatek/filogic`.
-- Corrected build config with `CONFIG_PACKAGE_luci-app-zbt-speedtest=y`; final manifest includes `luci-app-zbt-speedtest - 26.133.41786~58a983a`.
+Thanks to [Hauke Mehrtens](https://github.com/hauke) for the latest review on [openwrt/openwrt#23053](https://github.com/openwrt/openwrt/pull/23053). This firmware applies the relevant board-support cleanups from that discussion:
+
+- **NVMEM MAC cells.** Removed unnecessary explicit `0` indexes from `gmac0`, `gmac1`, and `gmac2` MAC references after Hauke clarified that indexes are only needed for `compatible = "mac-base"` providers with `#nvmem-cell-cells = <1>`: [comment](https://github.com/openwrt/openwrt/pull/23053#issuecomment-4450882616).
+- **5G modem LEDs.** Replaced plain `label = "5g1"` / `label = "5g2"` LED nodes with standard `LED_FUNCTION_MOBILE` metadata and enumerators for the two modem status LEDs: [review comment](https://github.com/openwrt/openwrt/pull/23053#discussion_r3241518122).
+- **Default WAN split.** Changed first-boot networking so only the 2.5G RJ45 port `eth1` is default WAN, while SFP+ `eth2` is exposed separately as inactive `wan_sfp` instead of being bridged into WAN: [review comment](https://github.com/openwrt/openwrt/pull/23053#discussion_r3241580300).
+- **Unused fixed regulators.** Removed the unused fixed `regulator-1p8v` and `regulator-3p3v` nodes that were carried from the reference board but are not consumed by this DTS: [review comment](https://github.com/openwrt/openwrt/pull/23053#discussion_r3241532510).
+- **Thermal fan map sanity.** Verified the CPU thermal fan cooling map/comment alignment following Hauke's review of the `level 3` / `<&fan 3 3>` mapping: [review comment](https://github.com/openwrt/openwrt/pull/23053#discussion_r3241527161).
+- **Upstream DTS direction retained.** The DTS uses `mt7988a.dtsi` directly, keeps the upstream-compatible `compatible = "zbtlink,zbt-z8803be", "mediatek,mt7988a"` string, and keeps the OpenWrt LED/MAC aliases aligned with the current PR review direction.
+
+## Validation status
+
+- `./.buildenv/build.sh config` completed and wrote `.config`.
+- Generated `.config` selects `CONFIG_TARGET_mediatek_filogic_DEVICE_zbtlink_zbt-z8803be=y`.
+- Generated `.config` selects `CONFIG_LINUX_6_18=y`.
+- Full rebuild completed and artifacts were extracted to `output/mediatek/filogic`.
 - Staged release assets passed `sha256sum -c sha256sums --ignore-missing`.
-- `zbt-speedtest-json` passed Python syntax validation.
-- Speedtest LuCI JavaScript passed `node --check`.
-- Speedtest rpcd ACL passed JSON validation.
-- Engineering code review workflow passed; fixes included locked history appends and active-config preset labels in history entries.
-- Local and router temp-file history checks passed for append, custom preset label resolution, and clear-history behavior.
-- Live router hotfix was deployed to `3fl.lan`, LuCI caches were cleared, `rpcd`/`uhttpd` restarted, and `/usr/sbin/zbt-speedtest-json --history` returned the persisted SG Singtel history entry.
+- Sysupgrade squashfs contains `86-zbt-adguardhome-defaults`, `84-zbt-luci-js-compat`, and the embedded AdGuardHome APKs under `/usr/share/zbt/apk/`.
+- Final manifest includes the custom app layer listed above, including MLO, QoSmate, autocore, cpufreq, wrtbwmon, and the ZBT LuCI apps.
+- Live LuCI compat3 behavior was verified on 3FL before rebuild; the rebuilt image content was verified locally before publishing.
 
 ## Checksums
 
 ```text
-a3c35330d09649e56e4ad29b9d6dcbabe3ac3983989e35e54a7d6f3fb3889d7a  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-4f9c90aebc44ddd9aa6c2594a4d55ad2fa7855492c2381946902dc4f126e6c90  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-c755428ec8874006d1572f2b0a457ae61092d1907119ac01ea5e9c46ad443e4d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-22cd03fcfd73f645c0be48165b4449e5768fef147908db51dcb8a25db88b98a5  sha256sums
-43a7d0d006229a8c60a42915e59c7220623778508f18387be37dc8d79ea15777  config.buildinfo
-ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinfo
-05f6cea7ac9e5c3d2d73225400b4dc3cf51eb8002f54cf6d05e5934c1805c60c  version.buildinfo
+291d52d106f823bb129b0d007b3f7a3fa79bafaac41cdee3e42044aab5efeb36 *config.buildinfo
+ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e *feeds.buildinfo
+c65dd17640567042ab4349124571df6448362caaf35472644e0e299d7dccf9b7 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+dd571dfe6d82d003c9bb73947c93a7d588494c2019e8aca755146871029ec2fb *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+2ae4f56dd79908e5ee37bc98e006bcba66e74a21c4d53b0196f8388cf05c57dc *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+f814ce4b83e191a6148421107142da56b42a1771f191c79f86d2ca3b8918a688 *version.buildinfo
 ```
 
 ## Assets
 
-Upload exactly these files:
+Upload exactly these files after successful build and checksum verification:
 
 ```text
 openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
@@ -65,16 +72,12 @@ RELEASE_NOTES.md
 RELEASE_NOTES.zh-CN.md
 ```
 
-## Flash
+## Flash plan
 
-Existing OpenWrt, preserving settings:
-
-```sh
-sysupgrade openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-```
-
-Clean reset:
+After manual approval, flash without preserving settings:
 
 ```sh
 sysupgrade -n openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
 ```
+
+Then run setup and restore DB/history files before publishing the release.
