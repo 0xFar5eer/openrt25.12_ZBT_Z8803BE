@@ -6,13 +6,20 @@
 
 面向 **ZBTLink ZBT-Z8803BE** WiFi 7 路由器的自定义 OpenWrt 固件。
 
-- **发布标签:** 等待 clean reflash 验证后确定
-- **OpenWrt 基线:** 当前 OpenWrt `main` / `r303+1-d841179375`
+- **发布标签:** `v25.12.5-zbt8803be-main6.18`
+- **OpenWrt 基线:** 当前 OpenWrt `main` / `r32860-f96b44fbd4`
 - **内核:** `6.18.28`
 - **目标平台:** `mediatek/filogic`
 - **默认登录:** `root` / `admin`
 
 ## 本版变化
+
+### USB tethering 备用 WAN
+
+- **Android USB tethering 会作为次级 WAN。** 使用 `rndis_host`、`cdc_ether` 或 `cdc_ncm` 的 USB Ethernet tether 设备会被 hotplug 检测，并分配给 `network.usb_tether`。
+- **已内置 iPhone USB tethering 所需包。** 镜像现在选择 `kmod-usb-net-ipheth`、`usbmuxd`、`libimobiledevice`、`libimobiledevice-utils` 和 `libusbmuxd-utils`。
+- **有线 WAN 仍然优先。** 默认有线 WAN 保持 metric `10`；USB tethering 使用 metric `50`，因此优先级低于有线 WAN，但可作为故障切换路径。
+- **包含首次启动和手动 setup。** 镜像首次启动会创建 `network.usb_tether`，把它加入 firewall `wan` zone，启用 `usbmuxd`，并提供 `/usr/sbin/zbt-usb-tether-setup` 用于手动配对和检查。
 
 ### OpenWrt main / kernel 6.18 rebase
 
@@ -39,8 +46,11 @@
 - `./.buildenv/build.sh config` 已完成并写入 `.config`。
 - 生成的 `.config` 已选择 `CONFIG_TARGET_mediatek_filogic_DEVICE_zbtlink_zbt-z8803be=y`。
 - 生成的 `.config` 已选择 `CONFIG_LINUX_6_18=y`。
+- 生成的 `.config` 已选择 `CONFIG_PACKAGE_kmod-usb-net-ipheth=y`、`CONFIG_PACKAGE_usbmuxd=y`、`CONFIG_PACKAGE_libimobiledevice-utils=y` 和 `CONFIG_PACKAGE_libusbmuxd-utils=y`。
 - 完整 rebuild 已完成，产物已提取到 `output/mediatek/filogic`。
 - staged release assets 已通过 `sha256sum -c sha256sums --ignore-missing`。
+- 最终 manifest 包含 `kmod-usb-net-ipheth`、`usbmuxd`、`libimobiledevice`、`libimobiledevice-utils` 和 `libusbmuxd-utils`。
+- USB tethering 脚本在 rebuild 前已通过 `sh -n` 语法检查。
 - sysupgrade squashfs 已确认包含 `86-zbt-adguardhome-defaults`、`84-zbt-luci-js-compat`，以及 `/usr/share/zbt/apk/` 下的内嵌 AdGuardHome APK。
 - 最终 manifest 包含上面列出的自定义应用层，包括 MLO、QoSmate、autocore、cpufreq、wrtbwmon 和 ZBT LuCI apps。
 - rebuild 前已在 3FL 上验证 LuCI compat3 行为；发布前已在本地验证新镜像内容。
@@ -48,12 +58,12 @@
 ## 校验值
 
 ```text
-291d52d106f823bb129b0d007b3f7a3fa79bafaac41cdee3e42044aab5efeb36 *config.buildinfo
+1841812800da9039cab6ca0bd827f2462951c00e367b23650efe6770ac4dd7dd *config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e *feeds.buildinfo
-c65dd17640567042ab4349124571df6448362caaf35472644e0e299d7dccf9b7 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-dd571dfe6d82d003c9bb73947c93a7d588494c2019e8aca755146871029ec2fb *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-2ae4f56dd79908e5ee37bc98e006bcba66e74a21c4d53b0196f8388cf05c57dc *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-f814ce4b83e191a6148421107142da56b42a1771f191c79f86d2ca3b8918a688 *version.buildinfo
+31719cefe6ce1dad70670a0f3613e2f85c96311bb180453db1fbc40dfba9342e *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+5253300b23ef2604d646a9982b448a0d2c41b02f320fd4a58c52e37525be719f *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+0a83381413f1c9ff287317b5edc8fb771861d22590f28090b4f615a7d8a1026d *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+08481bee00f9c0e2ad1019ee69589f92571e6129a86aaa6b93ce900e8939c3c1 *version.buildinfo
 ```
 
 ## 发布文件
@@ -80,4 +90,4 @@ RELEASE_NOTES.zh-CN.md
 sysupgrade -n openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
 ```
 
-之后运行 setup 并恢复 DB/history 文件，全部验证通过后再发布 release。
+如果执行 clean reflash，之后运行 setup 并恢复 DB/history 文件。

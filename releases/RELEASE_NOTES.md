@@ -6,13 +6,20 @@
 
 Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
-- **Release tag:** `v25.12.4-zbt8803be-main6.18`
-- **OpenWrt base:** current OpenWrt `main` / `r303+1-d841179375`
+- **Release tag:** `v25.12.5-zbt8803be-main6.18`
+- **OpenWrt base:** current OpenWrt `main` / `r32860-f96b44fbd4`
 - **Kernel:** `6.18.28`
 - **Target:** `mediatek/filogic`
 - **Default login:** `root` / `admin`
 
 ## What's new
+
+### USB tethering failover
+
+- **Android USB tethering is configured as a secondary WAN path.** USB Ethernet tether devices using `rndis_host`, `cdc_ether`, or `cdc_ncm` are detected by hotplug and assigned to `network.usb_tether`.
+- **iPhone USB tethering packages are included.** The image now selects `kmod-usb-net-ipheth`, `usbmuxd`, `libimobiledevice`, `libimobiledevice-utils`, and `libusbmuxd-utils`.
+- **Wired WAN remains preferred.** The default wired WAN interface keeps metric `10`; USB tethering uses metric `50`, so it is lower priority than wired WAN while still usable as failover.
+- **First-boot and manual setup are included.** The image creates `network.usb_tether` on first boot, adds it to the firewall `wan` zone, enables `usbmuxd`, and includes `/usr/sbin/zbt-usb-tether-setup` for manual pairing/setup checks.
 
 ### OpenWrt main / kernel 6.18 rebase
 
@@ -39,8 +46,11 @@ Thanks to [Hauke Mehrtens](https://github.com/hauke) for the latest review on [o
 - `./.buildenv/build.sh config` completed and wrote `.config`.
 - Generated `.config` selects `CONFIG_TARGET_mediatek_filogic_DEVICE_zbtlink_zbt-z8803be=y`.
 - Generated `.config` selects `CONFIG_LINUX_6_18=y`.
+- Generated `.config` selects `CONFIG_PACKAGE_kmod-usb-net-ipheth=y`, `CONFIG_PACKAGE_usbmuxd=y`, `CONFIG_PACKAGE_libimobiledevice-utils=y`, and `CONFIG_PACKAGE_libusbmuxd-utils=y`.
 - Full rebuild completed and artifacts were extracted to `output/mediatek/filogic`.
 - Staged release assets passed `sha256sum -c sha256sums --ignore-missing`.
+- Final manifest includes `kmod-usb-net-ipheth`, `usbmuxd`, `libimobiledevice`, `libimobiledevice-utils`, and `libusbmuxd-utils`.
+- USB tethering scripts passed `sh -n` syntax checks before the rebuild.
 - Sysupgrade squashfs contains `86-zbt-adguardhome-defaults`, `84-zbt-luci-js-compat`, and the embedded AdGuardHome APKs under `/usr/share/zbt/apk/`.
 - Final manifest includes the custom app layer listed above, including MLO, QoSmate, autocore, cpufreq, wrtbwmon, and the ZBT LuCI apps.
 - Live LuCI compat3 behavior was verified on 3FL before rebuild; the rebuilt image content was verified locally before publishing.
@@ -48,12 +58,12 @@ Thanks to [Hauke Mehrtens](https://github.com/hauke) for the latest review on [o
 ## Checksums
 
 ```text
-291d52d106f823bb129b0d007b3f7a3fa79bafaac41cdee3e42044aab5efeb36 *config.buildinfo
+1841812800da9039cab6ca0bd827f2462951c00e367b23650efe6770ac4dd7dd *config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e *feeds.buildinfo
-c65dd17640567042ab4349124571df6448362caaf35472644e0e299d7dccf9b7 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-dd571dfe6d82d003c9bb73947c93a7d588494c2019e8aca755146871029ec2fb *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-2ae4f56dd79908e5ee37bc98e006bcba66e74a21c4d53b0196f8388cf05c57dc *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-f814ce4b83e191a6148421107142da56b42a1771f191c79f86d2ca3b8918a688 *version.buildinfo
+31719cefe6ce1dad70670a0f3613e2f85c96311bb180453db1fbc40dfba9342e *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+5253300b23ef2604d646a9982b448a0d2c41b02f320fd4a58c52e37525be719f *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+0a83381413f1c9ff287317b5edc8fb771861d22590f28090b4f615a7d8a1026d *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+08481bee00f9c0e2ad1019ee69589f92571e6129a86aaa6b93ce900e8939c3c1 *version.buildinfo
 ```
 
 ## Assets
@@ -80,4 +90,4 @@ After manual approval, flash without preserving settings:
 sysupgrade -n openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
 ```
 
-Then run setup and restore DB/history files before publishing the release.
+Then run setup and restore DB/history files if doing a clean reflash.

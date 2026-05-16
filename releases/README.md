@@ -2,8 +2,8 @@
 
 Local staging folder for the current **ZBTLink ZBT-Z8803BE** firmware release candidate.
 
-- **Tag:** v25.12.4-zbt8803be-main6.18
-- **OpenWrt base:** current OpenWrt `main` / `r303+1-d841179375`
+- **Tag:** v25.12.5-zbt8803be-main6.18
+- **OpenWrt base:** current OpenWrt `main` / `r32860-f96b44fbd4`
 - **Kernel:** `6.18.28`
 - **Build output:** `output/mediatek/filogic`
 
@@ -30,19 +30,19 @@ Do not upload `REDDIT_POST.md`.
 ## Current checksums
 
 ```text
-dd571dfe6d82d003c9bb73947c93a7d588494c2019e8aca755146871029ec2fb  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-c65dd17640567042ab4349124571df6448362caaf35472644e0e299d7dccf9b7  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-2ae4f56dd79908e5ee37bc98e006bcba66e74a21c4d53b0196f8388cf05c57dc  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-291d52d106f823bb129b0d007b3f7a3fa79bafaac41cdee3e42044aab5efeb36  config.buildinfo
+5253300b23ef2604d646a9982b448a0d2c41b02f320fd4a58c52e37525be719f  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+31719cefe6ce1dad70670a0f3613e2f85c96311bb180453db1fbc40dfba9342e  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+0a83381413f1c9ff287317b5edc8fb771861d22590f28090b4f615a7d8a1026d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+1841812800da9039cab6ca0bd827f2462951c00e367b23650efe6770ac4dd7dd  config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinfo
-f814ce4b83e191a6148421107142da56b42a1771f191c79f86d2ca3b8918a688  version.buildinfo
+08481bee00f9c0e2ad1019ee69589f92571e6129a86aaa6b93ce900e8939c3c1  version.buildinfo
 ```
 
 ## Publish
 
 ```sh
-TAG=v25.12.4-zbt8803be-main6.18
-TITLE="ZBT-Z8803BE OpenWrt main kernel 6.18 AdGuard/compat3 release"
+TAG=v25.12.5-zbt8803be-main6.18
+TITLE="ZBT-Z8803BE OpenWrt main kernel 6.18 USB tethering release"
 
 git tag -a "$TAG" -m "$TITLE"
 git push origin HEAD
