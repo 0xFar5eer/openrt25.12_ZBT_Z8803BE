@@ -41,13 +41,26 @@ _nft_exec() {
     nft "$@" 2>/dev/null
 }
 
-# Get default table name from config
+# Get default table name from config.
+#
+# wrtbwmon's accounting lives in `netdev wrtbwmon_acct`. The earlier design
+# put per-device counter chains in `inet fw4` and dispatched via rules in the
+# `forward` chain, but that path is bypassed by software flow offload after
+# the first packet of each flow (counters undercount real traffic ~40x). The
+# netdev table lets us hook ingress + egress on each LAN bridge member at a
+# priority lower than the flowtable's ingress hook, so every packet is seen
+# pre-offload.
 _nft_get_table() {
     local table
     table=$(config_get "NFT_TABLE")
-    [ -z "$table" ] && table="inet fw4"
+    [ -z "$table" ] && table="netdev wrtbwmon_acct"
     echo "$table"
 }
+
+# Stale legacy table that earlier releases used for accounting. `nft_cleanup`
+# wipes any wrtbwmon objects left over here so a re-init on an upgraded
+# router does not double-count or leave dangling chains.
+_NFT_LEGACY_TABLE="inet fw4"
 
 #=============================================================================
 # Batch nftables Execution
@@ -71,8 +84,11 @@ nft_cache_state() {
     _NFT_CACHED_TABLE="$table"
     _NFT_CACHED_CHAINS=$(_nft_exec list table "$table" 2>/dev/null | grep "chain " | awk '{print $2}' | sed 's/{//')
     _NFT_CACHED_SETS=$(_nft_exec list sets "$table" 2>/dev/null | grep "set " | awk '{print $2}' | sed 's/{//')
-    _NFT_CACHED_MAP=$(_nft_exec list map "$table" wrtbwmon_domain_dispatch_v4 2>/dev/null)
-    _NFT_CACHED_DISPATCH=$(_nft_exec list chain "$table" forward 2>/dev/null | grep "wrtbwmon-dispatch")
+    _NFT_CACHED_MAP=$(_nft_exec list map $table wrtbwmon_domain_dispatch_v4 2>/dev/null)
+    # Netdev hook chains live in the wrtbwmon table itself; the legacy
+    # `forward`-chain dispatch query is no longer applicable.
+    _NFT_CACHED_DISPATCH=$(_nft_exec list table $table 2>/dev/null | \
+        awk '/^[[:space:]]*chain (in_|eg_)/{ print $2 }')
 }
 
 # Check if chain exists using cached state
@@ -625,7 +641,11 @@ chain_name_to_ip() {
     fi
 }
 
-# Initialize nftables verdict maps and dispatch rules
+# Initialize nftables verdict maps, the netdev table, and ingress/egress
+# hooks on every LAN bridge member.
+#
+# This replaces the older "create maps in `inet fw4` + dispatch rules in
+# the `forward` chain" path which silently undercounted offloaded traffic.
 # Usage: nft_init
 # Returns: 0 on success, 1 on failure
 nft_init() {
@@ -640,10 +660,19 @@ nft_init() {
         return 1
     fi
 
-    # Check if table exists
-    if ! nft list table "$table" >/dev/null 2>&1; then
-        log_error "Table $table does not exist (firewall4 not running?)"
-        return 1
+    # Wipe any leftover wrtbwmon objects from the legacy `inet fw4`
+    # location so a router upgraded from an older firmware does not keep
+    # stale chains/maps that the new netdev pipeline ignores.
+    nft_purge_legacy >/dev/null 2>&1 || true
+
+    # Create the netdev table if it does not already exist. Unlike `inet
+    # fw4` (owned by firewall4), this table is wholly owned by wrtbwmon.
+    if ! _nft_exec list table $table >/dev/null 2>&1; then
+        if ! _nft_exec add table $table; then
+            log_error "Failed to create $table"
+            return 1
+        fi
+        log_info "Created table $table"
     fi
 
     # Create IPv4 verdict map for device dispatch
@@ -668,65 +697,128 @@ nft_init() {
         log_debug "IPv6 verdict map already exists: $_NFT_MAP_V6"
     fi
 
-    # Setup dispatch rules in forward chain
-    nft_setup_dispatch_rules || return 1
+    # Install ingress + egress hooks on every current LAN bridge member.
+    nft_setup_netdev_hooks || return 1
 
-    log_info "nftables verdict maps initialized successfully"
+    log_info "nftables netdev accounting initialized successfully"
     return 0
 }
 
-# Setup dispatch rules in forward chain (idempotent)
-# Usage: nft_setup_dispatch_rules
+# Synchronise ingress + egress hook chains on every current LAN bridge
+# member of `br-lan`. Each LAN device gets two chains:
+#   in_<sanitised_dev>  type filter hook ingress device <dev> priority -300;
+#                       ip  saddr vmap @wrtbwmon_dispatch_v4
+#                       ip6 saddr vmap @wrtbwmon_dispatch_v6
+#   eg_<sanitised_dev>  type filter hook egress device <dev> priority -300;
+#                       ip  daddr vmap @wrtbwmon_dispatch_v4
+#                       ip6 daddr vmap @wrtbwmon_dispatch_v6
+#
+# Priority -300 runs before fw4's flowtable ingress hook (priority filter
+# / 0), so packets are seen before software flow offload fast-forwards
+# them. Egress on LAN sees post-DNAT packets where daddr is the LAN
+# client IP, which is what we need to count downloads on offloaded flows.
+#
+# Stale chains for devices that left the bridge are removed. Function is
+# idempotent: safe to call from init, hotplug, and the per-minute update.
+# Usage: nft_setup_netdev_hooks
 # Returns: 0 on success, 1 on failure
-nft_setup_dispatch_rules() {
+nft_setup_netdev_hooks() {
     local table
     table="$(_nft_get_table)"
 
-    log_info "Setting up dispatch rules in forward chain"
+    local lan_devs
+    lan_devs=$(ip -o link show master br-lan 2>/dev/null | \
+        awk -F': ' '{print $2}' | sed 's/[@:].*//' | sort -u)
 
-    # Check if all 4 dispatch rules exist
-    local forward_chain
-    forward_chain=$(nft list chain "$table" forward 2>/dev/null)
-    local has_v4_up=$(echo "$forward_chain" | grep -c "wrtbwmon-dispatch-v4-up")
-    local has_v4_down=$(echo "$forward_chain" | grep -c "wrtbwmon-dispatch-v4-down")
-    local has_v6_up=$(echo "$forward_chain" | grep -c "wrtbwmon-dispatch-v6-up")
-    local has_v6_down=$(echo "$forward_chain" | grep -c "wrtbwmon-dispatch-v6-down")
-
-    if [ "$has_v4_up" -gt 0 ] && [ "$has_v4_down" -gt 0 ] && [ "$has_v6_up" -gt 0 ] && [ "$has_v6_down" -gt 0 ]; then
-        log_debug "All 4 dispatch rules already exist"
+    if [ -z "$lan_devs" ]; then
+        log_warn "No br-lan members visible; netdev hooks not installed"
         return 0
     fi
 
-    # Remove any partial dispatch rules
-    if [ "$has_v4_up" -gt 0 ] || [ "$has_v4_down" -gt 0 ] || [ "$has_v6_up" -gt 0 ] || [ "$has_v6_down" -gt 0 ]; then
-        log_info "Removing incomplete dispatch rules"
-        nft list chain "$table" forward -a 2>/dev/null | \
-        grep "wrtbwmon-dispatch" | \
-        awk '{print $NF}' | \
-        while read handle; do
-            nft delete rule "$table" forward handle "$handle" 2>/dev/null || true
-        done
+    local existing
+    existing=$(_nft_exec list table $table 2>/dev/null | \
+        awk '/^[[:space:]]*chain (in_|eg_)/{ gsub("{",""); print $2 }')
+
+    local batch
+    batch=$(mktemp /tmp/wrtbwmon-hooks.XXXXXX) || return 1
+
+    local desired_list=""
+    local d s
+    for d in $lan_devs; do
+        s=$(printf '%s' "$d" | tr -c '[:alnum:]' '_')
+        desired_list="$desired_list in_$s eg_$s"
+        if ! printf '%s\n' "$existing" | grep -qx "in_$s"; then
+            printf 'add chain %s in_%s { type filter hook ingress device "%s" priority -300; }\n' "$table" "$s" "$d" >> "$batch"
+            printf 'add rule %s in_%s ip saddr vmap @%s\n'  "$table" "$s" "$_NFT_MAP_V4" >> "$batch"
+            printf 'add rule %s in_%s ip6 saddr vmap @%s\n' "$table" "$s" "$_NFT_MAP_V6" >> "$batch"
+        fi
+        if ! printf '%s\n' "$existing" | grep -qx "eg_$s"; then
+            printf 'add chain %s eg_%s { type filter hook egress device "%s" priority -300; }\n' "$table" "$s" "$d" >> "$batch"
+            printf 'add rule %s eg_%s ip daddr vmap @%s\n'  "$table" "$s" "$_NFT_MAP_V4" >> "$batch"
+            printf 'add rule %s eg_%s ip6 daddr vmap @%s\n' "$table" "$s" "$_NFT_MAP_V6" >> "$batch"
+        fi
+    done
+
+    local ch
+    for ch in $existing; do
+        case " $desired_list " in
+            *" $ch "*) ;;
+            *) printf 'delete chain %s %s\n' "$table" "$ch" >> "$batch" ;;
+        esac
+    done
+
+    if [ -s "$batch" ]; then
+        if ! nft -f "$batch" 2>/dev/null; then
+            log_warn "nft -f failed for hook batch ($batch); retrying in verbose mode"
+            nft -f "$batch" 2>&1 | head -5 | while read -r ln; do log_warn "  $ln"; done
+            rm -f "$batch"
+            return 1
+        fi
+        log_info "Netdev hooks synced for: $lan_devs"
     fi
+    rm -f "$batch"
+    return 0
+}
 
-    # Add dispatch rules using verdict maps
-    nft insert rule "$table" forward ip saddr vmap @"$_NFT_MAP_V4" comment \"wrtbwmon-dispatch-v4-up\" 2>/dev/null || {
-        log_error "Failed to add IPv4 upload dispatch rule"
-        return 1
-    }
-    nft insert rule "$table" forward ip daddr vmap @"$_NFT_MAP_V4" comment \"wrtbwmon-dispatch-v4-down\" 2>/dev/null || {
-        log_error "Failed to add IPv4 download dispatch rule"
-        return 1
-    }
-    nft insert rule "$table" forward ip6 saddr vmap @"$_NFT_MAP_V6" comment \"wrtbwmon-dispatch-v6-up\" 2>/dev/null || {
-        log_error "Failed to add IPv6 upload dispatch rule"
-        return 1
-    }
-    nft insert rule "$table" forward ip6 daddr vmap @"$_NFT_MAP_V6" comment \"wrtbwmon-dispatch-v6-down\" 2>/dev/null || {
-        log_error "Failed to add IPv6 download dispatch rule"
-        return 1
-    }
+# Backward-compat shim: anything that previously called the forward-chain
+# dispatch setup now drives the netdev hook setup instead. Keeps the init
+# script and hotplug callers working without ABI churn.
+nft_setup_dispatch_rules() {
+    nft_setup_netdev_hooks
+}
 
-    log_info "Dispatch rules added successfully (4 rules total)"
+# Wipe leftover wrtbwmon objects from `inet fw4`. Called on init and
+# cleanup so a router upgraded from an older release does not retain a
+# duplicate accounting graph in the legacy location.
+# Usage: nft_purge_legacy
+# Returns: 0
+nft_purge_legacy() {
+    local legacy="$_NFT_LEGACY_TABLE"
+    _nft_exec list table $legacy >/dev/null 2>&1 || return 0
+
+    _nft_exec list chain $legacy forward -a 2>/dev/null | \
+        grep "wrtbwmon-dispatch" | awk '{print $NF}' | \
+        while read -r handle; do
+            _nft_exec delete rule $legacy forward handle "$handle" 2>/dev/null || true
+        done
+
+    local ch sets
+    for ch in $(_nft_exec list table $legacy 2>/dev/null | \
+            awk '/^[[:space:]]*chain (device_|device_domains_)/{ gsub("{",""); print $2 }'); do
+        _nft_exec flush  chain $legacy "$ch" 2>/dev/null || true
+        _nft_exec delete chain $legacy "$ch" 2>/dev/null || true
+    done
+
+    _nft_exec delete map $legacy wrtbwmon_dispatch_v4 2>/dev/null || true
+    _nft_exec delete map $legacy wrtbwmon_dispatch_v6 2>/dev/null || true
+
+    sets=$(_nft_exec list table $legacy 2>/dev/null | \
+        awk '/^[[:space:]]*set d_[0-9a-f]+_/{ gsub("{",""); print $2 }')
+    for s in $sets; do
+        _nft_exec delete set $legacy "$s" 2>/dev/null || true
+    done
+
+    log_info "Purged stale wrtbwmon objects from legacy table $legacy"
     return 0
 }
 
@@ -738,28 +830,19 @@ nft_cleanup() {
     local table
     table="$(_nft_get_table)"
 
-    log_info "Cleaning up nftables objects"
+    log_info "Cleaning up nftables objects in $table"
 
-    # Delete dispatch rules from forward chain
-    nft list chain "$table" forward -a 2>/dev/null | \
-    grep "wrtbwmon-dispatch" | \
-    awk '{print $NF}' | \
-    while read -r handle; do
-        nft delete rule "$table" forward handle "$handle" 2>/dev/null || true
-    done
+    # The netdev table is wholly owned by wrtbwmon, so we can drop it in
+    # one shot - this removes hook chains, device chains, domain chains,
+    # maps, and sets together.
+    if _nft_exec list table $table >/dev/null 2>&1; then
+        _nft_exec delete table $table 2>/dev/null || true
+        log_info "Dropped table $table"
+    fi
 
-    # Delete all device chains
-    nft_chain_list "$table" "device_" | while read -r chain_name; do
-        nft_chain_delete "$chain_name" "$table" 2>/dev/null || true
-    done
-
-    # Delete verdict maps
-    nft_map_delete "$_NFT_MAP_V4" "$table" 2>/dev/null || {
-        log_debug "IPv4 verdict map not found or already deleted"
-    }
-    nft_map_delete "$_NFT_MAP_V6" "$table" 2>/dev/null || {
-        log_debug "IPv6 verdict map not found or already deleted"
-    }
+    # Also wipe any stale wrtbwmon objects that an older firmware left
+    # in `inet fw4`.
+    nft_purge_legacy >/dev/null 2>&1 || true
 
     log_info "Cleanup complete"
     return 0
@@ -780,10 +863,11 @@ nft_stats() {
     device_count=$(nft_chain_list "$table" "device_" | wc -l)
     echo "Monitored devices: $device_count"
 
-    # Count dispatch rules
-    local dispatch_count
-    dispatch_count=$(nft list chain "$table" forward 2>/dev/null | grep -c "wrtbwmon-dispatch" || echo "0")
-    echo "Dispatch rules: $dispatch_count"
+    # Count netdev hook chains (ingress + egress per LAN device)
+    local hook_count
+    hook_count=$(_nft_exec list table $table 2>/dev/null | \
+        awk '/^[[:space:]]*chain (in_|eg_)/' | wc -l)
+    echo "Netdev hook chains: $hook_count"
 
     # Counter stats from all device chains
     echo ""

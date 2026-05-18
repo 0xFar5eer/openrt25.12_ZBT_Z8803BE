@@ -67,7 +67,7 @@ write_flat_config() {
 	cat > /etc/wrtbwmon.conf << EOF
 DB_FILE="$db_file"
 DB_KEEP_DAYS=$db_keep
-NFT_TABLE="inet fw4"
+NFT_TABLE="netdev wrtbwmon_acct"
 NFT_MAP_V4="wrtbwmon_dispatch_v4"
 NFT_MAP_V6="wrtbwmon_dispatch_v6"
 NFTABLES_MAXELEM=65536

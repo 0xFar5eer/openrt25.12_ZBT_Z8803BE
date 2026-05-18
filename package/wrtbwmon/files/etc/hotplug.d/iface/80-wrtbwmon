@@ -1,57 +1,33 @@
 #!/bin/sh
-# Hotplug script to reinitialize wrtbwmon after firewall reload
-# Place in /etc/hotplug.d/iface/
+# Hotplug for UCI network ifup/ifdown events.
+#
+# When `lan` (or any other LAN-side network) comes up, br-lan members
+# may have been recreated. Re-sync the netdev hook chains so we keep
+# capturing every LAN device's traffic.
 
-[ "$ACTION" = "ifup" ] || exit 0
+case "$ACTION" in
+    ifup|ifdown) ;;
+    *) exit 0 ;;
+esac
 
-# Only act on interface up events
 [ -n "$INTERFACE" ] || exit 0
 
-# Source core libraries
 LIB_DIR="/usr/lib/wrtbwmon"
 [ -d "/etc/hotplug.d/../lib/wrtbwmon" ] && LIB_DIR="/etc/hotplug.d/../lib/wrtbwmon"
 
-. "$LIB_DIR/config.sh" || exit 1
-
-. "$LIB_DIR/logger.sh" || exit 1
+. "$LIB_DIR/logger.sh"        || exit 1
 . "$LIB_DIR/error_handler.sh" || exit 1
+. "$LIB_DIR/config.sh"        || exit 1
 . "$LIB_DIR/chain_manager.sh" || exit 1
 
-# Initialize logging
-log_init "wrtbwmon-hotplug" "${LOG_LEVEL:-info}"
-
-# Load configuration
+log_init "wrtbwmon-hotplug-if" "${LOG_LEVEL:-info}"
 config_load
 [ "$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] || exit 0
-table=$(config_get "NFT_TABLE")
 
-# Wait a bit for firewall to finish reloading
-sleep 2
+# br-lan member set may not have settled yet; give the kernel a beat
+# before we read it.
+sleep 1
 
-# Check if wrtbwmon verdict maps exist
-if ! nft list maps "$table" 2>/dev/null | grep -q wrtbwmon_dispatch; then
-    log_info "Firewall reloaded, reinitializing wrtbwmon"
-
-    # Ensure database has domain tracking tables
-    if [ "$DOMAIN_TRACKING_ENABLED" = "1" ] && [ -x /usr/sbin/wrtbwmon-domain-manager.py ]; then
-        /usr/sbin/wrtbwmon-domain-manager.py init 2>/dev/null
-    fi
-
-    # Invalidate dispatch stamp so ensure-dispatch re-checks immediately
-    # (stamp cache is 5 min; fw4 reload wipes dispatch rules)
-    rm -f /tmp/wrtbwmon-dispatch-ok
-
-    /etc/init.d/wrtbwmon start
-
-    # Run update to recreate device chains and re-populate dispatch maps
-    /usr/sbin/wrtbwmon-update.py 2>/dev/null &
-    exit 0
-fi
-
-# Check if domain dispatch wiring exists
-if [ "$DOMAIN_TRACKING_ENABLED" = "1" ] && [ -x /usr/sbin/wrtbwmon-domain-manager.py ] && ! nft list chain "$table" forward 2>/dev/null | grep -q wrtbwmon-dispatch-v4-up; then
-    log_info "Domain dispatch wiring missing, rechecking"
-    rm -f /tmp/wrtbwmon-dispatch-ok
-
-    /usr/sbin/wrtbwmon-domain-manager.py ensure-dispatch 2>/dev/null
+if nft_setup_netdev_hooks; then
+    log_debug "netdev hooks re-synced after $ACTION on $INTERFACE"
 fi

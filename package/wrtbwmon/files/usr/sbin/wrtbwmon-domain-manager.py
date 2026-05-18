@@ -21,7 +21,7 @@ import fcntl
 import socket
 
 DB_FILE = os.environ.get("DB_FILE", "/etc/wrtbwmon/traffic.db")
-NFT_TABLE = os.environ.get("NFT_TABLE", "inet fw4")
+NFT_TABLE = os.environ.get("NFT_TABLE", "netdev wrtbwmon_acct")
 DOMAIN_CHAIN = "wrtbwmon_domains"
 DISPATCH_MAP = "wrtbwmon_domain_dispatch_v4"
 LOCK_DIR = "/var/run"

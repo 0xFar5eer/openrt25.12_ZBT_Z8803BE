@@ -26,7 +26,7 @@ DB_FILE="${DB_FILE:-/etc/wrtbwmon/traffic.db}"
 DB_KEEP_DAYS="${DB_KEEP_DAYS:-90}"
 
 # nftables configuration
-NFT_TABLE="${NFT_TABLE:-inet fw4}"
+NFT_TABLE="${NFT_TABLE:-netdev wrtbwmon_acct}"
 NFT_MAP_V4="${NFT_MAP_V4:-wrtbwmon_dispatch_v4}"
 NFT_MAP_V6="${NFT_MAP_V6:-wrtbwmon_dispatch_v6}"
 NFTABLES_MAXELEM="${NFTABLES_MAXELEM:-65536}"
@@ -365,7 +365,7 @@ DB_FILE="/etc/wrtbwmon/traffic.db"
 DB_KEEP_DAYS=90
 
 # nftables Configuration
-NFT_TABLE="inet fw4"
+NFT_TABLE="netdev wrtbwmon_acct"
 NFT_MAP_V4="wrtbwmon_dispatch_v4"
 NFT_MAP_V6="wrtbwmon_dispatch_v6"
 NFTABLES_MAXELEM=65536

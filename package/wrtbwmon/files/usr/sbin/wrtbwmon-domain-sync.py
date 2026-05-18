@@ -16,7 +16,7 @@ from wrtbwmon_nft import counter_bytes, nft_objects, rule_comment
 
 DB_FILE = os.environ.get("DB_FILE", "/etc/wrtbwmon/traffic.db")
 LOCK_FILE = "/var/run/wrtbwmon-domain-sync.lock"
-NFT_TABLE = os.environ.get("NFT_TABLE", "inet fw4")
+NFT_TABLE = os.environ.get("NFT_TABLE", "netdev wrtbwmon_acct")
 DOMAIN_DISPATCH_MAP = "wrtbwmon_domain_dispatch_v4"
 
 MAC_RE = re.compile(r'^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$')

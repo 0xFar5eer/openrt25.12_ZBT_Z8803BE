@@ -23,7 +23,7 @@ import fcntl
 from wrtbwmon_nft import counter_bytes, nft_objects, rule_comment
 
 DB_FILE = os.environ.get("DB_FILE", "/etc/wrtbwmon/traffic.db")
-NFT_TABLE = os.environ.get("NFT_TABLE", "inet fw4")
+NFT_TABLE = os.environ.get("NFT_TABLE", "netdev wrtbwmon_acct")
 LOCK_FILE = "/var/run/wrtbwmon-monitor.lock"
 SPEED_STATE = "/tmp/wrtbwmon-speed.state"
 SPEED_JSON  = "/tmp/wrtbwmon-speed.json"

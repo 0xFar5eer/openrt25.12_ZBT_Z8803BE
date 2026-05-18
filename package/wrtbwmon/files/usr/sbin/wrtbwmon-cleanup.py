@@ -22,8 +22,8 @@ import sqlite3
 import time
 import fcntl
 
-DB_FILE    = "/etc/wrtbwmon/traffic.db"
-NFT_TABLE  = "inet fw4"
+DB_FILE    = os.environ.get("DB_FILE", "/etc/wrtbwmon/traffic.db")
+NFT_TABLE  = os.environ.get("NFT_TABLE", "netdev wrtbwmon_acct")
 LOCK_FILE  = "/var/run/wrtbwmon-cleanup.lock"
 
 INACTIVE_DAYS    = int(os.environ.get("INACTIVE_DAYS",       7))

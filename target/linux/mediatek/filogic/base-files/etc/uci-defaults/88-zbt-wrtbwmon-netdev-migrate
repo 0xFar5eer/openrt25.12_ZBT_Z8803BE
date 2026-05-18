@@ -1,0 +1,44 @@
+#!/bin/sh
+# One-shot migration: wrtbwmon moved from `inet fw4` (forward-chain
+# dispatch, undercount on offloaded flows) to `netdev wrtbwmon_acct`
+# (ingress + egress hooks at priority -300 on every br-lan member).
+#
+# This script wipes any wrtbwmon-* leftovers from `inet fw4` so a router
+# upgraded from an older firmware doesn't keep stale chains/maps alongside
+# the new netdev table. The new table itself is created by
+# `wrtbwmon-control apply` and `wrtbwmon setup`, so we don't pre-create
+# anything here - we only purge.
+
+LEGACY="inet fw4"
+
+# fw4 must already be loaded (uci-defaults runs after firewall start)
+nft list table $LEGACY >/dev/null 2>&1 || exit 0
+
+# Drop any wrtbwmon-dispatch rules from the forward chain.
+nft list chain $LEGACY forward -a 2>/dev/null | \
+    awk '/wrtbwmon-dispatch/ { print $NF }' | \
+    while read -r handle; do
+        nft delete rule $LEGACY forward handle "$handle" 2>/dev/null || true
+    done
+
+# Drop any leftover device chains.
+nft list table $LEGACY 2>/dev/null | \
+    awk '/^[[:space:]]*chain (device_|device_domains_)/ { gsub("{",""); print $2 }' | \
+    while read -r ch; do
+        nft flush  chain $LEGACY "$ch" 2>/dev/null || true
+        nft delete chain $LEGACY "$ch" 2>/dev/null || true
+    done
+
+# Drop dispatch maps.
+nft delete map $LEGACY wrtbwmon_dispatch_v4 2>/dev/null || true
+nft delete map $LEGACY wrtbwmon_dispatch_v6 2>/dev/null || true
+
+# Drop per-domain sets (named d_<MAC>_<DOMAIN>[_dl]).
+nft list table $LEGACY 2>/dev/null | \
+    awk '/^[[:space:]]*set d_[0-9a-f]+_/ { gsub("{",""); print $2 }' | \
+    while read -r s; do
+        nft delete set $LEGACY "$s" 2>/dev/null || true
+    done
+
+logger -t zbt-wrtbwmon-migrate "Migrated wrtbwmon from inet fw4 to netdev wrtbwmon_acct"
+exit 0

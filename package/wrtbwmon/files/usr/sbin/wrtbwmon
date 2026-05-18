@@ -204,6 +204,16 @@ verify() {
     fi
 }
 
+# Resync the per-LAN-device netdev hooks. Cheap to call; intended for
+# hotplug events when the bridge membership changes (wireless interface
+# up/down, port plug, etc.).
+sync_hooks() {
+    log_init "wrtbwmon" "${LOG_LEVEL:-info}"
+    config_load
+    monitoring_enabled || return 0
+    nft_setup_netdev_hooks
+}
+
 # Main command dispatcher
 case "$1" in
     setup)
@@ -221,16 +231,20 @@ case "$1" in
     verify)
         verify
         ;;
+    sync-hooks)
+        sync_hooks
+        ;;
     *)
         cat <<EOF
-Usage: $0 {setup|update|remove|status|verify}
+Usage: $0 {setup|update|remove|status|verify|sync-hooks}
 
 Commands:
-  setup   - Initialize nftables and SQLite database
-  update  - Update traffic data from nftables counters
-  remove  - Remove nftables rules (database preserved)
-  status  - Show current status
-  verify  - Verify installation and dependencies
+  setup       - Initialize nftables and SQLite database
+  update      - Update traffic data from nftables counters
+  remove      - Remove nftables rules (database preserved)
+  status      - Show current status
+  verify      - Verify installation and dependencies
+  sync-hooks  - Re-enrol current br-lan members into the netdev hooks
 
 Configuration:
   DB_FILE=$DB_FILE
@@ -238,12 +252,13 @@ Configuration:
   CLEANUP_INACTIVE_DAYS=$CLEANUP_INACTIVE_DAYS
 
 Architecture:
-  - nftables native sets (firewall4/inet fw4)
+  - nftables netdev table 'wrtbwmon_acct' with ingress + egress hooks
+    on every br-lan member (priority -300, before flow offload)
   - SQLite database (persistent storage)
   - Lua RPCD backend (web interface)
 
 Requirements:
-  - ImmortalWrt SNAPSHOT or OpenWrt 22.03+
+  - OpenWrt with kmod-nft-netdev (CONFIG_NETFILTER_INGRESS/EGRESS)
   - firewall4 (nftables)
   - sqlite3
 
