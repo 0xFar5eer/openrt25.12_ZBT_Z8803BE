@@ -376,7 +376,7 @@ function bindChartHover(canvas, tooltip, chart) {
 	});
 }
 
-function renderChart(group, rows) {
+function renderChart(group, rows, chartMinT, chartMaxT) {
 	const groupRows = rows.filter(function(row) { return row.group === group; });
 	if (!groupRows.length)
 		return E('div', { 'class': 'cbi-section' }, [ E('h3', groupTitle(group)), E('p', {}, _('No readings yet.')) ]);
@@ -385,9 +385,10 @@ function renderChart(group, rows) {
 	const unit = groupRows[0].unit || 'C';
 	const sensorUnits = {};
 	const values = groupRows.map(function(row) { return row.value; });
-	const times = groupRows.map(function(row) { return row.epoch; });
-	const minT = Math.min.apply(null, times);
-	const maxT = Math.max.apply(null, times);
+	const groupLatest = groupRows.reduce(function(m, row) { return row.epoch > m ? row.epoch : m; }, 0);
+	const groupEarliest = groupRows.reduce(function(m, row) { return row.epoch < m ? row.epoch : m; }, groupLatest);
+	const minT = (typeof chartMinT === 'number' && chartMinT > 0) ? chartMinT : groupEarliest;
+	const maxT = (typeof chartMaxT === 'number' && chartMaxT > 0) ? chartMaxT : groupLatest;
 	let minV = Math.min.apply(null, values);
 	let maxV = Math.max.apply(null, values);
 
@@ -424,6 +425,7 @@ function renderChart(group, rows) {
 		sensorUnits: sensorUnits,
 		minT: minT,
 		maxT: maxT,
+		groupLatest: groupLatest,
 		minV: minV,
 		maxV: maxV,
 		unit: unit
@@ -490,6 +492,9 @@ function renderContent(rows) {
 	const filtered = filterRows(rows);
 	const groups = uniqueValues(filtered, 'group');
 	const latest = filtered.length ? filtered[filtered.length - 1].epoch : 0;
+	const earliest = filtered.length ? filtered[0].epoch : 0;
+	const chartMaxT = latest;
+	const chartMinT = selectedRange > 0 && latest > 0 ? latest - selectedRange : earliest;
 	const modemSeen = filtered.some(function(row) { return row.group === 'modem'; });
 	const blocks = [];
 
@@ -498,18 +503,18 @@ function renderContent(rows) {
 		return E([], blocks);
 	}
 
-	blocks.push(E('p', { 'class': 'cbi-section-descr' }, _('Readings are sampled once per minute and kept for the current boot. The selected 7-day view uses one raw point per minute per sensor. Last sample:') + ' ' + formatTime(latest) + '.'));
+	blocks.push(E('p', { 'class': 'cbi-section-descr' }, _('Readings are sampled once per minute and persisted across reboots up to seven days. Each chart spans the selected range with one raw point per minute per sensor. Last sample:') + ' ' + formatTime(latest) + '.'));
 
 	if (!modemSeen)
 		blocks.push(E('div', { 'class': 'alert-message warning' }, _('No modem temperature readings detected. The modem AT port may be busy or unavailable.')));
 
 	[ 'modem', 'fan', 'wifi', 'system' ].forEach(function(group) {
 		if (groups.indexOf(group) !== -1)
-			blocks.push(renderChart(group, filtered));
+			blocks.push(renderChart(group, filtered, chartMinT, chartMaxT));
 	});
 	groups.forEach(function(group) {
 		if ([ 'modem', 'fan', 'wifi', 'system' ].indexOf(group) === -1)
-			blocks.push(renderChart(group, filtered));
+			blocks.push(renderChart(group, filtered, chartMinT, chartMaxT));
 	});
 	blocks.push(renderStats(filtered));
 
