@@ -49,7 +49,9 @@ sqlite_init() {
         fi
     fi
 
-    # Create database with schema
+    # Create database with schema. `if ! cmd; then ERROR; else OK` is the
+    # correct shape — we previously had the branches swapped, which fired
+    # "Failed to create database schema" on every successful run.
     if ! retry_db 5 sqlite3 "$db_file" <<'SQL' 2>/dev/null
 -- Device registry
 CREATE TABLE IF NOT EXISTS devices (
@@ -83,8 +85,6 @@ PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 SQL
     then
-        : # schema created successfully
-    else
         log_error "Failed to create database schema"
         return 1
     fi

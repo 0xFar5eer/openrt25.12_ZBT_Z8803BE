@@ -3,11 +3,26 @@
 # dispatch, undercount on offloaded flows) to `netdev wrtbwmon_acct`
 # (ingress + egress hooks at priority -300 on every br-lan member).
 #
-# This script wipes any wrtbwmon-* leftovers from `inet fw4` so a router
-# upgraded from an older firmware doesn't keep stale chains/maps alongside
-# the new netdev table. The new table itself is created by
-# `wrtbwmon-control apply` and `wrtbwmon setup`, so we don't pre-create
-# anything here - we only purge.
+# This script:
+#   1. Rewrites /etc/wrtbwmon.conf so NFT_TABLE points at the new
+#      netdev table. Sysupgrade preserves /etc/wrtbwmon.conf verbatim,
+#      so on first boot after an upgrade we still see the old
+#      `inet fw4` value and chain_manager.sh writes egress hooks into
+#      the legacy table — which fails because inet does not support
+#      egress hooks. Rewriting up front avoids the noisy first-run
+#      failure.
+#   2. Wipes any wrtbwmon-* leftovers from `inet fw4` so a router
+#      upgraded from an older firmware doesn't keep stale chains, maps,
+#      or per-domain sets alongside the new netdev table.
+# The new table itself is created by `wrtbwmon-control apply` and
+# `wrtbwmon setup`, so we don't pre-create anything here.
+
+# --- 1. config rewrite (preserved /etc/wrtbwmon.conf may still point at fw4) ---
+WCONF=/etc/wrtbwmon.conf
+if [ -f "$WCONF" ] && grep -q '^NFT_TABLE="inet fw4"' "$WCONF"; then
+    sed -i 's|^NFT_TABLE="inet fw4"|NFT_TABLE="netdev wrtbwmon_acct"|' "$WCONF"
+    logger -t zbt-wrtbwmon-migrate "Rewrote NFT_TABLE in $WCONF to netdev wrtbwmon_acct"
+fi
 
 LEGACY="inet fw4"
 

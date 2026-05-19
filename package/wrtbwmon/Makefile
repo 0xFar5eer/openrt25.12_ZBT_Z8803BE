@@ -47,6 +47,9 @@ define Package/wrtbwmon/install
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) files/etc/config/wrtbwmon $(1)/etc/config/wrtbwmon
 	$(INSTALL_CONF) files/etc/wrtbwmon.conf $(1)/etc/wrtbwmon.conf
+	$(INSTALL_DIR) $(1)/lib/upgrade/keep.d
+	echo '/etc/wrtbwmon/' >  $(1)/lib/upgrade/keep.d/wrtbwmon
+	echo '/etc/wrtbwmon.conf' >> $(1)/lib/upgrade/keep.d/wrtbwmon
 endef
 
 $(eval $(call BuildPackage,wrtbwmon))

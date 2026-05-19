@@ -745,7 +745,13 @@ nft_setup_netdev_hooks() {
     local desired_list=""
     local d s
     for d in $lan_devs; do
-        s=$(printf '%s' "$d" | tr -c '[:alnum:]' '_')
+        # Sanitise dev name into a legal nftables chain identifier. We
+        # avoid `[:alnum:]` here because BusyBox tr does not parse POSIX
+        # character classes and silently treats them as the literal set
+        # {`[`,`:`,`a`,`l`,`n`,`u`,`m`,`]`}, which collapses every
+        # `ap-mldN` to the same name and breaks the batch with "File
+        # exists".
+        s=$(printf '%s' "$d" | tr -c 'a-zA-Z0-9' '_')
         desired_list="$desired_list in_$s eg_$s"
         if ! printf '%s\n' "$existing" | grep -qx "in_$s"; then
             printf 'add chain %s in_%s { type filter hook ingress device "%s" priority -300; }\n' "$table" "$s" "$d" >> "$batch"
