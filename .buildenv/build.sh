@@ -90,6 +90,22 @@ run_in_container() {
         "$IMAGE" "$@"
 }
 
+ensure_version_file() {
+    [ -s "$PROJ/version" ] && return 0
+
+    local rev=""
+    if git -C "$PROJ" rev-parse --git-dir >/dev/null 2>&1; then
+        local reboot="ee53a240ac902dc83209008a2671e7fdcf55957a"
+        local count hash
+        count="$(git -C "$PROJ" rev-list "${reboot}..HEAD" 2>/dev/null | wc -l | awk '{print $1}')"
+        hash="$(git -C "$PROJ" rev-parse --short HEAD 2>/dev/null || true)"
+        [ -n "$count" ] && [ -n "$hash" ] && rev="r${count}-${hash}"
+    fi
+    [ -n "$rev" ] || rev="r0-tarball"
+    printf '%s\n' "$rev" > "$PROJ/version"
+    echo "ok: seeded ./version ($rev)"
+}
+
 case "$cmd" in
     init)
         build_image
@@ -104,6 +120,7 @@ case "$cmd" in
         run_in_container bash -c './scripts/feeds update -a && ./scripts/feeds install -a && rm -rf package/feeds/iwrt_luci/luci-app-homeproxy package/feeds/iwrt_luci/luci-app-passwall package/feeds/iwrt_luci/luci-app-ipsec-vpnd'
         ;;
     config)
+        ensure_version_file
         # Idempotently merge the seed file into .config so additions
         # to .buildenv/zbt8803be.config are picked up on every run,
         # then expand with `make defconfig`. Lines in the seed
@@ -136,9 +153,11 @@ case "$cmd" in
         run_in_container bash -c 'make menuconfig'
         ;;
     download)
+        ensure_version_file
         run_in_container bash -c "make -j$(ncpu) download V=s"
         ;;
     build)
+        ensure_version_file
         if [ "$#" -eq 0 ]; then
             run_in_container make "-j$(ncpu)"
         else
