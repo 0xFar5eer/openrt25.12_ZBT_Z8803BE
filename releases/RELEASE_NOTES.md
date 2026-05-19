@@ -1,4 +1,4 @@
-# ZBT-Z8803BE OpenWrt main / kernel 6.18 release candidate
+# ZBT-Z8803BE OpenWrt main / kernel 6.18.31 release
 
 [English](RELEASE_NOTES.md) | [中文](RELEASE_NOTES.zh-CN.md)
 
@@ -6,13 +6,29 @@
 
 Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
-- **Release tag:** `v25.12.5-zbt8803be-main6.18`
-- **OpenWrt base:** current OpenWrt `main` / `r32860-f96b44fbd4`
-- **Kernel:** `6.18.28`
+- **Release tag:** `v25.12.6-zbt8803be-main6.18`
+- **OpenWrt base:** upstream `openwrt/openwrt` main HEAD `a7b5bb233f`
+- **Kernel:** `6.18.31`
+- **Build revision:** `r363-abb692387f`
 - **Target:** `mediatek/filogic`
 - **Default login:** `root` / `admin`
 
-## What's new
+## What's new in this release
+
+### Traffic accounting actually counts offloaded flows
+
+- **wrtbwmon moved from `inet fw4` forward dispatch to `netdev wrtbwmon_acct` ingress + egress hooks at priority -300.** The new hooks run before fw4's flowtable, so software flow offload no longer bypasses per-device accounting. The previous build undercounted by 10x+ on offloaded LAN clients; this build closes the gap.
+- **First-boot migration script `88-zbt-wrtbwmon-netdev-migrate` cleans up the legacy `inet fw4` chain set** and rewrites `NFT_TABLE` in the preserved `/etc/wrtbwmon.conf` so an upgrade from any older build wires itself to the new table automatically.
+- **`/etc/wrtbwmon/` (the SQLite DB dir) is now registered in `/lib/upgrade/keep.d/wrtbwmon`** so the per-device traffic history survives sysupgrade without manual `/etc/sysupgrade.conf` edits on each router.
+- **Three live-device bug fixes from the first reflash test** (see `fix(wrtbwmon): unbreak the netdev refactor on the live device` in the changelog): BusyBox `tr` does not parse `[:alnum:]` so chain names collided on `ap-mldN` devices, `sqlite_init` had inverted success/failure branches that left the init script permanently inactive, and the migration script now rewrites the preserved `NFT_TABLE` value before the new code touches nftables.
+
+### Rebased onto upstream `openwrt/openwrt` main
+
+- **Source rebased onto upstream OpenWrt main HEAD `a7b5bb233f`** (kernel 6.18.31), replacing the previous snapshot base.
+- **Replay tooling: `.buildenv/replay-customizations.sh`** now lifts the ZBT-Z8803BE patch set onto any upstream snapshot deterministically. It seeds `./version`, drops a per-tree Docker volume in `.buildenv/local.env`, and audits for drift on every run.
+- **Docker base pinned by manifest digest** in `.buildenv/Dockerfile` (`ubuntu:24.04@sha256:c4a8d5503dfb...`) so the build host does not silently follow Docker Hub re-tags.
+
+### Carried forward from v25.12.5
 
 ### USB tethering failover
 
@@ -43,27 +59,23 @@ Thanks to [Hauke Mehrtens](https://github.com/hauke) for the latest review on [o
 
 ## Validation status
 
-- `./.buildenv/build.sh config` completed and wrote `.config`.
-- Generated `.config` selects `CONFIG_TARGET_mediatek_filogic_DEVICE_zbtlink_zbt-z8803be=y`.
-- Generated `.config` selects `CONFIG_LINUX_6_18=y`.
-- Generated `.config` selects `CONFIG_PACKAGE_kmod-usb-net-ipheth=y`, `CONFIG_PACKAGE_usbmuxd=y`, `CONFIG_PACKAGE_libimobiledevice-utils=y`, and `CONFIG_PACKAGE_libusbmuxd-utils=y`.
-- Full rebuild completed and artifacts were extracted to `output/mediatek/filogic`.
-- Staged release assets passed `sha256sum -c sha256sums --ignore-missing`.
-- Final manifest includes `kmod-usb-net-ipheth`, `usbmuxd`, `libimobiledevice`, `libimobiledevice-utils`, and `libusbmuxd-utils`.
-- USB tethering scripts passed `sh -n` syntax checks before the rebuild.
-- Sysupgrade squashfs contains `86-zbt-adguardhome-defaults`, `84-zbt-luci-js-compat`, and the embedded AdGuardHome APKs under `/usr/share/zbt/apk/`.
-- Final manifest includes the custom app layer listed above, including MLO, QoSmate, autocore, cpufreq, wrtbwmon, and the ZBT LuCI apps.
-- Live LuCI compat3 behavior was verified on 3FL before rebuild; the rebuilt image content was verified locally before publishing.
+- `./.buildenv/build.sh config` completed and wrote `.config` (config + feeds buildinfos stamped).
+- Generated `.config` selects `CONFIG_TARGET_mediatek_filogic_DEVICE_zbtlink_zbt-z8803be=y`, `CONFIG_LINUX_6_18=y`, and `CONFIG_PACKAGE_kmod-nft-netdev=y`.
+- Full rebuild completed (`r363-abb692387f`) and artifacts were extracted to `output/mediatek/filogic`.
+- Staged release assets pass `sha256sum -c sha256sums --ignore-missing`.
+- Final manifest includes the custom app layer (luci-app-zbt-{about,health,modem-events,speedtest,temperature,wifi-clients}, luci-app-mlo, luci-app-wrtbwmon, qosmate + luci-app-qosmate, autocore, cpufreq, luci-theme-argon + luci-app-argon-config), plus the modem stack (qmodem + luci-app-qmodem-{monitor,next}, kmod-usb-serial-{option,qualcomm,wwan}) and the USB tethering stack (kmod-usb-net-ipheth, usbmuxd, libimobiledevice, libimobiledevice-utils, libusbmuxd-utils).
+- Sysupgrade squashfs contains the branded MOTD banner, the ImmortalWrt APK signing key, AdGuardHome + LuCI app APKs staged under `/usr/share/zbt/apk/`, all 26 ZBT uci-default scripts (incl. `88-zbt-wrtbwmon-netdev-migrate`), all hotplug glue, and the 12 `/usr/sbin/zbt-*` helpers.
+- Flash-tested on `3fl.lan`: after `sysupgrade` the netdev table `wrtbwmon_acct` came up with 22 ingress+egress chains across `ap-mld{0,1,2}`, `lan{0,1,2}`, and `phy0.{0,1}-apN`. Per-device counters were observed incrementing under live traffic and the preserved `traffic.db` (2.5M, 6 devices today) survived the reflash intact.
 
 ## Checksums
 
 ```text
-1841812800da9039cab6ca0bd827f2462951c00e367b23650efe6770ac4dd7dd *config.buildinfo
+5132da1cdd420bb0b3b0891406be2b830d0518435ff9dbfb767454176c9bda85 *config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e *feeds.buildinfo
-31719cefe6ce1dad70670a0f3613e2f85c96311bb180453db1fbc40dfba9342e *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-5253300b23ef2604d646a9982b448a0d2c41b02f320fd4a58c52e37525be719f *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-0a83381413f1c9ff287317b5edc8fb771861d22590f28090b4f615a7d8a1026d *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-08481bee00f9c0e2ad1019ee69589f92571e6129a86aaa6b93ce900e8939c3c1 *version.buildinfo
+73bd990b5d28d3b41c2a810614315e30e3dc1d67ad2df5f199639166603d6686 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+f8dff652e42cba5dcfd6dcc33ca5541c00ec6a81b44bdbe8383c928396d9c5d2 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+8dec48f3335c89261da766ebd3ac93b39f7bcd85ba8c6bee9b8b76b72cc94fac *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+05ac68fd62126cfe75fb4d8280382f7a5bec4cc1d6df5979b6d8a4b4c5d02d98 *version.buildinfo
 ```
 
 ## Assets
@@ -84,10 +96,17 @@ RELEASE_NOTES.zh-CN.md
 
 ## Flash plan
 
-After manual approval, flash without preserving settings:
+For an in-place upgrade that preserves UCI config and per-device traffic history:
+
+```sh
+scp openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin root@<router>:/tmp/
+ssh root@<router> 'sysupgrade -v /tmp/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin'
+```
+
+`/etc/wrtbwmon/` and `/etc/wrtbwmon.conf` are auto-preserved by `/lib/upgrade/keep.d/wrtbwmon` shipped with this build; older builds need `/etc/wrtbwmon` and `/etc/wifihistory` added to `/etc/sysupgrade.conf` before flashing.
+
+For a clean reset (no settings carried over):
 
 ```sh
 sysupgrade -n openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
 ```
-
-Then run setup and restore DB/history files if doing a clean reflash.

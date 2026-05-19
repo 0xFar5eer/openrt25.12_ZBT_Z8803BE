@@ -2,9 +2,10 @@
 
 Local staging folder for the current **ZBTLink ZBT-Z8803BE** firmware release candidate.
 
-- **Tag:** v25.12.5-zbt8803be-main6.18
-- **OpenWrt base:** current OpenWrt `main` / `r32860-f96b44fbd4`
-- **Kernel:** `6.18.28`
+- **Tag:** v25.12.6-zbt8803be-main6.18
+- **OpenWrt base:** upstream `openwrt/openwrt` main HEAD `a7b5bb233f`
+- **Kernel:** `6.18.31`
+- **Build revision:** `r363-abb692387f`
 - **Build output:** `output/mediatek/filogic`
 
 Firmware binaries are gitignored. Upload the final validated assets to GitHub Releases.
@@ -30,19 +31,19 @@ Do not upload `REDDIT_POST.md`.
 ## Current checksums
 
 ```text
-5253300b23ef2604d646a9982b448a0d2c41b02f320fd4a58c52e37525be719f  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-31719cefe6ce1dad70670a0f3613e2f85c96311bb180453db1fbc40dfba9342e  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-0a83381413f1c9ff287317b5edc8fb771861d22590f28090b4f615a7d8a1026d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-1841812800da9039cab6ca0bd827f2462951c00e367b23650efe6770ac4dd7dd  config.buildinfo
+f8dff652e42cba5dcfd6dcc33ca5541c00ec6a81b44bdbe8383c928396d9c5d2  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+73bd990b5d28d3b41c2a810614315e30e3dc1d67ad2df5f199639166603d6686  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+8dec48f3335c89261da766ebd3ac93b39f7bcd85ba8c6bee9b8b76b72cc94fac  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+5132da1cdd420bb0b3b0891406be2b830d0518435ff9dbfb767454176c9bda85  config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinfo
-08481bee00f9c0e2ad1019ee69589f92571e6129a86aaa6b93ce900e8939c3c1  version.buildinfo
+05ac68fd62126cfe75fb4d8280382f7a5bec4cc1d6df5979b6d8a4b4c5d02d98  version.buildinfo
 ```
 
 ## Publish
 
 ```sh
-TAG=v25.12.5-zbt8803be-main6.18
-TITLE="ZBT-Z8803BE OpenWrt main kernel 6.18 USB tethering release"
+TAG=v25.12.6-zbt8803be-main6.18
+TITLE="ZBT-Z8803BE OpenWrt main / kernel 6.18.31 - wrtbwmon netdev refactor"
 
 git tag -a "$TAG" -m "$TITLE"
 git push origin HEAD
