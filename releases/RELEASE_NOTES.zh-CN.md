@@ -6,14 +6,19 @@
 
 面向 **ZBTLink ZBT-Z8803BE** WiFi 7 路由器的自定义 OpenWrt 固件。
 
-- **发布标签:** `v25.12.6-zbt8803be-main6.18`
+- **发布标签:** `v25.12.7-zbt8803be-main6.18`
 - **OpenWrt 基线:** 上游 `openwrt/openwrt` main HEAD `a7b5bb233f`
 - **内核:** `6.18.31`
-- **构建版本号:** `r363-abb692387f`
+- **构建版本号:** `r364-8682ae2528`
 - **目标平台:** `mediatek/filogic`
 - **默认登录:** `root` / `admin`
 
 ## 本版变化
+
+### GitHub 源码包构建修复与 Aquantia SFP+ 支持
+
+- **GitHub source tarball 现在可以直接构建。** `.buildenv/build.sh` 会在 `config`、`download` 或 `build` 前检查并生成安全的 `./version`。这避免了 OpenWrt main/apk 在非 git worktree 环境中让 `scripts/getver.sh` 回退到 `unknown`，进而使 `base-files` 生成类似 `260516.34671 unknown` 的非法 APK version。
+- **默认内置 Aquantia/Marvell 10G PHY 支持。** 镜像现在选择 `kmod-phy-aquantia`，覆盖 AQR113C 以及同类 Aquantia PHY SFP+ 模块，适用于 ZBT-Z8803BE 的 SFP+ 笼。
 
 ### 流量统计现在能正确计入 offload 流量
 
@@ -60,22 +65,22 @@
 ## 验证状态
 
 - `./.buildenv/build.sh config` 已完成并写入 `.config`（config + feeds buildinfos 已生成）。
-- 生成的 `.config` 已选择 `CONFIG_TARGET_mediatek_filogic_DEVICE_zbtlink_zbt-z8803be=y`、`CONFIG_LINUX_6_18=y` 和 `CONFIG_PACKAGE_kmod-nft-netdev=y`。
-- 完整 rebuild 已完成（`r363-abb692387f`），产物已提取到 `output/mediatek/filogic`。
+- 生成的 `.config` 已选择 `CONFIG_TARGET_mediatek_filogic_DEVICE_zbtlink_zbt-z8803be=y`、`CONFIG_LINUX_6_18=y`、`CONFIG_PACKAGE_kmod-nft-netdev=y` 和 `CONFIG_PACKAGE_kmod-phy-aquantia=y`。
+- 完整 rebuild 已完成（`r364-8682ae2528`），产物已提取到 `output/mediatek/filogic`。
 - staged release assets 通过 `sha256sum -c sha256sums --ignore-missing`。
-- 最终 manifest 包含自定义应用层（luci-app-zbt-{about,health,modem-events,speedtest,temperature,wifi-clients}、luci-app-mlo、luci-app-wrtbwmon、qosmate + luci-app-qosmate、autocore、cpufreq、luci-theme-argon + luci-app-argon-config），modem 栈（qmodem + luci-app-qmodem-{monitor,next}、kmod-usb-serial-{option,qualcomm,wwan}），以及 USB tethering 栈（kmod-usb-net-ipheth、usbmuxd、libimobiledevice、libimobiledevice-utils、libusbmuxd-utils）。
+- 最终 manifest 包含 `kmod-phy-aquantia`、`kmod-nft-netdev`、自定义应用层（luci-app-zbt-{about,health,modem-events,speedtest,temperature,wifi-clients}、luci-app-mlo、luci-app-wrtbwmon、qosmate + luci-app-qosmate、autocore、cpufreq、luci-theme-argon + luci-app-argon-config），modem 栈（qmodem + luci-app-qmodem-{monitor,next}、kmod-usb-serial-{option,qualcomm,wwan}），以及 USB tethering 栈（kmod-usb-net-ipheth、usbmuxd、libimobiledevice、libimobiledevice-utils、libusbmuxd-utils）。
 - sysupgrade squashfs 包含品牌 MOTD banner、ImmortalWrt APK 签名 key、缓存在 `/usr/share/zbt/apk/` 下的 AdGuardHome + LuCI APK、全部 26 个 ZBT uci-defaults （包括 `88-zbt-wrtbwmon-netdev-migrate`）、全部 hotplug glue，以及 12 个 `/usr/sbin/zbt-*` helper。
-- 在 `3fl.lan` 上刷机验证：sysupgrade 后 netdev 表 `wrtbwmon_acct` 启动成功，`ap-mld{0,1,2}`、`lan{0,1,2}`、`phy0.{0,1}-apN` 共 22 个 ingress+egress chain 都在位；测试流量下计数器正常增长；保留下来的 `traffic.db`（2.5M、6 台当日记录）跨刷机完整保留。
+- netdev wrtbwmon 行为已在上一版构建中于 `3fl.lan` 刷机验证：sysupgrade 后 netdev 表 `wrtbwmon_acct` 启动成功，`ap-mld{0,1,2}`、`lan{0,1,2}`、`phy0.{0,1}-apN` 共 22 个 ingress+egress chain 都在位；测试流量下计数器正常增长；保留下来的 `traffic.db` 跨刷机完整保留。本次 v25.12.7 rebuild 已在本地验证 issue #4 相关变更：`./version` 自动生成与 manifest 中包含 `kmod-phy-aquantia`。
 
 ## 校验值
 
 ```text
-5132da1cdd420bb0b3b0891406be2b830d0518435ff9dbfb767454176c9bda85 *config.buildinfo
+4d913f988401ac01e6c989d1ae07b31b316a143cbdc625b8d6164da1444bf410 *config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e *feeds.buildinfo
-73bd990b5d28d3b41c2a810614315e30e3dc1d67ad2df5f199639166603d6686 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-f8dff652e42cba5dcfd6dcc33ca5541c00ec6a81b44bdbe8383c928396d9c5d2 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-8dec48f3335c89261da766ebd3ac93b39f7bcd85ba8c6bee9b8b76b72cc94fac *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-05ac68fd62126cfe75fb4d8280382f7a5bec4cc1d6df5979b6d8a4b4c5d02d98 *version.buildinfo
+df09cbf8c926e73eb15b43d057b2ae7b850b47aa15b7e5c365736d409211923b *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+71984653705e0a1af73a3fc74521bb1e76488f0991d7a478254aae5f40a17a4d *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+a58f638fcd670ba302e810501a6470544cab4f8f1b318595e7e26a2e2fde8a52 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+cf7f42d03a5adbb0b72b4444da0b8c467b360389639bb01c81442761212a7b32 *version.buildinfo
 ```
 
 ## 发布文件

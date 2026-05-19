@@ -6,14 +6,19 @@
 
 Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
-- **Release tag:** `v25.12.6-zbt8803be-main6.18`
+- **Release tag:** `v25.12.7-zbt8803be-main6.18`
 - **OpenWrt base:** upstream `openwrt/openwrt` main HEAD `a7b5bb233f`
 - **Kernel:** `6.18.31`
-- **Build revision:** `r363-abb692387f`
+- **Build revision:** `r364-8682ae2528`
 - **Target:** `mediatek/filogic`
 - **Default login:** `root` / `admin`
 
 ## What's new in this release
+
+### Build-from-source archive fix and Aquantia SFP+ support
+
+- **GitHub source tarballs now build cleanly.** `.buildenv/build.sh` seeds a safe `./version` before `config`, `download`, or `build` if the file is missing. This avoids the OpenWrt main/apk failure where `scripts/getver.sh` falls back to `unknown` outside a git worktree and `base-files` tries to package an invalid version such as `260516.34671 unknown`.
+- **Aquantia/Marvell 10G PHY support is included by default.** The image now selects `kmod-phy-aquantia`, covering AQR113C and related Aquantia PHY SFP+ modules commonly used with the ZBT-Z8803BE SFP+ cage.
 
 ### Traffic accounting actually counts offloaded flows
 
@@ -60,22 +65,22 @@ Thanks to [Hauke Mehrtens](https://github.com/hauke) for the latest review on [o
 ## Validation status
 
 - `./.buildenv/build.sh config` completed and wrote `.config` (config + feeds buildinfos stamped).
-- Generated `.config` selects `CONFIG_TARGET_mediatek_filogic_DEVICE_zbtlink_zbt-z8803be=y`, `CONFIG_LINUX_6_18=y`, and `CONFIG_PACKAGE_kmod-nft-netdev=y`.
-- Full rebuild completed (`r363-abb692387f`) and artifacts were extracted to `output/mediatek/filogic`.
+- Generated `.config` selects `CONFIG_TARGET_mediatek_filogic_DEVICE_zbtlink_zbt-z8803be=y`, `CONFIG_LINUX_6_18=y`, `CONFIG_PACKAGE_kmod-nft-netdev=y`, and `CONFIG_PACKAGE_kmod-phy-aquantia=y`.
+- Full rebuild completed (`r364-8682ae2528`) and artifacts were extracted to `output/mediatek/filogic`.
 - Staged release assets pass `sha256sum -c sha256sums --ignore-missing`.
-- Final manifest includes the custom app layer (luci-app-zbt-{about,health,modem-events,speedtest,temperature,wifi-clients}, luci-app-mlo, luci-app-wrtbwmon, qosmate + luci-app-qosmate, autocore, cpufreq, luci-theme-argon + luci-app-argon-config), plus the modem stack (qmodem + luci-app-qmodem-{monitor,next}, kmod-usb-serial-{option,qualcomm,wwan}) and the USB tethering stack (kmod-usb-net-ipheth, usbmuxd, libimobiledevice, libimobiledevice-utils, libusbmuxd-utils).
+- Final manifest includes `kmod-phy-aquantia`, `kmod-nft-netdev`, the custom app layer (luci-app-zbt-{about,health,modem-events,speedtest,temperature,wifi-clients}, luci-app-mlo, luci-app-wrtbwmon, qosmate + luci-app-qosmate, autocore, cpufreq, luci-theme-argon + luci-app-argon-config), plus the modem stack (qmodem + luci-app-qmodem-{monitor,next}, kmod-usb-serial-{option,qualcomm,wwan}) and the USB tethering stack (kmod-usb-net-ipheth, usbmuxd, libimobiledevice, libimobiledevice-utils, libusbmuxd-utils).
 - Sysupgrade squashfs contains the branded MOTD banner, the ImmortalWrt APK signing key, AdGuardHome + LuCI app APKs staged under `/usr/share/zbt/apk/`, all 26 ZBT uci-default scripts (incl. `88-zbt-wrtbwmon-netdev-migrate`), all hotplug glue, and the 12 `/usr/sbin/zbt-*` helpers.
-- Flash-tested on `3fl.lan`: after `sysupgrade` the netdev table `wrtbwmon_acct` came up with 22 ingress+egress chains across `ap-mld{0,1,2}`, `lan{0,1,2}`, and `phy0.{0,1}-apN`. Per-device counters were observed incrementing under live traffic and the preserved `traffic.db` (2.5M, 6 devices today) survived the reflash intact.
+- The netdev wrtbwmon behavior was flash-tested on `3fl.lan` in the immediately previous build: after `sysupgrade` the netdev table `wrtbwmon_acct` came up with 22 ingress+egress chains across `ap-mld{0,1,2}`, `lan{0,1,2}`, and `phy0.{0,1}-apN`; per-device counters incremented under live traffic and the preserved `traffic.db` survived the reflash intact. This v25.12.7 rebuild was locally verified for the issue #4 changes (`./version` seeding and manifest inclusion of `kmod-phy-aquantia`).
 
 ## Checksums
 
 ```text
-5132da1cdd420bb0b3b0891406be2b830d0518435ff9dbfb767454176c9bda85 *config.buildinfo
+4d913f988401ac01e6c989d1ae07b31b316a143cbdc625b8d6164da1444bf410 *config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e *feeds.buildinfo
-73bd990b5d28d3b41c2a810614315e30e3dc1d67ad2df5f199639166603d6686 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-f8dff652e42cba5dcfd6dcc33ca5541c00ec6a81b44bdbe8383c928396d9c5d2 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-8dec48f3335c89261da766ebd3ac93b39f7bcd85ba8c6bee9b8b76b72cc94fac *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-05ac68fd62126cfe75fb4d8280382f7a5bec4cc1d6df5979b6d8a4b4c5d02d98 *version.buildinfo
+df09cbf8c926e73eb15b43d057b2ae7b850b47aa15b7e5c365736d409211923b *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+71984653705e0a1af73a3fc74521bb1e76488f0991d7a478254aae5f40a17a4d *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+a58f638fcd670ba302e810501a6470544cab4f8f1b318595e7e26a2e2fde8a52 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+cf7f42d03a5adbb0b72b4444da0b8c467b360389639bb01c81442761212a7b32 *version.buildinfo
 ```
 
 ## Assets
