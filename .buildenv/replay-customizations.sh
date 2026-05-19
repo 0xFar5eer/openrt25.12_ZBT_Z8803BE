@@ -141,6 +141,28 @@ BLOCK
     echo "  appended Device/zbtlink_zbt-z8803be"
 fi
 
+echo '== seed a static ./version (getver.sh fallback) =='
+# OpenWrt's package/base-files Makefile derives PKG_VERSION from
+# scripts/getver.sh, which calls git inside the build container. When
+# the destination is a git worktree (with a .git *file* pointing at a
+# gitdir under the parent repo's .git/worktrees/), the container can't
+# resolve git because only the worktree path is mounted, not the main
+# repo's gitdir. Result: getver.sh prints "unknown" and apk mkpkg
+# rejects the version. Pre-computing ./version from the host side
+# (which still has full git visibility) makes getver.sh's try_version()
+# return immediately and skips the broken git path.
+REBOOT=ee53a240ac902dc83209008a2671e7fdcf55957a
+if [ -f "$DST/.git" ] || [ -d "$DST/.git" ]; then
+    REV=$(cd "$DST" && git rev-list "${REBOOT}..HEAD" 2>/dev/null | wc -l | tr -d ' ' || echo 0)
+    HASH=$(cd "$DST" && git log -n1 --format=%h HEAD 2>/dev/null || echo unknown)
+    if [ "$REV" != "0" ] && [ "$HASH" != "unknown" ]; then
+        echo "r${REV}-${HASH}" > "$DST/version"
+        echo "  wrote $DST/version: r${REV}-${HASH}"
+    else
+        echo "  skip: could not compute REV/HASH from $DST"
+    fi
+fi
+
 echo '== seed a per-destination Docker volume name =='
 # build.sh now respects the VOL/IMAGE env vars; we drop a small env file
 # in the destination so the user can `set -a; source .buildenv/local.env;
