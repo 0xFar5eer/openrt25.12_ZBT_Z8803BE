@@ -18,8 +18,21 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJ="$(dirname "$HERE")"
-IMAGE="openwrt-zbt8803be:ubuntu-24.04"
-VOL="openwrt-zbt8803be-buildvol"
+
+# A replay'd worktree (.buildenv/replay-customizations.sh seeds this)
+# may drop a per-tree env file with a different VOL. Source it first so
+# user env still wins.
+[ -f "$HERE/local.env" ] && . "$HERE/local.env"
+
+# Image and Docker volume names. Both can be overridden via env so a
+# replay'd checkout (e.g. the zbt8803be-upstream-latest worktree) can
+# point at its own build state without touching this file:
+#   IMAGE=openwrt-zbt8803be:ubuntu-24.04 \
+#   VOL=openwrt-zbt8803be-upstream-buildvol \
+#       ./.buildenv/build.sh build
+# The defaults match the original snapshot tree.
+IMAGE="${IMAGE:-openwrt-zbt8803be:ubuntu-24.04}"
+VOL="${VOL:-openwrt-zbt8803be-buildvol}"
 CONTAINER_SRC="/workdir"
 VOL_MOUNT="/volume"
 

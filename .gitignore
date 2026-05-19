@@ -59,3 +59,4 @@ git-src
 
 # Private deployment-specific notes kept locally only.
 docs/multi-ap-roaming.md
+/.buildenv/local.env
