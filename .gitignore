@@ -20,6 +20,7 @@
 /.buildenv/out/
 tmp.config
 tmp.config.old
+/version
 /version.date
 
 # Firmware release staging - only track README + .gitkeep, never binaries.
