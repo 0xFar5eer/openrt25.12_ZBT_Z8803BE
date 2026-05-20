@@ -14,7 +14,6 @@
 
 - **添加 `install` 工具。** 固件现在包含 `coreutils-install` 包，提供标准 POSIX `install` 命令，便于文件安装和 setup 脚本。
 - **简化 WiFi Clients MLD 显示。** WiFi Clients LuCI 页面现在只显示 MLD-capable 标签、链接数和活动频段。MLD 列中移除了冗余的 6 GHz 信号和 TX 速率信息，界面更简洁。
-- **在 setup 脚本中添加 usteer 配置。** 主路由器 setup (`013-wifi.sh`) 和 AP bootstrap (`ap-bootstrap.sh`) 现在都明确配置并启用 usteer，使用保守设置在主 SSID 上实现漫游和频段引导。
 
 ## 验证
 

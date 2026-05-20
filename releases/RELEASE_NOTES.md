@@ -14,7 +14,6 @@ Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
 - **Added `install` utility from coreutils.** The `coreutils-install` package is now included in the firmware, providing the standard POSIX `install` command for easier file installation and setup scripting.
 - **Simplified WiFi Clients MLD display.** The WiFi Clients LuCI page now shows only the MLD-capable label, link count, and active bands. Redundant 6 GHz signal and TX rate information has been removed from the MLD column for a cleaner UI.
-- **Added usteer configuration to setup scripts.** Both the main router setup (`013-wifi.sh`) and AP bootstrap (`ap-bootstrap.sh`) now explicitly configure and enable usteer with conservative settings for roaming and band steering across the main SSID.
 
 ## Validation
 
