@@ -44,23 +44,13 @@ Pending rebuild. Refresh this section from `releases/sha256sums` after `./.build
 - **Modem stack:** QMI, MBIM, NCM, MHI, USB serial, QModem, `sms_tool_q`.
 - **Z8803BE-T SIM wiring note:** on this exact model/variant, SIM1 is wired to modem1 and SIM2 is wired to modem2; one module cannot control both SIM cards, so SIM switching is not supported.
 - **Public WAN-only defaults:** wired WAN is primary, modem rails default off, cellular is dormant with metric `200` and no default route, QoSmate is disabled by default, and firewall flow offload is enabled.
-- **No built-in crash-forensics package:** detailed reboot/crash investigation tooling is intentionally installed only by private setup scripts after flashing.
 - **Storage:** USB 3.0, ext4, vfat, exfat, ntfs3, Samba 4, SFTP.
 - **Monitoring:** router health, autocore, cpufreq, collectd/statistics, WiFi clients/history, temperature history, and modem event history.
 - **Shell defaults:** banner, color prompt, useful aliases/tools, `git`, `git-http`, and a BusyBox-compatible `install` shim.
 - **Package feeds:** OpenWrt + ImmortalWrt overlay feeds configured for APK.
 
-## Private setup-only crash forensics
-
-The public firmware image is kept generalized for normal users. It does **not** include `zbt-crash-forensics` or enable scheduled reboot tooling.
-
-For private investigation on a flashed router, use the setup repository phase:
-
-```sh
-/Users/numwan/Documents/Remix/bitbucket/wrt/setup/015-crash-forensics.sh root@3fl.lan
-```
-
-That phase installs the enhanced flight recorder, per-minute snapshots, reboot context archives, and `/etc/sysupgrade.conf` keep entries on the target router.
+## Images
+tall
 
 ## Install
 

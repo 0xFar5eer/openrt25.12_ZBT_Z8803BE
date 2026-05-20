@@ -44,23 +44,10 @@
 - **调制解调器栈:** QMI、MBIM、NCM、MHI、USB serial、QModem、`sms_tool_q`。
 - **Z8803BE-T SIM 接线说明:** 此精确型号/版本中，SIM1 固定连接 modem1，SIM2 固定连接 modem2；单个模块不能控制两张 SIM 卡，因此不支持 SIM 切换。
 - **公开固件 WAN-only 默认值:** 有线 WAN 优先，modem 电源默认关闭，cellular 默认休眠并使用 metric `200` 且不作为默认路由，QoSmate 默认关闭，防火墙 flow offload 默认开启。
-- **不内置 crash-forensics 包:** 详细重启/崩溃调查工具只通过私有 setup 脚本在刷机后安装。
 - **存储:** USB 3.0、ext4、vfat、exfat、ntfs3、Samba 4、SFTP。
 - **监控:** 路由器健康状态、autocore、cpufreq、collectd/statistics、WiFi 客户端/历史、温度历史和 modem 事件历史。
 - **Shell 默认项:** banner、彩色提示符、常用别名和工具，包含 `git`、`git-http` 以及 BusyBox 兼容的 `install` shim。
 - **软件源:** 已配置 OpenWrt + ImmortalWrt overlay APK 源。
-
-## 私有 setup-only crash forensics
-
-公开固件镜像保持通用化，适合普通用户。镜像中**不**包含 `zbt-crash-forensics`，也不启用定时重启工具。
-
-如果需要在已刷机路由器上做私有 crash 调查，请运行 setup 仓库阶段：
-
-```sh
-/Users/numwan/Documents/Remix/bitbucket/wrt/setup/015-crash-forensics.sh root@3fl.lan
-```
-
-该阶段会在目标路由器上安装增强版 flight recorder、每分钟 snapshot、重启上下文归档，以及 `/etc/sysupgrade.conf` 保留项。
 
 ## 安装
 

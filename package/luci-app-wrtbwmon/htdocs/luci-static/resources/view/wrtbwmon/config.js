@@ -26,7 +26,7 @@ return view.extend({
 	render: function() {
 		var m, s, o;
 
-		m = new form.Map('wrtbwmon', _('Traffic Statistics - Setup'), _('For best per-device tracking, assign static DHCP leases for known devices so each device keeps the same IP/MAC identity. Also disable private or rotating MAC addresses on Samsung, Apple, and similar clients when you want long-term history to stay grouped correctly.'));
+		m = new form.Map('wrtbwmon', _('Traffic Statistics - Setup'), _('Traffic monitoring is disabled by default because per-client nftables accounting may reduce Internet or LAN throughput on some routers. Enable it temporarily when you need to find which client is over-consuming traffic, globally or by domain, then disable it again when finished. For best per-device tracking, assign static DHCP leases for known devices so each device keeps the same IP/MAC identity. Also disable private or rotating MAC addresses on Samsung, Apple, and similar clients when you want history to stay grouped correctly.'));
 
 		s = m.section(form.NamedSection, 'general', 'general', _('General settings'));
 		s.addremove = false;
