@@ -103,12 +103,8 @@ def mld_detail(client: dict) -> str:
     except (TypeError, ValueError):
         link_count = len(links)
     label = "MLD" if link_count >= 2 else "MLD-capable"
-    mode = "multi-link" if link_count >= 2 else "single active link"
-    s6g = client.get("mld_signal_6g", "")
-    extra = f'<br><small class="muted">6 GHz: {esc(s6g)} dBm</small>' if s6g else ""
-    r6g_tx = client.get("mld_tx_rate_6g")
-    tx_extra = f'<br><small class="muted">6 GHz TX: {esc(r6g_tx)}</small>' if r6g_tx else ""
-    return f'<strong style="color:#6a1b9a">{esc(label)}</strong><br><small class="muted">{esc(links_text)}</small><br><small class="muted">{esc(mode)}</small>{extra}{tx_extra}'
+    count_text = f'{link_count} link' if link_count == 1 else f'{link_count} links'
+    return f'<strong style="color:#6a1b9a">{esc(label)}</strong><br><small class="muted">{esc(count_text)}: {esc(links_text)}</small>'
 
 
 def signal_bar(signal_str) -> str:
