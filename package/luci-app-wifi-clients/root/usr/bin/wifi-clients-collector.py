@@ -845,11 +845,16 @@ def get_router_clients(router: dict) -> dict:
             mac_to_mld_ifaces.setdefault(mac, []).append(iface)
 
     mld_macs = {m for m, ifs in mac_to_mld_ifaces.items() if len(ifs) >= 2}
+    eht_ap_mld_macs = {
+        m for m in mac_to_mld_ifaces
+        if (iw_details.get(m, {}) or {}).get("mcs_family") == "EHT"
+    }
+    mld_candidate_macs = mld_macs | eht_ap_mld_macs
 
     # Prefer the 6 GHz (ap-mld2) entry for MLD clients — shows highest-band
     # signal/rate as primary in UI. If unavailable, use the highest-band iface.
     def pick_primary_iface(mac: str) -> str | None:
-        if mac in mld_macs:
+        if mac in mld_candidate_macs:
             # Prefer 6G > 5G > 2.4G for MLD clients
             order_pref = ["6 GHz", "5 GHz", "2.4 GHz"]
             by_band = {}
@@ -877,7 +882,7 @@ def get_router_clients(router: dict) -> dict:
         for mac in macs:
             all_macs.append(mac)
     # dedup + mld-first ordering
-    mld_first = sorted(set(all_macs), key=lambda m: (m not in mld_macs, m))
+    mld_first = sorted(set(all_macs), key=lambda m: (m not in mld_candidate_macs, m))
 
     for mac in mld_first:
         if mac in seen:
@@ -890,7 +895,14 @@ def get_router_clients(router: dict) -> dict:
         cinfo = iface_cli[primary_iface].get(mac, {})
         info  = iface_info.get(primary_iface, {"ssid": "", "band": "unknown", "freq": 0})
         band  = info["band"]
-        is_mld = mac in mld_macs
+        is_mld = mac in mld_candidate_macs
+        mld_ifaces = mac_to_mld_ifaces.get(mac, []) if is_mld else []
+        mld_links = []
+        for i in mld_ifaces:
+            link_band = iface_info.get(i, {}).get("band", "unknown")
+            if link_band != "unknown" and link_band not in mld_links:
+                mld_links.append(link_band)
+        mld_links.sort(key=lambda b: {"2.4 GHz": 0, "5 GHz": 1, "6 GHz": 2}.get(b, 99))
 
         # Rates from ubus come as bps integers. Signal is dBm.
         rx_bps = raw_bps(cinfo, "rx")
@@ -900,7 +912,7 @@ def get_router_clients(router: dict) -> dict:
         # 6G link details for MLD (ap-mld2 if present)
         mld_6g_info = None
         if is_mld:
-            for i in mac_to_mld_ifaces.get(mac, []):
+            for i in mld_ifaces:
                 if iface_info.get(i, {}).get("band") == "6 GHz":
                     mld_6g_info = iface_cli.get(i, {}).get(mac)
                     break
@@ -913,7 +925,7 @@ def get_router_clients(router: dict) -> dict:
             mld_sig_6g = mld_6g_info.get("signal")
 
         if is_mld:
-            for i in mac_to_mld_ifaces.get(mac, []):
+            for i in mld_ifaces:
                 link_info = iface_cli.get(i, {}).get(mac, {}) or {}
                 rx_bps = max(rx_bps, raw_bps(link_info, "rx"))
                 tx_bps = max(tx_bps, raw_bps(link_info, "tx"))
@@ -937,6 +949,8 @@ def get_router_clients(router: dict) -> dict:
             "connected_time":  format_connected_time(ct_secs),
             "connected_secs":  ct_secs,
             "is_mld":          is_mld,
+            "mld_links":       mld_links,
+            "mld_link_count":  len(mld_ifaces),
             "mld_rx_rate_6g":  mld_rx_6g,
             "mld_tx_rate_6g":  mld_tx_6g,
             "mld_signal_6g":   str(mld_sig_6g) if mld_sig_6g is not None else None,

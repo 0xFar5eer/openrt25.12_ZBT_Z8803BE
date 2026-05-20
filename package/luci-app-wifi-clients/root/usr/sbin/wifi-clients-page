@@ -96,10 +96,19 @@ def wifi_gen_badge(gen: str) -> str:
 def mld_detail(client: dict) -> str:
     if not client.get("is_mld"):
         return '<span class="muted">-</span>'
+    links = client.get("mld_links") or []
+    links_text = " + ".join(str(link) for link in links if link) or client.get("band") or "active link"
+    try:
+        link_count = int(client.get("mld_link_count") or len(links) or 0)
+    except (TypeError, ValueError):
+        link_count = len(links)
+    label = "MLD" if link_count >= 2 else "MLD-capable"
+    mode = "multi-link" if link_count >= 2 else "single active link"
     s6g = client.get("mld_signal_6g", "")
-    r6g_tx = client.get("mld_tx_rate_6g") or "-"
     extra = f'<br><small class="muted">6 GHz: {esc(s6g)} dBm</small>' if s6g else ""
-    return f'<strong style="color:#6a1b9a">MLD</strong><br><small class="muted">5 GHz + 6 GHz</small>{extra}<br><small class="muted">6 GHz TX: {esc(r6g_tx)}</small>'
+    r6g_tx = client.get("mld_tx_rate_6g")
+    tx_extra = f'<br><small class="muted">6 GHz TX: {esc(r6g_tx)}</small>' if r6g_tx else ""
+    return f'<strong style="color:#6a1b9a">{esc(label)}</strong><br><small class="muted">{esc(links_text)}</small><br><small class="muted">{esc(mode)}</small>{extra}{tx_extra}'
 
 
 def signal_bar(signal_str) -> str:
