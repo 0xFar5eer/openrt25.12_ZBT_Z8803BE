@@ -1,0 +1,9 @@
+src-git packages https://git.openwrt.org/feed/packages.git^db3b315119519f9194dad8aa668aa40618df9b20
+src-git luci https://git.openwrt.org/project/luci.git^a611522a2bfc24ca2625e8cd2fcc9404288532a6
+src-git routing https://git.openwrt.org/feed/routing.git^b2097c85bef85251364f59a6b2a3ed1f9f5c0c21
+src-git telephony https://git.openwrt.org/feed/telephony.git^2618106d5846a4a542fdf5809f0d3ed228ce439b
+src-git video https://github.com/openwrt/video.git^d25cad605d8ce9ff536d85bdda2ad7eb2b83f883
+src-git iwrt_packages https://github.com/immortalwrt/packages.git^48f0da39a06cadc8b6b1a3d94702f5812c7c0621
+src-git iwrt_luci https://github.com/immortalwrt/luci.git^2a84422e7c999d038b36b9555ba5a3abc4adaa4b
+src-git qmodem https://github.com/FUjr/QModem.git^a8b8a63e5b0853c79d2ad3f1ebbb673a724872bf
+src-git ytub https://github.com/Waujito/youtubeUnblock.git^2838f00c958d8756e1ec51bed4d602416cafae8d

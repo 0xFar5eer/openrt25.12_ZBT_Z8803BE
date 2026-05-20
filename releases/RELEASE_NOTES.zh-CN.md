@@ -1,12 +1,12 @@
-# ZBT-Z8803BE OpenWrt main / kernel 6.18.28 正式版
+# ZBT-Z8803BE OpenWrt main / kernel 6.18.32 正式版
 
 [English](RELEASE_NOTES.md) | [中文](RELEASE_NOTES.zh-CN.md)
 
 面向 **ZBTLink ZBT-Z8803BE** WiFi 7 路由器的自定义 OpenWrt 固件。
 
 - **发布标签:** `v25.12.9-zbt8803be-main6.18`
-- **内核:** `6.18.28`
-- **构建版本号:** `r32875-30cfe28ac8`
+- **内核:** `6.18.32`
+- **构建版本号:** `r32875-81ca4b3ca4`
 - **目标平台:** `mediatek/filogic`
 - **默认登录:** `root` / `admin`
 
@@ -17,15 +17,15 @@
 
 ## 验证
 
-- 完整 Docker rebuild 已完成：`r32875-30cfe28ac8`；包含 usteer、coreutils-install 和简化的 WiFi Clients UI。
+- 完整 Docker rebuild 已完成：`r32875-81ca4b3ca4`；内核升级至 6.18.32，包含 coreutils-install 和简化的 WiFi Clients UI。
 - staged release assets 通过 `sha256sum -c sha256sums --ignore-missing`。
 - manifest 确认包含 `coreutils-install`、`usteer` 和 `luci-app-usteer`。
 - manifest 包含：
 
 ```text
-kernel - 6.18.28~1d3ce6949449162367278daa4d610965-r1
-kmod-nft-netdev - 6.18.28-r1
-kmod-phy-aquantia - 6.18.28-r1
+kernel - 6.18.32~1d3ce6949449162367278daa4d610965-r1
+kmod-nft-netdev - 6.18.32-r1
+kmod-phy-aquantia - 6.18.32-r1
 coreutils-install - 9.9-r2
 usteer - 2025.10.04~1d6524c6-r1
 luci-app-usteer - 26.120.35050~a611522
@@ -38,8 +38,8 @@ luci-app-wrtbwmon - 2.0.13-r1
 ```text
 3c125a4565c4643d3802dd31692119cc3173dc4983da4a894ea83cc10916907b *config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e *feeds.buildinfo
-b166db87d158f1d7fe939dffe50796d893f52dd24969d1acc627f32154d00446 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-fbe2fbb8eabcd54bc5e94ecf7869a75be87b960761bdeff782695d7223ca81a2 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+0b49dedd2490c63bfdfc9936ae44ed33377a4d8ad3e161d25e324690c9427382 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+7f3364eb9a34417ad26795c6759365011347facd79bc8b2712cc0a4a7e949caf *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
 c3c45aae9ff40ec861df9bcad0b3e65111fa372fe93301b32eccb1a6e4e80ee9 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 2a9c14559ba2743187a21e3e521b08b1f0b95e3773df0aeae6404892b25b0023 *version.buildinfo
 ```
