@@ -152,7 +152,7 @@
 	fan: pwm-fan {
 		compatible = "pwm-fan";
 		#cooling-cells = <2>;
-		cooling-levels = <0 80 112 144 176 216 255>;
+		cooling-levels = <0 60 80 112 144 176 216 255>;
 		pwms = <&pwm 0 10000 0>;
 		status = "okay";
 	};
@@ -578,25 +578,50 @@
 		};
 
 		cpu_trip_active_max: active-max {
-			temperature = <85000>;
+			/* level 7: PWM 255 = 100% */
+			temperature = <80000>;
+			hysteresis = <2000>;
+			type = "active";
+		};
+
+		cpu_trip_active_high2: active-high2 {
+			/* level 6: PWM 216 = 85% */
+			temperature = <76000>;
 			hysteresis = <2000>;
 			type = "active";
 		};
 
 		cpu_trip_active_high: active-high {
-			temperature = <75000>;
+			/* level 5: PWM 176 = 69% */
+			temperature = <72000>;
+			hysteresis = <2000>;
+			type = "active";
+		};
+
+		cpu_trip_active_mid: active-mid {
+			/* level 4: PWM 144 = 56% */
+			temperature = <66000>;
 			hysteresis = <2000>;
 			type = "active";
 		};
 
 		cpu_trip_active_low: active-low {
-			temperature = <55000>;
+			/* level 3: PWM 112 = 44% */
+			temperature = <60000>;
 			hysteresis = <2000>;
 			type = "active";
 		};
 
 		cpu_trip_active_silent: active-silent {
-			temperature = <45000>;
+			/* level 2: PWM 80 = 31% */
+			temperature = <42000>;
+			hysteresis = <2000>;
+			type = "active";
+		};
+
+		cpu_trip_active_whisper: active-whisper {
+			/* level 1: PWM 60 = 24% */
+			temperature = <36000>;
 			hysteresis = <2000>;
 			type = "active";
 		};
@@ -604,26 +629,45 @@
 
 	cooling-maps {
 		cpu-active-max {
-			cooling-device = <&fan 6 6>;
+			/* level 7: PWM 255 = 100% at 80°C */
+			cooling-device = <&fan 7 7>;
 			trip = <&cpu_trip_active_max>;
 		};
 
+		cpu-active-high2 {
+			/* level 6: PWM 216 = 85% at 76°C */
+			cooling-device = <&fan 6 6>;
+			trip = <&cpu_trip_active_high2>;
+		};
+
 		cpu-active-high {
-			/* active: set fan to cooling level 3 */
-			cooling-device = <&fan 3 3>;
+			/* level 5: PWM 176 = 69% at 72°C */
+			cooling-device = <&fan 5 5>;
 			trip = <&cpu_trip_active_high>;
 		};
 
+		cpu-active-mid {
+			/* level 4: PWM 144 = 56% at 66°C */
+			cooling-device = <&fan 4 4>;
+			trip = <&cpu_trip_active_mid>;
+		};
+
 		cpu-active-low {
-			/* active: set fan to cooling level 1 */
-			cooling-device = <&fan 1 1>;
+			/* level 3: PWM 112 = 44% at 60°C */
+			cooling-device = <&fan 3 3>;
 			trip = <&cpu_trip_active_low>;
 		};
 
 		cpu-active-silent {
-			/* active: set fan to cooling level 0 */
-			cooling-device = <&fan 0 0>;
+			/* level 2: PWM 80 = 31% at 42°C */
+			cooling-device = <&fan 2 2>;
 			trip = <&cpu_trip_active_silent>;
+		};
+
+		cpu-active-whisper {
+			/* level 1: PWM 60 = 24% at 36°C */
+			cooling-device = <&fan 1 1>;
+			trip = <&cpu_trip_active_whisper>;
 		};
 	};
 };
