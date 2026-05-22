@@ -56,6 +56,10 @@
 			}
 		}
 	},
+	"admin/services/mwan3": {
+		"order": 45,
+		"title": "Multi-WAN"
+	},
 	"admin/services/qosmate": {
 		"order": 51,
 		"title": "QoSmate"
