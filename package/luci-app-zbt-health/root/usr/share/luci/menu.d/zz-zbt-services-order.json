@@ -57,8 +57,56 @@
 		}
 	},
 	"admin/services/mwan3": {
+		"title": "Multi-WAN",
 		"order": 45,
-		"title": "Multi-WAN"
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-mwan3" ]
+		}
+	},
+	"admin/services/mwan3/globals": {
+		"title": "Globals",
+		"order": 10,
+		"action": { "type": "view", "path": "mwan3/network/globals" },
+		"depends": { "acl": [ "luci-app-mwan3" ] }
+	},
+	"admin/services/mwan3/interface": {
+		"title": "Interface",
+		"order": 20,
+		"action": { "type": "view", "path": "mwan3/network/interface" },
+		"depends": { "acl": [ "luci-app-mwan3" ] }
+	},
+	"admin/services/mwan3/member": {
+		"title": "Member",
+		"order": 30,
+		"action": { "type": "view", "path": "mwan3/network/member" },
+		"depends": { "acl": [ "luci-app-mwan3" ] }
+	},
+	"admin/services/mwan3/policy": {
+		"title": "Policy",
+		"order": 40,
+		"action": { "type": "view", "path": "mwan3/network/policy" },
+		"depends": { "acl": [ "luci-app-mwan3" ] }
+	},
+	"admin/services/mwan3/rule": {
+		"title": "Rule",
+		"order": 50,
+		"action": { "type": "view", "path": "mwan3/network/rule" },
+		"depends": { "acl": [ "luci-app-mwan3" ] }
+	},
+	"admin/services/mwan3/overview": {
+		"title": "Overview",
+		"order": 60,
+		"action": { "type": "view", "path": "mwan3/status/overview" },
+		"depends": { "acl": [ "luci-app-mwan3-status" ] }
+	},
+	"admin/network/mwan3": {
+		"depends": { "fs": { "/__zbt_hidden_network_mwan3": "file" } }
+	},
+	"admin/status/mwan3": {
+		"depends": { "fs": { "/__zbt_hidden_status_mwan3": "file" } }
 	},
 	"admin/services/qosmate": {
 		"order": 51,
