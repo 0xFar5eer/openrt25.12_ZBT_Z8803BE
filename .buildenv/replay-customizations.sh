@@ -117,11 +117,7 @@ if [ ! -f "$FILOGIC" ]; then
     echo "ERR: $FILOGIC not found"
     exit 1
 fi
-if grep -q 'zbtlink_zbt-z8803be' "$FILOGIC"; then
-    echo "  device entry already present"
-else
-    cat >> "$FILOGIC" <<'BLOCK'
-
+CUSTOM_DEVICE_BLOCK=$(cat <<'BLOCK'
 define Device/zbtlink_zbt-z8803be
   DEVICE_VENDOR := Zbtlink
   DEVICE_MODEL := ZBT-Z8803BE
@@ -139,6 +135,27 @@ define Device/zbtlink_zbt-z8803be
 endef
 TARGET_DEVICES += zbtlink_zbt-z8803be
 BLOCK
+)
+if grep -q '^define Device/zbtlink_zbt-z8803be$' "$FILOGIC"; then
+    python3 - "$FILOGIC" "$CUSTOM_DEVICE_BLOCK" <<'PY'
+import sys
+
+path, block = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as fh:
+    text = fh.read()
+
+start = text.index("define Device/zbtlink_zbt-z8803be\n")
+target = "TARGET_DEVICES += zbtlink_zbt-z8803be"
+end = text.index(target, start) + len(target)
+if end < len(text) and text[end:end + 1] == "\n":
+    end += 1
+
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(text[:start] + block + "\n" + text[end:])
+PY
+    echo "  replaced Device/zbtlink_zbt-z8803be"
+else
+    printf '\n%s\n' "$CUSTOM_DEVICE_BLOCK" >> "$FILOGIC"
     echo "  appended Device/zbtlink_zbt-z8803be"
 fi
 
