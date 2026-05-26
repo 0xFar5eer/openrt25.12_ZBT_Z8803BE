@@ -4,44 +4,61 @@
 
 面向 **ZBTLink ZBT-Z8803BE** WiFi 7 路由器的自定义 OpenWrt 固件。
 
-- **发布标签:** `v25.12.9-zbt8803be-main6.18`
+- **发布标签:** `v25.12.11-zbt8803be-main6.18`
 - **内核:** `6.18.32`
-- **构建版本号:** `r32875-81ca4b3ca4`
+- **构建版本号:** `r32886-ff65d053dc`
 - **目标平台:** `mediatek/filogic`
 - **默认登录:** `root` / `admin`
 
-## 相比 v25.12.8 的变化
+## 相比 v25.12.10 的变化
 
-- **添加 `install` 工具。** 固件现在包含 `coreutils-install` 包，提供标准 POSIX `install` 命令，便于文件安装和 setup 脚本。
-- **简化 WiFi Clients MLD 显示。** WiFi Clients LuCI 页面现在只显示 MLD-capable 标签、链接数和活动频段。MLD 列中移除了冗余的 6 GHz 信号和 TX 速率信息，界面更简洁。
+- **新增 TUN/TAP 支持，适配用户态 VPN/代理工具。** 固件现在包含 `kmod-tun`，提供 `/dev/net/tun`，可供 sing-box、xray-core、OpenVPN、wireguard-go、podkop 等工具使用。本项对应 GitHub issue #5。
+- **新增 SFP/光模块诊断工具，方便 ONU-in-SFP 棒调试。** 固件现在包含 `i2c-tools`、`i2csfp`、`mdio-tools`、`mii-tool`，并继续保留已有的 `kmod-sfp`、`kmod-phy-aquantia`、`ethtool`、`ip-full` 支持。适用于带内部 PON MAC/OMCI 逻辑、支持 SFF-8472 DDM 的 SC/UPC 或 SC/APC GPON/EPON ONU SFP 光模块。
+
+## PON SFP 用户说明
+
+本版本支持的是路由器侧能力：SFP cage 检测、以太网链路/PHY 支持、模块 EEPROM/DDM 读取、MDIO/I2C 诊断。它**不会**把路由器变成 PON OLT，也不会在软件里实现 EPON/GPON MAC；SFP 棒本身必须内置 ONU/PON 功能。
+
+插入兼容光模块后可使用：
+
+```sh
+ethtool <sfp-netdev>
+ethtool -m <sfp-netdev>
+i2cdetect -l
+i2csfp -h
+mdio --help
+```
 
 ## 验证
 
-- 完整 Docker rebuild 已完成：`r32875-81ca4b3ca4`；内核升级至 6.18.32，包含 coreutils-install 和简化的 WiFi Clients UI。
+- 完整 Docker rebuild 已完成：`r32886-ff65d053dc`，内核 6.18.32。
 - staged release assets 通过 `sha256sum -c sha256sums --ignore-missing`。
-- manifest 确认包含 `coreutils-install`、`usteer` 和 `luci-app-usteer`。
+- manifest 确认包含 `kmod-tun`、`i2c-tools`、`i2csfp`、`mdio-tools`、`mii-tool`、`kmod-mdio-netlink`、`kmod-sfp`、`kmod-phy-aquantia`。
 - manifest 包含：
 
 ```text
-kernel - 6.18.32~1d3ce6949449162367278daa4d610965-r1
-kmod-nft-netdev - 6.18.32-r1
+kernel - 6.18.32~c855ebc1035e17e215441b25f3daa05d-r1
+kmod-tun - 6.18.32-r1
+i2c-tools - 4.4-r2
+i2csfp - 2025.08.05~1b9b4e0f-r1
+mdio-tools - 1.3.1-r3
+mii-tool - 2.10-r2
+kmod-mdio-netlink - 6.18.32.1.3.1-r2
+kmod-sfp - 6.18.32-r1
 kmod-phy-aquantia - 6.18.32-r1
-coreutils-install - 9.9-r2
-usteer - 2025.10.04~1d6524c6-r1
-luci-app-usteer - 26.120.35050~a611522
-wrtbwmon - 0.36-r1
-luci-app-wrtbwmon - 2.0.13-r1
+ethtool - 6.19-r2
+ip-full - 6.18.0-r2
 ```
 
 ## 校验值
 
 ```text
-3c125a4565c4643d3802dd31692119cc3173dc4983da4a894ea83cc10916907b *config.buildinfo
+73ebcffff91ae63a33da0d7c5a7c8b169ac8d9c830cdebc6b018568cd3ad7a0e *config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e *feeds.buildinfo
-0b49dedd2490c63bfdfc9936ae44ed33377a4d8ad3e161d25e324690c9427382 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-7f3364eb9a34417ad26795c6759365011347facd79bc8b2712cc0a4a7e949caf *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-c3c45aae9ff40ec861df9bcad0b3e65111fa372fe93301b32eccb1a6e4e80ee9 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-2a9c14559ba2743187a21e3e521b08b1f0b95e3773df0aeae6404892b25b0023 *version.buildinfo
+8b8af9f7b299c7f6dd1113b8109c56c6e8d9f380a13fe4771ae266c988eb5cf0 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+1d6bc473063f8236863a8a0af1f5d21bd7f8fc11c201950007b8b0c1260d5b5e *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+513bfbbbd1fec05ad6e01e4fb8da09dd203cbd9198929de35f559568f17dfd64 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+7f8cbc1b05c24c513befc47edf65599242bdb01353ab87dd8e1eaf4a396688c6 *version.buildinfo
 ```
 
 ## 刷机
