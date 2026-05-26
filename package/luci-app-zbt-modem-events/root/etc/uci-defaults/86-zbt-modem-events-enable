@@ -1,0 +1,12 @@
+#!/bin/sh
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+[ -x /etc/init.d/zbt_modem_events ] || exit 0
+/etc/init.d/zbt_modem_events enable >/dev/null 2>&1 || true
+/etc/init.d/zbt_modem_events start >/dev/null 2>&1 || true
+
+exit 0

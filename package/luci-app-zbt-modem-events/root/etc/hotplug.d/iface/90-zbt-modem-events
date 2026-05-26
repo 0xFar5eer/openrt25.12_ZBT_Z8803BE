@@ -1,0 +1,17 @@
+#!/bin/sh
+
+[ -x /usr/sbin/zbt-modem-events ] || exit 0
+
+case "$INTERFACE" in
+	4_1|4_1v6|modem1) ;;
+	*) exit 0 ;;
+esac
+
+case "$ACTION" in
+	ifup)
+		/usr/sbin/zbt-modem-events record netifd recovered ok "${INTERFACE}" "Cellular interface up" "device=${DEVICE:-unknown}" >/dev/null 2>&1 || true
+		;;
+	ifdown)
+		/usr/sbin/zbt-modem-events record netifd issue warning "${INTERFACE}" "Cellular interface down" "device=${DEVICE:-unknown}" >/dev/null 2>&1 || true
+		;;
+esac

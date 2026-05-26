@@ -1,0 +1,215 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Z8803BE — keep qmodem_monitor configured but disabled by default.
+#
+# WAN-only is the firmware default. This script preserves the qmodem
+# monitor method/action/script contract for deployments that explicitly
+# re-enable cellular later, while forcing monitor_enabled=0 and disabling
+# qmodem_monitor at boot.
+#
+# Why preserve curl/direct-IP gstatic/10s/threshold=6:
+#   * monitor_method=curl on http://142.250.23.94/generate_204 is
+#     what we actually need on Smart/Globe PH. Empirical test on the
+#     RM551E-GL on Globe PH (Apr 2026):
+#         ping  -I wwan0 1.0.0.1   → 100% loss (carrier ICMP block)
+#         ping  -I wwan0 1.1.1.1   → 100% loss
+#         ping  -I wwan0 8.8.8.8   → 100% loss
+#         ping  -I wwan0 10.x.x.x  → 100% loss (gateway too)
+#         ping  -I wwan0 9.9.9.9   →   0% loss (allowlisted)
+#         curl  -I wwan0 gstatic   → 204 in 125ms
+#     Smart/Globe drop ICMP from cellular IPs to most public space,
+#     including their own gateway. The only reliable ICMP target is
+#     9.9.9.9 — not stable enough to bet a watchdog on. HTTP/204 to
+#     gstatic.com is the same probe Android (and ChromeOS, and many
+#     OEM L4 health checks) use for captive-portal detection, so the
+#     carrier always lets it through. Using the observed A record avoids
+#     DNS resolver hiccups being misclassified as a broken modem. It
+#     still exercises the full data path: USB → modem firmware → RAN →
+#     GGSN → internet → TCP → HTTP.
+#   * interval=10s and threshold=6 means we declare-down after roughly
+#     one minute of consecutive HTTP failures. That is fast enough to
+#     recover short cellular outages quickly when cellular is explicitly
+#     enabled, while the hard-reboot guard still enforces boot grace,
+#     SIM-present checks, and reset lockout.
+#
+# Why run_scripts -> zbt-modem-hard-reboot-guard:
+#   The qmodem_monitor send_at_commands action would let us send
+#   AT+CFUN=1,1 directly, but that path has no concept of an
+#   inter-reset lockout or a router-uptime grace window — both
+#   requirements for safe production use. Routing through the hard
+#   reboot guard keeps the GPIO power-cycle policy in one script.
+#
+# Why we touch monitor_method/_ping_type/_ping_dest/_interval/
+# _threshold/_action/script via uci -q (not add_list except for the
+# multi-value ones):
+#   monitor_method, monitor_ping_type, monitor_ping_dest,
+#   monitor_interval, monitor_threshold are scalar options. Using
+#   `uci set` is idempotent. monitor_action and script are MultiValue
+#   lists in the LuCI form; we use `add_list` after a one-shot
+#   `delete` so a re-run on a config that already has the right list
+#   doesn't double-add. Re-running this uci-default on an upgrade is
+#   safe.
+#
+# Idempotence:
+#   uci set is a no-op when the value matches. The list reset is
+#   gated on a content match so we only rewrite when a different list
+#   is in place.
+#   The WAN-only disabled state is intentionally duplicated in
+#   40-zbt-qmodem-dns-suppress so the safe default survives partial
+#   package availability.
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+        zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+        *) exit 0 ;;
+esac
+
+# Skip cleanly on builds without qmodem_monitor.
+[ -e /etc/config/qmodem ] || exit 0
+[ -x /etc/init.d/qmodem_monitor ] || exit 0
+
+GUARD_SCRIPT="/usr/sbin/zbt-modem-hard-reboot-guard"
+WCDMA_BANDS="1/2/4/5/8/19"
+LTE_BANDS="1/2/3/4/5/7/8/12/13/14/17/18/19/20/25/26/28/29/30/32/34/38/39/40/41/42/43/46/48/53/66/70/71"
+NSA_BANDS="1/2/3/5/7/8/12/13/14/18/20/25/26/28/29/30/38/40/41/48/53/66/70/71/75/76/77/78/79/92/94/257/258/260/261"
+SA_BANDS="1/2/3/5/7/8/12/13/14/18/20/25/26/28/29/30/38/40/41/48/53/66/70/71/75/76/77/78/79/91/92/93/94/257/258/260/261"
+
+apply_monitor_contract() {
+        local sec=$1
+        local changed=0
+
+        # Scalars
+        for kv in \
+                "monitor_enabled=0" \
+                "monitor_method=curl" \
+                "monitor_http_url=http://142.250.23.94/generate_204" \
+                "monitor_interval=10" \
+                "monitor_threshold=6" \
+                "state=disabled" \
+                "enable_dial=0" \
+                "metric=200"
+        do
+                k=${kv%%=*}; v=${kv#*=}
+                cur=$(uci -q get "qmodem.${sec}.${k}")
+                if [ "$cur" != "$v" ]; then
+                        uci -q set "qmodem.${sec}.${k}=$v"
+                        changed=1
+                fi
+        done
+
+        # Scrub stale ping_* options if a previous revision wired the
+        # ping method on this section. Leaving them around isn't
+        # functionally broken (modem_monitor.sh ignores them when
+        # monitor_method!=ping) but is misleading in `uci show`.
+        for stale in monitor_ping_type monitor_ping_dest monitor_ping_ip_version; do
+                if uci -q get "qmodem.${sec}.${stale}" >/dev/null 2>&1; then
+                        uci -q delete "qmodem.${sec}.${stale}"
+                        changed=1
+                fi
+        done
+
+        # monitor_action list — must be exactly [run_scripts]
+        cur_actions=$(uci -q get "qmodem.${sec}.monitor_action")
+        if [ "$cur_actions" != "run_scripts" ]; then
+                uci -q delete "qmodem.${sec}.monitor_action" 2>/dev/null
+                uci -q add_list "qmodem.${sec}.monitor_action=run_scripts"
+                changed=1
+        fi
+
+        # script list — must contain exactly the guard script
+        cur_scripts=$(uci -q get "qmodem.${sec}.script")
+        if [ "$cur_scripts" != "$GUARD_SCRIPT" ]; then
+                uci -q delete "qmodem.${sec}.script" 2>/dev/null
+                uci -q add_list "qmodem.${sec}.script=$GUARD_SCRIPT"
+                changed=1
+        fi
+
+        [ "$changed" = "1" ] && return 0
+        return 1
+}
+
+apply_band_contract() {
+        local sec=$1
+        local changed=0
+
+        for kv in \
+                "wcdma_band=$WCDMA_BANDS" \
+                "lte_band=$LTE_BANDS" \
+                "nsa_band=$NSA_BANDS" \
+                "sa_band=$SA_BANDS"
+        do
+                k=${kv%%=*}; v=${kv#*=}
+                cur=$(uci -q get "qmodem.${sec}.${k}")
+                if [ "$cur" != "$v" ]; then
+                        uci -q set "qmodem.${sec}.${k}=$v"
+                        changed=1
+                fi
+        done
+
+        [ "$changed" = "1" ] && return 0
+        return 1
+}
+
+contract_changed=0
+
+if uci -q get qmodem.main >/dev/null 2>&1; then
+        for kv in \
+                "enable_dial=0" \
+                "try_preset_usb=0" \
+                "try_preset_pcie=0" \
+                "enable_pcie_scan=0" \
+                "block_auto_probe=1"
+        do
+                k=${kv%%=*}; v=${kv#*=}
+                cur=$(uci -q get "qmodem.main.${k}" 2>/dev/null)
+                if [ "$cur" != "$v" ]; then
+                        uci -q set "qmodem.main.${k}=$v"
+                        contract_changed=1
+                fi
+        done
+        cur_monitor_cooldown=$(uci -q get qmodem.main.zbt_monitor_cooldown 2>/dev/null)
+        if [ "$cur_monitor_cooldown" != "300" ]; then
+                uci -q set qmodem.main.zbt_monitor_cooldown='300'
+                contract_changed=1
+        fi
+        cur_manual_cooldown=$(uci -q get qmodem.main.zbt_manual_reboot_cooldown 2>/dev/null)
+        if [ "$cur_manual_cooldown" != "600" ]; then
+                uci -q set qmodem.main.zbt_manual_reboot_cooldown='600'
+                contract_changed=1
+        fi
+fi
+
+# Walk every modem-device section currently in /etc/config/qmodem.
+for sec in $(uci -q show qmodem 2>/dev/null \
+                | sed -nE "s/^qmodem\.([^.=]+)=modem-device$/\1/p"); do
+        [ -n "$sec" ] || continue
+        if apply_monitor_contract "$sec"; then
+                contract_changed=1
+        fi
+        if apply_band_contract "$sec"; then
+                contract_changed=1
+        fi
+done
+
+# Force-create the canonical 4_1 section if qmodem hasn't detected the
+# modem yet (firmware contract — same pattern as
+# 40-zbt-qmodem-dns-suppress).
+if ! uci -q get qmodem.4_1 >/dev/null 2>&1; then
+        uci -q set qmodem.4_1=modem-device
+        contract_changed=1
+fi
+if uci -q get qmodem.4_1 >/dev/null 2>&1; then
+        if apply_monitor_contract 4_1; then
+                contract_changed=1
+        fi
+        if apply_band_contract 4_1; then
+                contract_changed=1
+        fi
+fi
+
+[ "$contract_changed" = "1" ] && uci -q commit qmodem
+
+# Keep the monitor service disabled for WAN-only firmware defaults.
+/etc/init.d/qmodem_monitor disable >/dev/null 2>&1 || true
+
+exit 0

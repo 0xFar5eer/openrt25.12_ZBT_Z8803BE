@@ -1,0 +1,33 @@
+#!/bin/sh
+# Hotplug for UCI network ifup/ifdown events.
+#
+# When `lan` (or any other LAN-side network) comes up, br-lan members
+# may have been recreated. Re-sync the netdev hook chains so we keep
+# capturing every LAN device's traffic.
+
+case "$ACTION" in
+    ifup|ifdown) ;;
+    *) exit 0 ;;
+esac
+
+[ -n "$INTERFACE" ] || exit 0
+
+LIB_DIR="/usr/lib/wrtbwmon"
+[ -d "/etc/hotplug.d/../lib/wrtbwmon" ] && LIB_DIR="/etc/hotplug.d/../lib/wrtbwmon"
+
+. "$LIB_DIR/logger.sh"        || exit 1
+. "$LIB_DIR/error_handler.sh" || exit 1
+. "$LIB_DIR/config.sh"        || exit 1
+. "$LIB_DIR/chain_manager.sh" || exit 1
+
+log_init "wrtbwmon-hotplug-if" "${LOG_LEVEL:-info}"
+config_load
+[ "$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] || exit 0
+
+# br-lan member set may not have settled yet; give the kernel a beat
+# before we read it.
+sleep 1
+
+if nft_setup_netdev_hooks; then
+    log_debug "netdev hooks re-synced after $ACTION on $INTERFACE"
+fi

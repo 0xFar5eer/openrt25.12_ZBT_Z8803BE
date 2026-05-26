@@ -1,0 +1,367 @@
+#!/bin/sh
+
+DATA_DIR=/var/log/zbt-temperature
+DATA_FILE=$DATA_DIR/readings.csv
+LOCK_DIR=/tmp/zbt-temperature.lock
+RETENTION_SECONDS=${ZBT_TEMPERATURE_RETENTION_SECONDS:-604800}
+FAN_STATE_FILE=/tmp/zbt-temperature-fan-state
+PERSIST_DIR=${ZBT_TEMPERATURE_PERSIST_DIR:-/etc/zbt-temperature}
+PERSIST_FILE=$PERSIST_DIR/readings.csv
+PERSIST_MARKER=$DATA_DIR/.last-persist
+PERSIST_INTERVAL=${ZBT_TEMPERATURE_PERSIST_INTERVAL:-900}
+
+sanitize_label() {
+	printf '%s' "$1" | tr ',\r\n' '___' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/[[:space:]][[:space:]]*/ /g'
+}
+
+celsius_from_millic() {
+	awk -v v="$1" 'BEGIN { if (v ~ /^-?[0-9]+$/) printf "%.1f", v / 1000 }'
+}
+
+valid_celsius() {
+	awk -v v="$1" 'BEGIN { exit !(v ~ /^-?[0-9]+(\.[0-9]+)?$/ && v > -100 && v < 140) }'
+}
+
+emit() {
+	local now group name value unit
+	now=$1
+	group=$(sanitize_label "$2")
+	name=$(sanitize_label "$3")
+	value=$4
+	unit=${5:-C}
+	[ -n "$group" ] || return 0
+	[ -n "$name" ] || return 0
+	valid_celsius "$value" || return 0
+	unit=$(sanitize_label "$unit")
+	printf '%s,%s,%s,%s,%s\n' "$now" "$group" "$name" "$value" "$unit" >> "$DATA_FILE"
+}
+
+sample_hwmon() {
+	local now hw name input base label temp value sensor
+	now=$1
+	for hw in /sys/class/hwmon/hwmon*; do
+		[ -d "$hw" ] || continue
+		name=$(cat "$hw/name" 2>/dev/null || basename "$hw")
+		for input in "$hw"/temp*_input; do
+			[ -f "$input" ] || continue
+			base=${input%_input}
+			label=$(cat "${base}_label" 2>/dev/null || true)
+			temp=$(cat "$input" 2>/dev/null || true)
+			value=$(celsius_from_millic "$temp")
+			[ -n "$value" ] || continue
+			sensor=$name
+			[ -n "$label" ] && sensor="$sensor $label" || sensor="$sensor $(basename "$base")"
+			case "$name" in
+				mt7996*) emit "$now" wifi "$sensor" "$value" ;;
+				*) emit "$now" system "$sensor" "$value" ;;
+			esac
+		done
+	done
+}
+
+sample_thermal() {
+	local now zone type temp value found
+	now=$1
+	for zone in /sys/class/thermal/thermal_zone*; do
+		[ -d "$zone" ] || continue
+		type=$(cat "$zone/type" 2>/dev/null || basename "$zone")
+		temp=$(cat "$zone/temp" 2>/dev/null || true)
+		value=$(celsius_from_millic "$temp")
+		[ -n "$value" ] || continue
+		found=0
+		case "$type" in
+			cpu-thermal) found=1 ;;
+		esac
+		[ "$found" = 1 ] && continue
+		emit "$now" system "$type" "$value"
+	done
+}
+
+sample_fan() {
+	local now c type cur max value h name pwm
+	now=$1
+	for h in /sys/class/hwmon/hwmon*; do
+		[ -d "$h" ] || continue
+		name=$(cat "$h/name" 2>/dev/null || true)
+		[ "$name" = "pwmfan" ] || continue
+		pwm=$(cat "$h/pwm1" 2>/dev/null || true)
+		value=$(awk -v p="$pwm" 'BEGIN { if (p ~ /^[0-9]+$/) printf "%.1f", (p / 255) * 100 }')
+		[ -n "$value" ] || continue
+		emit "$now" fan "pwm-fan speed" "$value" "%"
+		return 0
+	done
+	for c in /sys/class/thermal/cooling_device*; do
+		[ -d "$c" ] || continue
+		type=$(cat "$c/type" 2>/dev/null || true)
+		[ "$type" = "pwm-fan" ] || continue
+		cur=$(cat "$c/cur_state" 2>/dev/null || true)
+		max=$(cat "$c/max_state" 2>/dev/null || true)
+		value=$(awk -v c="$cur" -v m="$max" 'BEGIN { if (c ~ /^[0-9]+$/ && m ~ /^[1-9][0-9]*$/) printf "%.1f", (c / m) * 100 }')
+		[ -n "$value" ] || continue
+		emit "$now" fan "$type speed" "$value" "%"
+		return 0
+	done
+}
+
+find_sms_tool() {
+	command -v sms_tool 2>/dev/null || command -v sms_tool_q 2>/dev/null || true
+}
+
+qmodem_at_ports() {
+	uci -q show qmodem 2>/dev/null | sed -n "s/.*\.at_port='\([^']*\)'.*/\1/p"
+	printf '%s\n' /dev/ttyUSB5 /dev/ttyUSB2 /dev/ttyUSB3 /dev/ttyUSB1 /dev/mhi_DUN /dev/at_pcie0 /dev/at_pcie1
+}
+
+has_quectel_modem() {
+	local v
+	for v in /sys/bus/usb/devices/*/idVendor; do
+		[ -f "$v" ] || continue
+		[ "$(cat "$v" 2>/dev/null)" = "2c7c" ] && return 0
+	done
+	return 1
+}
+
+sample_modem() {
+	local now tool port out line name value tried
+	now=$1
+	has_quectel_modem || return 0
+	tool=$(find_sms_tool)
+	[ -n "$tool" ] || return 0
+	for port in $(qmodem_at_ports); do
+		[ -e "$port" ] || continue
+		case " $tried " in *" $port "*) continue ;; esac
+		tried="$tried $port"
+		out=$(timeout 8 "$tool" -d "$port" at 'AT+QTEMP' 2>/dev/null || true)
+		printf '%s\n' "$out" | grep -q '+QTEMP:' || continue
+		printf '%s\n' "$out" | while IFS= read -r line; do
+			case "$line" in *'+QTEMP:'*) ;; *) continue ;; esac
+			name=$(printf '%s\n' "$line" | sed -n 's/.*+QTEMP:[[:space:]]*"\([^"]*\)"[[:space:]]*,[[:space:]]*"\([-0-9.]*\)".*/\1/p')
+			value=$(printf '%s\n' "$line" | sed -n 's/.*+QTEMP:[[:space:]]*"\([^"]*\)"[[:space:]]*,[[:space:]]*"\([-0-9.]*\)".*/\2/p')
+			[ -n "$name" ] || continue
+			emit "$now" modem "$name" "$value"
+		done
+		return 0
+	done
+}
+
+fan_pwm_for_state() {
+	local state levels
+	state=$1
+	levels=${ZBT_FAN_LEVELS:-"0 80 112 144 176 216 255"}
+	awk -v s="$state" -v levels="$levels" 'BEGIN {
+		n = split(levels, a, /[[:space:]]+/);
+		if (n < 1) exit;
+		s += 0;
+		if (s < 0) s = 0;
+		if (s >= n) s = n - 1;
+		v = a[s + 1] + 0;
+		if (v < 0) v = 0;
+		if (v > 255) v = 255;
+		printf "%d", v;
+	}'
+}
+
+pwmfan_hwmon() {
+	local h name
+	for h in /sys/class/hwmon/hwmon*; do
+		[ -d "$h" ] || continue
+		name=$(cat "$h/name" 2>/dev/null || true)
+		[ "$name" = "pwmfan" ] || continue
+		[ -r "$h/pwm1" ] || continue
+		printf '%s\n' "$h"
+		return 0
+	done
+	return 1
+}
+
+sync_pwm_fan_state() {
+	local c target expected h pwm delta bump max
+	c=$1
+	target=$2
+	[ -w "$c/cur_state" ] || return 0
+	expected=$(fan_pwm_for_state "$target")
+	[ -n "$expected" ] || return 0
+	h=$(pwmfan_hwmon) || return 0
+	pwm=$(cat "$h/pwm1" 2>/dev/null || true)
+	delta=$(awk -v a="$expected" -v b="$pwm" -v db="${ZBT_FAN_PWM_DEADBAND:-4}" 'BEGIN {
+		a += 0; b += 0; db += 0;
+		if (db < 0) db = 0;
+		d = a - b;
+		if (d < 0) d = -d;
+		print d < db ? 0 : d;
+	}')
+	[ "${delta:-0}" = 0 ] && return 0
+	if [ "$target" -gt 0 ]; then
+		bump=$((target - 1))
+	else
+		max=$(cat "$c/max_state" 2>/dev/null || echo 0)
+		case "$max" in
+			''|*[!0-9]*) return 0 ;;
+		esac
+		[ "$max" -gt 0 ] || return 0
+		bump=1
+	fi
+	printf '%s\n' "$bump" > "$c/cur_state" 2>/dev/null || return 0
+	printf '%s\n' "$target" > "$c/cur_state" 2>/dev/null || true
+}
+
+fan_target_state() {
+	local temp current max
+	temp=$1
+	current=$2
+	max=$3
+	awk -v t="$temp" -v c="$current" -v m="$max" 'BEGIN {
+		c += 0;
+		if (m !~ /^[0-9]+$/) m = 6;
+		m += 0;
+		if (m < 1) m = 6;
+		if (t >= 85) desired = 6;
+		else if (t >= 80) desired = 5;
+		else if (t >= 75) desired = 4;
+		else if (t >= 70) desired = 3;
+		else if (t >= 65) desired = 2;
+		else if (t >= 55) desired = 1;
+		else desired = 0;
+		if (desired > c) target = desired;
+		else if (desired < c) {
+			target = c;
+			if (c >= 6 && t < 80) target = 5;
+			else if (c >= 5 && t < 76) target = 4;
+			else if (c >= 4 && t < 72) target = 3;
+			else if (c >= 3 && t < 66) target = 2;
+			else if (c >= 2 && t < 58) target = 1;
+			else if (c >= 1 && t < 48) target = 0;
+		} else target = c;
+		if (target > m) target = m;
+		if (target < 0) target = 0;
+		print target;
+	}'
+}
+
+adjust_fan() {
+	local now max_temp pwm cur delta h name max target c prev
+	now=$1
+	max_temp=$(awk -F, -v now="$now" '
+		$1 == now && $5 == "C" && ($2 == "system" || $2 == "wifi" || $2 == "modem") {
+			if ($4 + 0 > max) max = $4 + 0
+		}
+		END { if (max > 0) printf "%.1f", max }
+	' "$DATA_FILE" 2>/dev/null || true)
+	[ -n "$max_temp" ] || return 0
+	for c in /sys/class/thermal/cooling_device*; do
+		[ -d "$c" ] || continue
+		[ "$(cat "$c/type" 2>/dev/null)" = "pwm-fan" ] || continue
+		cur=$(cat "$c/cur_state" 2>/dev/null || echo 0)
+		max=$(cat "$c/max_state" 2>/dev/null || echo 2)
+		target=$(fan_target_state "$max_temp" "$cur" "$max")
+		[ -n "$target" ] || return 0
+		if [ "$target" = "$cur" ]; then
+			sync_pwm_fan_state "$c" "$target"
+			printf '%s\n' "$target" > "$FAN_STATE_FILE" 2>/dev/null || true
+			return 0
+		fi
+		if printf '%s\n' "$target" > "$c/cur_state" 2>/dev/null; then
+			printf '%s\n' "$target" > "$FAN_STATE_FILE" 2>/dev/null || true
+		fi
+		return 0
+	done
+	prev=$(cat "$FAN_STATE_FILE" 2>/dev/null || echo 0)
+	target=$(fan_target_state "$max_temp" "$prev" 6)
+	pwm=$(fan_pwm_for_state "$target")
+	[ -n "$pwm" ] || return 0
+	for h in /sys/class/hwmon/hwmon*; do
+		[ -d "$h" ] || continue
+		name=$(cat "$h/name" 2>/dev/null || true)
+		[ "$name" = "pwmfan" ] || continue
+		[ -w "$h/pwm1" ] || continue
+		cur=$(cat "$h/pwm1" 2>/dev/null || echo 0)
+		delta=$(awk -v a="$pwm" -v b="$cur" -v db="${ZBT_FAN_PWM_DEADBAND:-4}" 'BEGIN {
+			a += 0; b += 0; db += 0;
+			if (db < 0) db = 0;
+			d = a - b;
+			if (d < 0) d = -d;
+			print d < db ? 0 : d;
+		}')
+		[ "${delta:-0}" = 0 ] && return 0
+		printf '%s\n' "$pwm" > "$h/pwm1" 2>/dev/null || true
+		printf '%s\n' "$target" > "$FAN_STATE_FILE" 2>/dev/null || true
+		return 0
+	done
+}
+
+flush_persistent() {
+	local tmp
+	[ -s "$DATA_FILE" ] || return 0
+	mkdir -p "$PERSIST_DIR" 2>/dev/null || return 0
+	tmp=$PERSIST_FILE.tmp
+	cp "$DATA_FILE" "$tmp" 2>/dev/null || return 0
+	sync
+	mv -f "$tmp" "$PERSIST_FILE" 2>/dev/null || { rm -f "$tmp"; return 0; }
+	date +%s > "$PERSIST_MARKER" 2>/dev/null || true
+}
+
+restore_persistent() {
+	[ -f "$PERSIST_FILE" ] || return 0
+	[ -s "$PERSIST_FILE" ] || return 0
+	mkdir -p "$DATA_DIR" 2>/dev/null || return 0
+	if [ ! -s "$DATA_FILE" ]; then
+		cp "$PERSIST_FILE" "$DATA_FILE" 2>/dev/null || return 0
+		date +%s > "$PERSIST_MARKER" 2>/dev/null || true
+	fi
+}
+
+maybe_flush() {
+	local now last
+	now=$1
+	[ "${PERSIST_INTERVAL:-0}" -gt 0 ] 2>/dev/null || return 0
+	last=$(cat "$PERSIST_MARKER" 2>/dev/null || echo 0)
+	case "$last" in
+		''|*[!0-9]*) last=0 ;;
+	esac
+	[ $((now - last)) -ge "$PERSIST_INTERVAL" ] || return 0
+	flush_persistent
+}
+
+prune_old() {
+	local now marker last tmp cutoff
+	now=$1
+	marker=$DATA_DIR/.last-prune
+	last=$(cat "$marker" 2>/dev/null || echo 0)
+	[ $((now - last)) -ge 3600 ] || return 0
+	cutoff=$((now - RETENTION_SECONDS))
+	tmp=$DATA_FILE.tmp
+	awk -F, -v cutoff="$cutoff" 'NR == 1 || $1 >= cutoff' "$DATA_FILE" > "$tmp" 2>/dev/null || return 0
+	cat "$tmp" > "$DATA_FILE"
+	rm -f "$tmp"
+	printf '%s\n' "$now" > "$marker"
+}
+
+sample() {
+	local now
+	now=$(date +%s)
+	mkdir -p "$DATA_DIR"
+	if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+		exit 0
+	fi
+	trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT INT TERM
+	restore_persistent
+	if [ ! -f "$DATA_FILE" ]; then
+		printf 'epoch,group,name,value,unit\n' > "$DATA_FILE"
+	fi
+	sample_hwmon "$now"
+	sample_thermal "$now"
+	sample_modem "$now"
+	adjust_fan "$now"
+	sample_fan "$now"
+	prune_old "$now"
+	maybe_flush "$now"
+}
+
+case "${1:-sample}" in
+	sample) sample ;;
+	flush) flush_persistent ;;
+	restore) restore_persistent ;;
+	path) printf '%s\n' "$DATA_FILE" ;;
+	persist-path) printf '%s\n' "$PERSIST_FILE" ;;
+	*) echo "Usage: $0 [sample|flush|restore|path|persist-path]" >&2; exit 1 ;;
+esac

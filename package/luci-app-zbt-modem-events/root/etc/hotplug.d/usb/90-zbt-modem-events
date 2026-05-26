@@ -1,0 +1,16 @@
+#!/bin/sh
+
+[ -x /usr/sbin/zbt-modem-events ] || exit 0
+[ -n "$DEVPATH" ] || exit 0
+
+vendor=$(cat "/sys/$DEVPATH/idVendor" 2>/dev/null || true)
+[ "$vendor" = "2c7c" ] || exit 0
+
+case "$ACTION" in
+	add)
+		/usr/sbin/zbt-modem-events record usb recovered ok 4_1 "USB modem enumerated" "dev=${DEVICENAME:-unknown} vendor=$vendor" >/dev/null 2>&1 || true
+		;;
+	remove)
+		/usr/sbin/zbt-modem-events record usb issue warning 4_1 "USB modem removed" "dev=${DEVICENAME:-unknown} vendor=$vendor" >/dev/null 2>&1 || true
+		;;
+esac

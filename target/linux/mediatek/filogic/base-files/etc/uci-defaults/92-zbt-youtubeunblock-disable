@@ -1,0 +1,150 @@
+#!/bin/sh
+# Disable youtubeUnblock by default; pre-seed an SNI allowlist scoped to a
+# small set of domains we have observed to be DPI-hijacked on Globe/Smart PH
+# (binance.com and friends). Stop fw4 from auto-loading the package's
+# NFQUEUE ruleset, and scope the queue rule to br-wan only so the on-board
+# 5G modem path is never touched.
+#
+# WHY (state defaults):
+#   The youtubeUnblock package's own uci-defaults file
+#   (/etc/uci-defaults/99-youtubeUnblock.sh) ships with the service section
+#   enabled=1 and an SNI list of YouTube/Google domains. That doesn't match
+#   the threat model on this carrier - the DPI hijack we have observed live
+#   targets binance.com (CEX). YouTube/Google traffic flows fine here.
+#
+#   We want:
+#     - service OFF by default (a fresh flash leaves DPI bypass disabled so
+#       it never costs latency or breaks QUIC for users who don't need it)
+#     - all_domains=0 (default) so the daemon honours sni_domains
+#     - sni_domains pre-seeded with the binance.* + bnbstatic.com domains
+#
+#   The user opts in via LuCI -> Services -> youtubeUnblock or via the wrt
+#   setup script (Phase 9). Adding more SNIs later is a single uci add_list.
+#
+# WHY (br-wan scope on the nft rule):
+#   The S23 USB tether (br-wan) and the on-board 5G modem (wwan0) both
+#   ride mobile carriers, but they handle the daemon's mangled TLS very
+#   differently. The S23 baseband re-NATs and re-normalizes our fragmented
+#   ClientHello segments, so the carrier's DPI middlebox sees clean traffic
+#   and the bypass works. wwan0 goes raw QMI to the radio - the carrier sees
+#   the malformed TCP and silently drops it, blackholing every TCP/443 flow.
+#
+#   We rewrite the staged nft template to short-circuit non-br-wan oifnames
+#   out of the chain. wwan0 traffic is never enqueued, never mangled, never
+#   broken. If the user later adds a third upstream they will need to extend
+#   this list explicitly.
+#
+# WHY (nft file move):
+#   The package ships /usr/share/nftables.d/ruleset-post/537-youtubeUnblock.nft
+#   which fw4 auto-loads on every reload. The rule queues TCP/443 + UDP/443
+#   first-N-packets to NFQUEUE 537 with the `bypass` flag. With the userspace
+#   listener disabled, `bypass` accepts packets after a kernel<->userspace
+#   round-trip - Chromium's QUIC stack interprets this jitter as a protocol
+#   error (ERR_QUIC_PROTOCOL_ERROR on Cloudflare-fronted sites e.g.
+#   runrio.com/race-calendar/). Even with the service disabled, having the
+#   queue rule loaded breaks UDP/443 globally.
+#
+#   Fix: remove the package's auto-loaded .nft file and stage our own
+#   br-wan-scoped version in a non-auto-load path. The patched init.d copies
+#   it into the fw4 auto-load path on `start` and removes it on `stop`.
+#   fw4 reload runs on each transition. Net effect:
+#   - service disabled  -> no nft rules loaded (no QUIC interference)
+#   - service enabled   -> nft rules installed, scoped to br-wan only
+#
+# ORDER: this file is `99a-` so it runs AFTER the package's `99-`
+# uci-default. /etc/uci-defaults/ scripts run in alphabetical order on
+# first boot, then are deleted.
+
+# Board guard - only this board.
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+# If the package isn't present (built without youtubeUnblock), exit cleanly.
+[ -e /etc/config/youtubeUnblock ] || exit 0
+
+# --- Part 1: state defaults --------------------------------------------------
+# Disable the section so the userspace worker has nothing to do, keep
+# all_domains=0 (package default) so the daemon honours the explicit SNI
+# allowlist, and replace the package's YouTube-flavoured seed list with the
+# domains we have actually seen DPI-hijacked here. Listing only what we
+# need keeps the bypass surface small: every queued packet costs a
+# kernel<->userspace round-trip and a re-injection.
+uci -q set youtubeUnblock.@section[0].enabled='0'
+uci -q set youtubeUnblock.@section[0].all_domains='0'
+while uci -q delete youtubeUnblock.@section[0].sni_domains; do :; done
+uci -q add_list youtubeUnblock.@section[0].sni_domains='binance.com'
+uci -q add_list youtubeUnblock.@section[0].sni_domains='bnbstatic.com'
+uci -q add_list youtubeUnblock.@section[0].sni_domains='binance.org'
+uci -q commit youtubeUnblock
+
+# Stop service from auto-starting at boot.
+[ -x /etc/init.d/youtubeUnblock ] && /etc/init.d/youtubeUnblock disable
+
+# --- Part 2: nft file move + init.d patch -----------------------------------
+NFT_AUTO=/usr/share/nftables.d/ruleset-post/537-youtubeUnblock.nft
+NFT_STAGE=/usr/share/youtubeUnblock/537-youtubeUnblock.nft
+INITD=/etc/init.d/youtubeUnblock
+
+mkdir -p "$(dirname "$NFT_STAGE")"
+
+# Drop the package's auto-loaded ruleset and write our own br-wan-scoped
+# version at the staging path. We don't `mv` because the package's stock
+# rules are unscoped - if we ever shipped them as-is the modem path would
+# break the moment the service starts. Idempotent: re-runs overwrite.
+rm -f "$NFT_AUTO"
+cat > "$NFT_STAGE" <<'NFT'
+#!/usr/sbin/nft -f
+# Installed into /usr/share/nftables.d/ruleset-post/ by
+# /etc/init.d/youtubeUnblock service_started; removed on service_stopped.
+# See firmware uci-default 92-zbt-youtubeunblock-disable for rationale.
+#
+# br-wan scope: the on-board 5G modem (wwan0) cannot tolerate the
+# fragmented TLS ClientHello produced by the userspace daemon, so we
+# return early for any oifname other than br-wan. If you add a second
+# tether interface that also needs DPI bypass, extend the match below.
+
+add chain inet fw4 youtubeUnblock { type filter hook postrouting priority mangle - 1; policy accept; }
+add rule inet fw4 youtubeUnblock oifname != "br-wan" return
+add rule inet fw4 youtubeUnblock tcp dport 443 ct original packets < 20 counter queue num 537 bypass
+add rule inet fw4 youtubeUnblock meta l4proto udp ct original packets < 9 counter queue num 537 bypass
+insert rule inet fw4 output mark and 0x8000 == 0x8000 counter accept
+NFT
+
+# Patch init.d to install/remove nft file on start/stop. The marker comment
+# guards against double-injection on re-runs. We additionally bail out if a
+# future upstream package version starts shipping its own service_started /
+# service_stopped hooks - blindly appending ours would silently clobber the
+# upstream behaviour (shell uses the last-defined function) and route a
+# correctness regression past us.
+if [ -x "$INITD" ] && ! grep -q "zbt-yt-unblock-nft-marker" "$INITD"; then
+	if grep -qE '^[[:space:]]*service_(started|stopped)[[:space:]]*\(\)' "$INITD"; then
+		logger -t zbt-yt-unblock-disable \
+		       "upstream youtubeUnblock init.d already defines service hooks; skipping nft patch"
+	else
+		cat >> "$INITD" <<'PATCH'
+
+# zbt-yt-unblock-nft-marker
+# ZBT-Z8803BE firmware patch: load NFQUEUE rules only while service runs.
+# See target/linux/mediatek/filogic/base-files/etc/uci-defaults/
+#     92-zbt-youtubeunblock-disable for rationale.
+service_started() {
+	[ -f /usr/share/youtubeUnblock/537-youtubeUnblock.nft ] && \
+		cp /usr/share/youtubeUnblock/537-youtubeUnblock.nft \
+		   /usr/share/nftables.d/ruleset-post/537-youtubeUnblock.nft
+	fw4 reload >/dev/null 2>&1
+}
+service_stopped() {
+	rm -f /usr/share/nftables.d/ruleset-post/537-youtubeUnblock.nft
+	nft delete chain inet fw4 youtubeUnblock 2>/dev/null
+	fw4 reload >/dev/null 2>&1
+}
+PATCH
+	fi
+fi
+
+# Reload firewall now to drop any auto-loaded chain from this boot.
+fw4 reload >/dev/null 2>&1
+
+exit 0

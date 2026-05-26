@@ -1,0 +1,270 @@
+#!/bin/sh
+#
+# wrtbwmon - Traffic monitoring with nftables and SQLite
+# Phase 13: Final Architecture (nftables + SQLite + Lua only)
+#
+# This is a complete rewrite for modern routers (firewall4/nftables)
+# No legacy code - clean implementation only
+
+# Configuration
+DB_FILE="${DB_FILE:-/etc/wrtbwmon/traffic.db}"
+CLEANUP_ENABLED="${CLEANUP_ENABLED:-1}"
+CLEANUP_INACTIVE_DAYS="${CLEANUP_INACTIVE_DAYS:-90}"
+LOG_LEVEL="${LOG_LEVEL:-info}"
+
+# Library paths
+LIB_DIR="/usr/lib/wrtbwmon"
+[ -d "/usr/sbin/../lib/wrtbwmon" ] && LIB_DIR="/usr/sbin/../lib/wrtbwmon"
+
+# Source libraries
+. "$LIB_DIR/logger.sh" || {
+    echo "ERROR: logger.sh not found" >&2
+    exit 1
+}
+. "$LIB_DIR/error_handler.sh" || {
+    echo "ERROR: error_handler.sh not found" >&2
+    exit 1
+}
+. "$LIB_DIR/config.sh" || {
+    echo "ERROR: config.sh not found" >&2
+    exit 1
+}
+. "$LIB_DIR/retry.sh" || {
+    echo "ERROR: retry.sh not found" >&2
+    exit 1
+}
+. "$LIB_DIR/sqlite_manager.sh" || {
+    echo "ERROR: SQLite manager not found" >&2
+    exit 1
+}
+. "$LIB_DIR/chain_manager.sh" || {
+    echo "ERROR: chain manager not found" >&2
+    exit 1
+}
+
+monitoring_enabled() {
+    [ "$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ]
+}
+
+# Setup monitoring
+setup() {
+    log_init "wrtbwmon" "${LOG_LEVEL:-info}"
+    config_load
+    log_info "Setting up wrtbwmon (nftables + SQLite + per-device counters)"
+
+    # Initialize SQLite database
+    sqlite_init "$DB_FILE" || {
+        log_error "SQLite initialization failed"
+        return 1
+    }
+
+    # Initialize nftables sets and verdict maps
+    nft_init || {
+        log_error "nftables initialization failed"
+        return 1
+    }
+
+    if [ "$DOMAIN_TRACKING_ENABLED" = "1" ] && [ -x /usr/sbin/wrtbwmon-domain-manager.py ]; then
+        config_export
+        /usr/sbin/wrtbwmon-domain-manager.py init 2>/dev/null || true
+    fi
+
+    log_info "Setup complete (per-device counter mode)"
+    return 0
+}
+
+# Update traffic data
+update() {
+    log_init "wrtbwmon" "${LOG_LEVEL:-info}"
+    config_load
+    monitoring_enabled || return 0
+
+    # Ensure database is initialized
+    if ! sqlite3 "$DB_FILE" "SELECT count(*) FROM devices;" >/dev/null 2>&1; then
+        log_info "Database not initialized, running setup first"
+        sqlite_init "$DB_FILE" || return 1
+    fi
+
+    # Ensure nftables infrastructure exists (maps, dispatch rules)
+    local table
+    table=$(_nft_get_table)
+    if ! nft_map_exists "$_NFT_MAP_V4" "$table" 2>/dev/null; then
+        log_info "Nftables maps missing, running nft_init"
+        nft_init || return 1
+    fi
+    nft_setup_dispatch_rules || return 1
+
+    # Ensure domain dispatch rules are present
+    if [ "$DOMAIN_TRACKING_ENABLED" = "1" ] && [ -x /usr/sbin/wrtbwmon-domain-manager.py ]; then
+        /usr/sbin/wrtbwmon-domain-manager.py ensure-dispatch 2>/dev/null || true
+    fi
+
+    # Fast Python update: reads nft state once, ARP once, single DB transaction
+    /usr/sbin/wrtbwmon-update.py 2>/dev/null
+}
+
+# Remove monitoring
+remove() {
+    log_init "wrtbwmon" "${LOG_LEVEL:-info}"
+    config_load
+    log_info "Removing wrtbwmon"
+
+    # Cleanup nftables
+    nft_cleanup
+
+    # Database remains (persistent storage)
+    log_info "Removal complete (database preserved at $DB_FILE)"
+    return 0
+}
+
+# Show status
+status() {
+    log_init "wrtbwmon" "${LOG_LEVEL:-info}"
+    config_load
+    echo "=== wrtbwmon Status ==="
+    echo ""
+
+    # nftables status
+    echo "nftables:"
+    nft_stats
+    echo ""
+
+    # Database status
+    echo "Database:"
+    sqlite_stats "$DB_FILE"
+    echo ""
+}
+
+# Verify installation
+verify() {
+    local errors=0
+
+    echo "=== wrtbwmon Verification ==="
+    echo ""
+
+    # Check nftables
+    if command -v nft >/dev/null 2>&1; then
+        echo "✓ nftables available"
+    else
+        echo "✗ nftables NOT available"
+        errors=$((errors + 1))
+    fi
+
+    # Check sqlite3
+    if command -v sqlite3 >/dev/null 2>&1; then
+        echo "✓ sqlite3 available"
+    else
+        echo "✗ sqlite3 NOT available"
+        errors=$((errors + 1))
+    fi
+
+    # Check firewall4
+    if [ -f /usr/share/firewall4/main.uc ]; then
+        echo "✓ firewall4 installed"
+    else
+        echo "✗ firewall4 NOT installed"
+        errors=$((errors + 1))
+    fi
+
+    # Check libraries
+    if [ -f "$LIB_DIR/sqlite_manager.sh" ]; then
+        echo "✓ SQLite manager present"
+    else
+        echo "✗ SQLite manager MISSING"
+        errors=$((errors + 1))
+    fi
+
+    if [ -f "$LIB_DIR/chain_manager.sh" ]; then
+        echo "✓ chain manager present"
+    else
+        echo "✗ chain manager MISSING"
+        errors=$((errors + 1))
+    fi
+
+    # Check database
+    if [ -f "$DB_FILE" ]; then
+        echo "✓ Database exists: $DB_FILE"
+        if sqlite_verify "$DB_FILE"; then
+            echo "✓ Database integrity OK"
+        else
+            echo "✗ Database integrity FAILED"
+            errors=$((errors + 1))
+        fi
+    else
+        echo "⚠ Database not initialized (run 'wrtbwmon setup')"
+    fi
+
+    echo ""
+    if [ "$errors" -eq 0 ]; then
+        echo "✓ All checks passed"
+        return 0
+    else
+        echo "✗ $errors check(s) failed"
+        return 1
+    fi
+}
+
+# Resync the per-LAN-device netdev hooks. Cheap to call; intended for
+# hotplug events when the bridge membership changes (wireless interface
+# up/down, port plug, etc.).
+sync_hooks() {
+    log_init "wrtbwmon" "${LOG_LEVEL:-info}"
+    config_load
+    monitoring_enabled || return 0
+    nft_setup_netdev_hooks
+}
+
+# Main command dispatcher
+case "$1" in
+    setup)
+        setup
+        ;;
+    update)
+        update
+        ;;
+    remove)
+        remove
+        ;;
+    status)
+        status
+        ;;
+    verify)
+        verify
+        ;;
+    sync-hooks)
+        sync_hooks
+        ;;
+    *)
+        cat <<EOF
+Usage: $0 {setup|update|remove|status|verify|sync-hooks}
+
+Commands:
+  setup       - Initialize nftables and SQLite database
+  update      - Update traffic data from nftables counters
+  remove      - Remove nftables rules (database preserved)
+  status      - Show current status
+  verify      - Verify installation and dependencies
+  sync-hooks  - Re-enrol current br-lan members into the netdev hooks
+
+Configuration:
+  DB_FILE=$DB_FILE
+  CLEANUP_ENABLED=$CLEANUP_ENABLED
+  CLEANUP_INACTIVE_DAYS=$CLEANUP_INACTIVE_DAYS
+
+Architecture:
+  - nftables netdev table 'wrtbwmon_acct' with ingress + egress hooks
+    on every br-lan member (priority -300, before flow offload)
+  - SQLite database (persistent storage)
+  - Lua RPCD backend (web interface)
+
+Requirements:
+  - OpenWrt with kmod-nft-netdev (CONFIG_NETFILTER_INGRESS/EGRESS)
+  - firewall4 (nftables)
+  - sqlite3
+
+EOF
+        exit 1
+        ;;
+esac
+
+exit $?

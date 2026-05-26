@@ -1,0 +1,62 @@
+#!/bin/sh
+json_escape() {
+	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g'
+}
+
+kv() {
+	printf '"%s":"%s"' "$1" "$(json_escape "$2")"
+}
+
+num() {
+	case "$2" in
+	''|*[!0-9]*) printf '"%s":0' "$1" ;;
+	*) printf '"%s":%s' "$1" "$2" ;;
+	esac
+}
+
+uptime_s=$(cut -d. -f1 /proc/uptime 2>/dev/null || echo 0)
+loadavg=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || echo '')
+mem_total=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null)
+mem_avail=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null)
+swap_total=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo 2>/dev/null)
+swap_free=$(awk '/^SwapFree:/ {print $2}' /proc/meminfo 2>/dev/null)
+conntrack_count=$(cat /proc/sys/net/netfilter/nf_conntrack_count 2>/dev/null || echo 0)
+conntrack_max=$(cat /proc/sys/net/netfilter/nf_conntrack_max 2>/dev/null || echo 0)
+root_line=$(df -P / 2>/dev/null | awk 'NR==2 {print $2 " " $3 " " $4 " " $5}')
+overlay_line=$(df -P /overlay 2>/dev/null | awk 'NR==2 {print $2 " " $3 " " $4 " " $5}')
+tmp_line=$(df -P /tmp 2>/dev/null | awk 'NR==2 {print $2 " " $3 " " $4 " " $5}')
+log_kb=$(du -sk /var/log 2>/dev/null | awk '{print $1}')
+adguard_kb=$(du -sk /etc/adguardhome/work 2>/dev/null | awk '{print $1}')
+adguard_stats_kb=$(du -sk /etc/adguardhome/work/data/stats.db* 2>/dev/null | awk '{s += $1} END {print s + 0}')
+adguard_querylog_kb=$(du -sk /etc/adguardhome/work/data/querylog.json* 2>/dev/null | awk '{s += $1} END {print s + 0}')
+adguard_log_kb=$(du -sk /etc/adguardhome/AdGuardHome.log* 2>/dev/null | awk '{s += $1} END {print s + 0}')
+wrtbwmon_db=$(uci -q get wrtbwmon.general.db_file 2>/dev/null || echo /etc/wrtbwmon/traffic.db)
+case "$wrtbwmon_db" in
+	/etc/wrtbwmon/*.db) ;;
+	*) wrtbwmon_db=/etc/wrtbwmon/traffic.db ;;
+esac
+wrtbwmon_db_kb=$(du -sk "$wrtbwmon_db" "$wrtbwmon_db-wal" "$wrtbwmon_db-shm" 2>/dev/null | awk '{s += $1} END {print s + 0}')
+wrtbwmon_dir_kb=$(du -sk /etc/wrtbwmon 2>/dev/null | awk '{print $1}')
+modem_events_kb=$(du -sk /etc/zbt-modem-events 2>/dev/null | awk '{print $1}')
+temperature_kb=$(du -sk /etc/zbt-temperature 2>/dev/null | awk '{print $1}')
+
+set -- $root_line
+root_total=${1:-0}; root_used=${2:-0}; root_avail=${3:-0}; root_pct=${4:-0%}
+set -- $overlay_line
+overlay_total=${1:-0}; overlay_used=${2:-0}; overlay_avail=${3:-0}; overlay_pct=${4:-0%}
+set -- $tmp_line
+tmp_total=${1:-0}; tmp_used=${2:-0}; tmp_avail=${3:-0}; tmp_pct=${4:-0%}
+
+printf '{'
+num uptime "$uptime_s"; printf ','
+kv loadavg "$loadavg"; printf ','
+printf '"memory":{'; num total_kb "$mem_total"; printf ','; num available_kb "$mem_avail"; printf '}'; printf ','
+printf '"swap":{'; num total_kb "$swap_total"; printf ','; num free_kb "$swap_free"; printf '}'; printf ','
+printf '"filesystems":{'
+printf '"root":{'; num total_kb "$root_total"; printf ','; num used_kb "$root_used"; printf ','; num available_kb "$root_avail"; printf ','; kv used_pct "$root_pct"; printf '},'
+printf '"overlay":{'; num total_kb "$overlay_total"; printf ','; num used_kb "$overlay_used"; printf ','; num available_kb "$overlay_avail"; printf ','; kv used_pct "$overlay_pct"; printf '},'
+printf '"tmp":{'; num total_kb "$tmp_total"; printf ','; num used_kb "$tmp_used"; printf ','; num available_kb "$tmp_avail"; printf ','; kv used_pct "$tmp_pct"; printf '}'
+printf '},'
+printf '"conntrack":{'; num count "$conntrack_count"; printf ','; num max "$conntrack_max"; printf '}'; printf ','
+printf '"storage_hotspots":{'; num var_log_kb "$log_kb"; printf ','; num adguard_work_kb "$adguard_kb"; printf ','; num adguard_stats_kb "$adguard_stats_kb"; printf ','; num adguard_querylog_kb "$adguard_querylog_kb"; printf ','; num adguard_log_kb "$adguard_log_kb"; printf ','; num wrtbwmon_db_kb "$wrtbwmon_db_kb"; printf ','; num wrtbwmon_dir_kb "$wrtbwmon_dir_kb"; printf ','; num modem_events_kb "$modem_events_kb"; printf ','; num temperature_kb "$temperature_kb"; printf '}'
+printf '}\n'

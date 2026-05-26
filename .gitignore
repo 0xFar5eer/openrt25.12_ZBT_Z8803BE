@@ -10,6 +10,25 @@
 /build_dir
 /staging_dir
 /tmp
+
+# Build / harness artifacts specific to this fork
+/output
+/.buildenv/build.log
+/.buildenv/*.log
+/.buildenv/*.tmp
+/.buildenv/logs/
+/.buildenv/out/
+tmp.config
+tmp.config.old
+/version
+/version.date
+
+# Firmware release staging - only track README + .gitkeep, never binaries.
+/releases/*
+!/releases/*.md
+!/releases/.gitkeep
+# Reddit post stays local-only; never publish to the repo.
+/releases/REDDIT_POST.md
 /logs
 /feeds
 /feeds.conf
@@ -25,6 +44,8 @@ private-key.pem
 public-key.pem
 *.orig
 *.rej
+__pycache__/
+*.pyc
 *~
 .#*
 *#
@@ -35,3 +56,8 @@ git-src
 .cproject
 .ccache
 .vscode*
+.idea/
+
+# Private deployment-specific notes kept locally only.
+docs/multi-ap-roaming.md
+/.buildenv/local.env

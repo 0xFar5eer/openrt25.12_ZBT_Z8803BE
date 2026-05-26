@@ -1,0 +1,13 @@
+{
+	"luci-app-zbt-temperature": {
+		"description": "Grant access to ZBT temperature history",
+		"read": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/var/log/zbt-temperature/readings.csv": [ "read" ],
+				"/usr/sbin/zbt-temperature-log": [ "exec" ]
+			}
+		},
+		"write": {}
+	}
+}

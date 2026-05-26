@@ -1,0 +1,12 @@
+{
+	"luci-app-zbt-health": {
+		"description": "Grant access to ZBT router health status",
+		"read": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/usr/sbin/zbt-health-json": [ "exec" ]
+			}
+		},
+		"write": {}
+	}
+}

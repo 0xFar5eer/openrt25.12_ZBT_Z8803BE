@@ -1,0 +1,68 @@
+#!/bin/sh
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+find_wan_zone() {
+	local sec
+	for sec in $(uci -q show firewall 2>/dev/null | sed -nE 's/^firewall\.(@zone\[[0-9]+\])=zone$/\1/p'); do
+		if [ "$(uci -q get "firewall.${sec}.name")" = "wan" ]; then
+			echo "$sec"
+			return 0
+		fi
+	done
+	return 1
+}
+
+ensure_firewall() {
+	local wan_zone zone_networks
+	if wan_zone="$(find_wan_zone)"; then
+		zone_networks=$(uci -q get "firewall.${wan_zone}.network")
+		case " $zone_networks " in
+			*" usb_tether "*) ;;
+			*) uci -q add_list "firewall.${wan_zone}.network=usb_tether"; uci -q commit firewall ;;
+		esac
+	fi
+}
+
+if [ "$ACTION" = "remove" ] && [ -n "$DEVICENAME" ]; then
+	if [ "$(uci -q get network.usb_tether.device 2>/dev/null)" = "$DEVICENAME" ]; then
+		ifdown usb_tether >/dev/null 2>&1 || true
+		uci -q delete network.usb_tether.device
+		uci -q commit network
+		ip route flush cache 2>/dev/null || true
+	fi
+	exit 0
+fi
+
+[ "$ACTION" = "add" ] || exit 0
+[ -n "$DEVICENAME" ] || exit 0
+
+case "$DEVICENAME" in
+	eth0|eth1|eth2|lan*|br-*|wan|wlan*|ap-*|phy*|wwan*) exit 0 ;;
+esac
+
+SYS="/sys/class/net/$DEVICENAME"
+[ -d "$SYS" ] || exit 0
+
+driver="$(sed -n 's/^DRIVER=//p' "$SYS/device/uevent" 2>/dev/null | head -n 1)"
+case "$driver" in
+	ipheth|rndis_host|cdc_ether|cdc_ncm) ;;
+	*) exit 0 ;;
+esac
+
+uci -q set network.usb_tether=interface
+uci -q set network.usb_tether.proto='dhcp'
+uci -q set network.usb_tether.device="$DEVICENAME"
+uci -q set network.usb_tether.metric='50'
+uci -q set network.usb_tether.defaultroute='1'
+uci -q set network.usb_tether.peerdns='0'
+uci -q commit network
+ensure_firewall
+
+[ -x /etc/init.d/usbmuxd ] && /etc/init.d/usbmuxd start >/dev/null 2>&1 || true
+ifup usb_tether >/dev/null 2>&1 || true
+ip route flush cache 2>/dev/null || true
+logger -t zbt-usb-tether "$DEVICENAME driver=$driver configured as usb_tether metric 50"

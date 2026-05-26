@@ -1,0 +1,37 @@
+#!/bin/sh
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+        zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+        *) exit 0 ;;
+esac
+
+install_if_changed() {
+        local src=$1
+        local dst=$2
+        local mode=$3
+
+        [ -r "$src" ] || return 0
+        [ -d "$(dirname "$dst")" ] || return 0
+
+        if [ ! -e "$dst" ] || ! cmp -s "$src" "$dst"; then
+                cp -f "$src" "$dst"
+                chmod "$mode" "$dst"
+                return 1
+        fi
+
+        return 0
+}
+
+changed_wifihistory=0
+install_if_changed /usr/lib/zbt/wifihistory /usr/sbin/wifihistory 0755 || changed_wifihistory=1
+install_if_changed /usr/lib/zbt/wifihistory.uc /usr/share/rpcd/ucode/wifihistory.uc 0644 || changed_wifihistory=1
+
+if [ "$changed_wifihistory" = "1" ]; then
+        [ -f /etc/wifihistory/history.json ] || {
+                mkdir -p /etc/wifihistory
+                [ -f /var/lib/wifihistory/history.json ] && cp /var/lib/wifihistory/history.json /etc/wifihistory/history.json 2>/dev/null || true
+        }
+        [ -x /etc/init.d/wifihistory ] && /etc/init.d/wifihistory restart >/dev/null 2>&1 || true
+        [ -x /etc/init.d/rpcd ] && /etc/init.d/rpcd restart >/dev/null 2>&1 || true
+fi
+
+exit 0

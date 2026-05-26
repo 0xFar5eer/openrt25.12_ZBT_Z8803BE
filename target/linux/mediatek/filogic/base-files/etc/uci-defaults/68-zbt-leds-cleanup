@@ -1,0 +1,49 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Sysupgrade migration: clean up the static UCI led entries that
+# earlier ZBT-Z8803BE firmwares used to drive the SYS LED. The new
+# scheme uses a state-machine helper (/etc/zbt-leds.sh) driven by
+# /etc/init.d/zbt-leds and hotplug.d/iface, so static led_* sections
+# in /etc/config/system would only fight the helper on every
+# `service led restart` and force the LEDs back to the old static
+# pattern (solid blue + netdev green).
+#
+# We name the legacy sections by the same UCI option name that
+# board.d/01_leds previously used (led_power, led_wan) so this is
+# guaranteed to clean up exactly the entries we previously
+# created. New installs that go through firstboot won't have these
+# sections to begin with — uci delete is idempotent on missing
+# sections.
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+# Track whether we changed anything so we only commit + restart
+# /etc/init.d/led when there's actually something to flush.
+changed=0
+for sect in led_power led_wan; do
+	if uci -q get "system.${sect}" >/dev/null 2>&1; then
+		uci -q delete "system.${sect}"
+		changed=1
+	fi
+done
+
+if [ "$changed" = "1" ]; then
+	uci commit system
+	# Tell the led service to re-read /etc/config/system. Without
+	# this the running state still reflects the old (now-deleted)
+	# led_* entries until next reboot, which would mean the user's
+	# first boot post-upgrade still shows the old solid-blue +
+	# netdev-green scheme rather than the new state machine.
+	/etc/init.d/led reload >/dev/null 2>&1 || true
+	# Repaint immediately into a sensible post-upgrade state. We
+	# don't know if a default route exists yet (this script runs
+	# in a one-shot uci-defaults context with no guaranteed network
+	# state), so let the regular hotplug path handle online/offline
+	# selection on the next ifup. Painting "boot" orange in the
+	# meantime is the same UX as a fresh boot.
+	[ -x /etc/zbt-leds.sh ] && /etc/zbt-leds.sh boot
+fi
+
+exit 0

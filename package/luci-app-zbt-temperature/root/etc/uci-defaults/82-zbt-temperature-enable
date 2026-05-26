@@ -1,0 +1,8 @@
+#!/bin/sh
+
+board=$(cat /tmp/sysinfo/board_name 2>/dev/null || true)
+[ "$board" = "zbtlink,zbt-z8803be" ] || exit 0
+[ -x /etc/init.d/zbt_temperature ] || exit 0
+/etc/init.d/zbt_temperature enable >/dev/null 2>&1 || true
+/etc/init.d/zbt_temperature start >/dev/null 2>&1 || true
+exit 0

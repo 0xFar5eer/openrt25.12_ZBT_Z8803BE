@@ -1,0 +1,141 @@
+{
+	"admin/services/zbt-health": {
+		"title": "Health",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "zbt8803be/health"
+		},
+		"depends": {
+			"acl": [ "luci-app-zbt-health" ]
+		}
+	},
+	"admin/services/wifi-clients": {
+		"order": 20,
+		"title": "WiFi Clients"
+	},
+	"admin/services/wifihistory": {
+		"title": "WiFi Client History",
+		"order": 21,
+		"action": {
+			"type": "view",
+			"path": "status/wifihistory"
+		},
+		"depends": {
+			"acl": [ "luci-app-wifihistory" ],
+			"uci": { "wireless": { "@wifi-device": true } }
+		}
+	},
+	"admin/status/wifihistory": {
+		"depends": {
+			"fs": {
+				"/__zbt_hidden_status_wifihistory": "file"
+			}
+		}
+	},
+	"admin/services/traffic": {
+		"title": "Traffic Statistics",
+		"order": 30
+	},
+	"admin/services/system-statistics": {
+		"title": "System Statistics",
+		"order": 31,
+		"action": {
+			"type": "view",
+			"path": "statistics/graphs"
+		},
+		"depends": {
+			"acl": [ "luci-app-statistics" ],
+			"uci": { "luci_statistics": true }
+		}
+	},
+	"admin/statistics": {
+		"depends": {
+			"fs": {
+				"/__zbt_hidden_admin_statistics": "file"
+			}
+		}
+	},
+	"admin/services/mwan3": {
+		"title": "Multi-WAN",
+		"order": 45,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-mwan3" ]
+		}
+	},
+	"admin/services/mwan3/globals": {
+		"title": "Globals",
+		"order": 10,
+		"action": { "type": "view", "path": "mwan3/network/globals" },
+		"depends": { "acl": [ "luci-app-mwan3" ] }
+	},
+	"admin/services/mwan3/interface": {
+		"title": "Interface",
+		"order": 20,
+		"action": { "type": "view", "path": "mwan3/network/interface" },
+		"depends": { "acl": [ "luci-app-mwan3" ] }
+	},
+	"admin/services/mwan3/member": {
+		"title": "Member",
+		"order": 30,
+		"action": { "type": "view", "path": "mwan3/network/member" },
+		"depends": { "acl": [ "luci-app-mwan3" ] }
+	},
+	"admin/services/mwan3/policy": {
+		"title": "Policy",
+		"order": 40,
+		"action": { "type": "view", "path": "mwan3/network/policy" },
+		"depends": { "acl": [ "luci-app-mwan3" ] }
+	},
+	"admin/services/mwan3/rule": {
+		"title": "Rule",
+		"order": 50,
+		"action": { "type": "view", "path": "mwan3/network/rule" },
+		"depends": { "acl": [ "luci-app-mwan3" ] }
+	},
+	"admin/services/mwan3/overview": {
+		"title": "Overview",
+		"order": 60,
+		"action": { "type": "view", "path": "mwan3/status/overview" },
+		"depends": { "acl": [ "luci-app-mwan3-status" ] }
+	},
+	"admin/network/mwan3": {
+		"depends": { "fs": { "/__zbt_hidden_network_mwan3": "file" } }
+	},
+	"admin/status/mwan3": {
+		"depends": { "fs": { "/__zbt_hidden_status_mwan3": "file" } }
+	},
+	"admin/services/qosmate": {
+		"order": 51,
+		"title": "QoSmate"
+	},
+	"admin/network/qosmate": {
+		"depends": {
+			"fs": {
+				"/__zbt_hidden_network_qosmate": "file"
+			}
+		}
+	},
+	"admin/services/zbt-temperature": {
+		"title": "Temperature",
+		"order": 40
+	},
+	"admin/services/zbt-modem-events": {
+		"order": 50
+	},
+	"admin/services/youtubeUnblock": {
+		"order": 60
+	},
+	"admin/services/adguardhome": {
+		"order": 70
+	},
+	"admin/services/ddns": {
+		"order": 120
+	},
+	"admin/services/irqbalance": {
+		"order": 130
+	}
+}

@@ -1,0 +1,36 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Set the LuCI default theme to Argon
+# (https://github.com/jerrykuku/luci-theme-argon) if the package is
+# installed. Runs once; user-chosen themes via LuCI settings will
+# survive future sysupgrades because this only writes on a fresh
+# /etc/config/luci (sysupgrade -n case) or when the knob hasn't
+# been touched yet.
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+# Only flip the default if the theme is actually present on disk.
+[ -d "/www/luci-static/argon" ] || exit 0
+
+# Force argon. Every bundled theme (alpha/aurora/glass/...) ships a
+# postinst that also writes mediaurlbase, and alphabetical order means
+# glass's setting usually wins if we don't override. Our 100- prefix
+# runs last so we get final say.
+uci -q set luci.main.mediaurlbase='/luci-static/argon'
+uci -q commit luci
+
+# Force argon into dark mode via luci-app-argon-config (argon itself
+# uses prefers-color-scheme otherwise). The uci file ships with
+# option mode 'normal' upstream; switch it to 'dark'.
+if [ -f /etc/config/argon ] && uci -q get argon.@global[0] >/dev/null 2>&1; then
+	if [ "$(uci -q get argon.@global[0].mode)" = "normal" ]; then
+		uci -q set argon.@global[0].mode='dark'
+		uci -q commit argon
+	fi
+fi
+
+exit 0

@@ -1,0 +1,182 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# zbt-modem-reboot-guard — gated AT+CFUN=1,1 modem soft-reset.
+#
+# WAN-only is the firmware default. If cellular monitoring is explicitly
+# enabled later, qmodem_monitor can invoke this through its `run_scripts`
+# action. The monitor itself reaches threshold after ~60 s of consecutive
+# failures and would otherwise re-fire every ~105 s (interval*threshold +
+# the post-action 60 s sleep in modem_monitor.sh:327). This wrapper
+# applies extra guards before the AT+CFUN reset goes out:
+#
+#   1. Boot grace
+#       Skip if the router has been up for less than $BOOT_GRACE_S
+#       (default 300 s). Cellular link comes up via several layers:
+#       USB enumeration -> qmodem detect -> quectel-CM-M dial ->
+#       carrier attach + IP. On the worst SIM swap we've seen it can
+#       take ~120 s for the first ping packet to make it to 1.0.0.1
+#       even with a healthy modem. A premature reboot during that
+#       window just adds another 30 s to the cold-start delay and can
+#       pile on top of qmodem's own first-detect dial loop. Five
+#       minutes is the smallest grace that absorbs a worst-case cold
+#       boot on Smart/Globe PH and does not measurably reduce uptime.
+#
+#   2. Inter-reboot lockout
+#       Skip if /tmp/zbt-modem-reboot.lock was touched in the last
+#       $LOCKOUT_S (default 300 s). Stops a flapping carrier or a
+#       wedged modem firmware from racking up back-to-back AT+CFUN
+#       resets — each reset takes ~30 s of attach time, so faster than
+#       once per 5 min would just keep the modem permanently
+#       half-attached without ever serving traffic.
+#
+# Both knobs default to 300 s. They can be overridden per-deploy via
+# /etc/config/qmodem main section options:
+#       option zbt_reboot_boot_grace 300
+#       option zbt_reboot_lockout    300
+# (uci main section is shared with all of qmodem's existing globals;
+# using a zbt_-prefixed option keeps us out of qmodem's stock keys.)
+#
+# Modem ID resolution:
+#   The qmodem run_scripts dispatch path (modem_monitor.sh:198) does
+#   not pass the failing modem ID to user scripts. We only proceed when
+#   a modem-device section is explicitly configured with monitor_enabled=1.
+#
+# AT command:
+#   AT+CFUN=1,1 — Quectel/3GPP soft reset (full re-attach). Faster
+#   than a USB power cycle and does not require GPIO access or
+#   modem_power.sh.
+#
+# Logging:
+#   All paths log via `logger -t zbt-modem-reboot-guard` so the run
+#   shows up in `logread -e zbt-modem-reboot-guard` for forensic
+#   analysis after a reset cycle.
+
+set -e
+
+LOCK_FILE="/tmp/zbt-modem-reboot.lock"
+BOOT_GRACE_S_DEFAULT=300
+LOCKOUT_S_DEFAULT=300
+
+log() {
+        logger -t zbt-modem-reboot-guard "$1"
+}
+
+record_event() {
+        [ -x /usr/sbin/zbt-modem-events ] || return 0
+        /usr/sbin/zbt-modem-events record "$@" >/dev/null 2>&1 || true
+}
+
+# --- read tunables (may be unset; use defaults) ----------------------------
+. /lib/functions.sh
+config_load qmodem 2>/dev/null || true
+config_get BOOT_GRACE_S main zbt_reboot_boot_grace "$BOOT_GRACE_S_DEFAULT"
+config_get LOCKOUT_S    main zbt_reboot_lockout    "$LOCKOUT_S_DEFAULT"
+
+# Sanitize: must be positive integers; fall back silently otherwise.
+case "$BOOT_GRACE_S" in *[!0-9]*|"") BOOT_GRACE_S=$BOOT_GRACE_S_DEFAULT ;; esac
+case "$LOCKOUT_S"    in *[!0-9]*|"") LOCKOUT_S=$LOCKOUT_S_DEFAULT       ;; esac
+
+# --- guard 1: boot grace ----------------------------------------------------
+UPTIME_S=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)
+if [ "$UPTIME_S" -lt "$BOOT_GRACE_S" ]; then
+        log "skip: router uptime ${UPTIME_S}s < boot grace ${BOOT_GRACE_S}s"
+        record_event monitor auto_reboot_skipped warning "" "Monitor reboot skipped by boot grace" "uptime=${UPTIME_S}s boot_grace=${BOOT_GRACE_S}s"
+        exit 0
+fi
+
+# --- guard 2: inter-reboot lockout -----------------------------------------
+if [ -f "$LOCK_FILE" ]; then
+        # Use stat -c %Y if available; busybox stat does support it.
+        LOCK_MTIME=$(stat -c %Y "$LOCK_FILE" 2>/dev/null || echo 0)
+        NOW=$(date +%s)
+        AGE=$(( NOW - LOCK_MTIME ))
+        if [ "$AGE" -lt "$LOCKOUT_S" ]; then
+                log "skip: last reboot ${AGE}s ago < lockout ${LOCKOUT_S}s"
+                record_event monitor auto_reboot_skipped warning "" "Monitor reboot skipped by lockout" "last_reboot_age=${AGE}s lockout=${LOCKOUT_S}s"
+                exit 0
+        fi
+fi
+
+# --- locate AT port via UCI ------------------------------------------------
+AT_PORT=""
+TARGET_SECTION=""
+
+_find_monitored() {
+        local sec=$1
+        local en
+        config_get en "$sec" monitor_enabled 0
+        [ "$en" = "1" ] || return 0
+        # First match wins (single cellular modem on this board).
+        [ -n "$TARGET_SECTION" ] && return 0
+        TARGET_SECTION=$sec
+}
+config_foreach _find_monitored modem-device
+
+if [ -z "$TARGET_SECTION" ]; then
+        log "skip: no modem-device section has monitor_enabled=1"
+        record_event monitor auto_reboot_skipped warning "" "Monitor reboot skipped because monitoring is disabled" "monitor_enabled=0"
+        exit 0
+fi
+
+config_get AT_PORT "$TARGET_SECTION" at_port
+
+if [ -z "$AT_PORT" ] || [ ! -e "$AT_PORT" ]; then
+        log "skip: no AT port resolved for section ${TARGET_SECTION} (got '${AT_PORT:-empty}')"
+        record_event monitor auto_reboot_skipped warning "$TARGET_SECTION" "Monitor reboot skipped because AT port is missing" "at_port=${AT_PORT:-empty}"
+        exit 0
+fi
+
+query_cpin() {
+	local out
+
+	if command -v tom_modem >/dev/null 2>&1; then
+		out=$(tom_modem -d "$AT_PORT" -o a -c "AT+CPIN?" -t 5 2>&1 || true)
+		[ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+	fi
+	if command -v sms_tool >/dev/null 2>&1; then
+		out=$(sms_tool -d "$AT_PORT" -t 5 at "AT+CPIN?" 2>&1 || true)
+		[ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+	fi
+	if command -v sms_tool_q >/dev/null 2>&1; then
+		out=$(sms_tool_q -d "$AT_PORT" at "AT+CPIN?" 2>&1 || true)
+		[ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+	fi
+	if [ -r /usr/share/qmodem/modem_util.sh ]; then
+		out=$(. /usr/share/qmodem/modem_util.sh; at "$AT_PORT" "AT+CPIN?" 2>&1 || true)
+		[ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+	fi
+
+	return 1
+}
+
+CPIN_OUT=$(query_cpin || true)
+case "$CPIN_OUT" in
+	*"+CME ERROR: 10"*|*"SIM not inserted"*|*"SIM NOT INSERTED"*|*"NO SIM"*|*"No SIM"*)
+		log "skip: no SIM present on section ${TARGET_SECTION}; not rebooting modem"
+		record_event monitor auto_reboot_skipped warning "$TARGET_SECTION" "Monitor reboot skipped because SIM is missing" "at_port=${AT_PORT}"
+		exit 0
+		;;
+esac
+
+# --- engage --------------------------------------------------------------
+# Touch lock BEFORE issuing the AT command. If sms_tool blocks for any
+# reason, the lock is still in place and the next monitor cycle won't
+# pile on. Worst case: lock file exists but reset never happened — then
+# the modem stays down for one more 5 min cycle, which is the same
+# blast radius as a real failed reset.
+touch "$LOCK_FILE"
+
+log "trigger: section=${TARGET_SECTION} at_port=${AT_PORT} uptime=${UPTIME_S}s — sending AT+CFUN=1,1"
+
+if [ -x /usr/sbin/zbt-modem-soft-reboot ]; then
+	/usr/sbin/zbt-modem-soft-reboot -d "$AT_PORT" --section "$TARGET_SECTION" --source monitor --reason auto_reboot >/dev/null 2>&1 \
+		&& log "AT+CFUN=1,1 dispatched OK" \
+		|| { log "WARN: AT+CFUN=1,1 dispatch failed (soft reboot helper exit non-zero)"; record_event monitor auto_reboot_failed danger "$TARGET_SECTION" "Monitor auto reboot failed" "at_port=${AT_PORT}"; }
+else
+	log "WARN: soft reboot helper missing; cannot send reset"
+	record_event monitor auto_reboot_failed danger "$TARGET_SECTION" "Monitor auto reboot failed" "soft reboot helper missing"
+	exit 1
+fi
+
+exit 0
