@@ -1,0 +1,18 @@
+#!/bin/sh
+# Disable the zbt_qmodem_watchdog procd service on first boot.
+#
+# Pairs with /etc/init.d/zbt_qmodem_watchdog and
+# /etc/hotplug.d/usb/40-zbt-qmodem-autoenable historically kept
+# qmodem.4_1.state enabled during cellular failover deployments.
+#
+# Board guard: ZBT-Z8803BE only.
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+        zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+        *) exit 0 ;;
+esac
+
+if [ -x /etc/init.d/zbt_qmodem_watchdog ]; then
+	/etc/init.d/zbt_qmodem_watchdog disable
+fi
+
+exit 0

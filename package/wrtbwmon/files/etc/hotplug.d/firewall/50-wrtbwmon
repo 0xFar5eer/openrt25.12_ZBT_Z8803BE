@@ -1,0 +1,42 @@
+#!/bin/sh
+# Hotplug for fw4 reload events.
+#
+# When firewall4 reloads it recreates the `inet fw4` table from scratch.
+# wrtbwmon's accounting now lives in `netdev wrtbwmon_acct`, so a fw4
+# reload no longer destroys our state. We still re-run nft_init to:
+#   1. Re-purge any wrtbwmon-* leftovers from the freshly recreated
+#      `inet fw4` (in case fw4 user-rules end up adding any).
+#   2. Re-assert the netdev hooks, since LAN bridge members may have
+#      been recreated as part of the reload (e.g. wifi reload).
+# Idempotent and inexpensive.
+
+[ "$ACTION" = "reload" ] || exit 0
+
+LIB_DIR="/usr/lib/wrtbwmon"
+[ -d "/etc/hotplug.d/../lib/wrtbwmon" ] && LIB_DIR="/etc/hotplug.d/../lib/wrtbwmon"
+
+. "$LIB_DIR/logger.sh"        || exit 1
+. "$LIB_DIR/error_handler.sh" || exit 1
+. "$LIB_DIR/config.sh"        || exit 1
+. "$LIB_DIR/chain_manager.sh" || exit 1
+
+log_init "wrtbwmon-hotplug-fw" "${LOG_LEVEL:-info}"
+config_load
+[ "$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] || exit 0
+
+# Give fw4 a moment to settle so flowtable + hooks are in place.
+sleep 2
+
+if nft_init; then
+    log_info "wrtbwmon netdev accounting re-asserted after fw4 reload"
+else
+    log_error "Failed to re-assert wrtbwmon netdev accounting"
+fi
+
+# Restore domain tracking chains - the device chains and domain sets in
+# our netdev table are unaffected, but if anything ever drops them we
+# repopulate from the SQLite cache here.
+if [ "$DOMAIN_TRACKING_ENABLED" = "1" ] && [ -x /usr/sbin/wrtbwmon-domain-manager.py ]; then
+    config_export
+    /usr/sbin/wrtbwmon-domain-manager.py ensure-dispatch >/dev/null 2>&1 || true
+fi

@@ -1,0 +1,67 @@
+#!/bin/sh
+
+set -e
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) echo "unsupported board"; exit 1 ;;
+esac
+
+find_wan_zone() {
+	local sec
+	for sec in $(uci -q show firewall 2>/dev/null | sed -nE 's/^firewall\.(@zone\[[0-9]+\])=zone$/\1/p'); do
+		if [ "$(uci -q get "firewall.${sec}.name")" = "wan" ]; then
+			echo "$sec"
+			return 0
+		fi
+	done
+	return 1
+}
+
+uci -q set network.usb_tether=interface
+uci -q set network.usb_tether.proto='dhcp'
+uci -q set network.usb_tether.metric='50'
+uci -q set network.usb_tether.defaultroute='1'
+uci -q set network.usb_tether.peerdns='0'
+
+for net in /sys/class/net/*; do
+	[ -e "$net" ] || continue
+	dev="${net##*/}"
+	case "$dev" in
+		eth0|eth1|eth2|lan*|br-*|wan|wlan*|ap-*|phy*|wwan*) continue ;;
+	esac
+	driver="$(sed -n 's/^DRIVER=//p' "$net/device/uevent" 2>/dev/null | head -n 1)"
+	case "$driver" in
+		ipheth|rndis_host|cdc_ether|cdc_ncm)
+			uci -q set network.usb_tether.device="$dev"
+			break
+			;;
+	esac
+done
+
+uci -q commit network
+
+if wan_zone="$(find_wan_zone)"; then
+	zone_networks=$(uci -q get "firewall.${wan_zone}.network")
+	case " $zone_networks " in
+		*" usb_tether "*) ;;
+		*) uci -q add_list "firewall.${wan_zone}.network=usb_tether" ;;
+	esac
+	uci -q commit firewall
+fi
+
+if [ -x /etc/init.d/usbmuxd ]; then
+	/etc/init.d/usbmuxd enable >/dev/null 2>&1 || true
+	/etc/init.d/usbmuxd start >/dev/null 2>&1 || true
+fi
+
+if command -v idevicepair >/dev/null 2>&1; then
+	idevicepair pair >/dev/null 2>&1 || true
+fi
+
+/etc/init.d/firewall reload >/dev/null 2>&1 || true
+ifup usb_tether >/dev/null 2>&1 || true
+
+echo "usb_tether metric=$(uci -q get network.usb_tether.metric)"
+echo "usb_tether device=$(uci -q get network.usb_tether.device 2>/dev/null || echo unset)"
+ip -4 route show default

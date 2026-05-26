@@ -1,0 +1,47 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Boot-time LED state for ZBT-Z8803BE: paint the front panel orange
+# (red+green blinking) the moment procd brings userspace up, so the
+# user gets visual feedback that the router is alive *before*
+# networks come up. Once /etc/init.d/network finishes and the first
+# wan/wwan ifup hotplug fires, hotplug.d/iface/40-zbt-status-led
+# takes over and switches us to green (online) or blue (offline).
+#
+# START priority is 10 — after rcS basics (filesystem, sysctl,
+# urandom) have settled but before /etc/init.d/network at 20 kicks
+# off DHCP / modem dial. That's the sweet spot where the chassis
+# can announce "loading" without false-greens during a one-second
+# window when network init has populated routes but no hotplug has
+# fired yet. STOP=99 isn't strictly meaningful for this service
+# (we don't tear LEDs down on graceful shutdown — the kernel does
+# that when sysfs goes away), but procd warns if it's missing.
+
+START=10
+STOP=99
+
+# Board guard: this whole package's base-files tree is shared with
+# every filogic build, but the LED scheme described in zbt-leds.sh
+# only matches the Z8803BE chassis. Bail silently on any other
+# board so we don't accidentally clobber LEDs whose meaning we
+# don't know.
+boot() {
+	case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+		zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+		*) return 0 ;;
+	esac
+	[ -x /etc/zbt-leds.sh ] || return 0
+	/etc/zbt-leds.sh boot
+}
+
+# start/stop are required for procd to consider this a valid init
+# script. The boot hook above runs once at first userspace; we
+# don't expose a runtime "service zbt-leds restart" because the
+# state machine should be event-driven (hotplug, watchdog) rather
+# than manual.
+start() {
+	:
+}
+
+stop() {
+	:
+}

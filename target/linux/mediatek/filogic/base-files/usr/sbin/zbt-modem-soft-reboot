@@ -1,0 +1,143 @@
+#!/bin/sh
+
+AT_CMD='AT+CFUN=1,1'
+PORT=''
+SECTION=''
+SOURCE='manual'
+REASON='manual_reboot'
+MONITOR_COOLDOWN_HELPER="/usr/sbin/zbt-modem-monitor-cooldown"
+
+log() {
+	logger -t zbt-modem-soft-reboot "$1"
+}
+
+record_event() {
+	[ -x /usr/sbin/zbt-modem-events ] || return 0
+	/usr/sbin/zbt-modem-events record "$@" >/dev/null 2>&1 || true
+}
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-d|--device|--port)
+			[ $# -ge 2 ] || exit 1
+			PORT=$2
+			shift 2
+			;;
+		-s|--section)
+			[ $# -ge 2 ] || exit 1
+			SECTION=$2
+			shift 2
+			;;
+		--source)
+			[ $# -ge 2 ] || exit 1
+			SOURCE=$2
+			shift 2
+			;;
+		--reason)
+			[ $# -ge 2 ] || exit 1
+			REASON=$2
+			shift 2
+			;;
+		*)
+			shift
+			;;
+	esac
+done
+
+case "$SECTION" in
+	*[!A-Za-z0-9_]*)
+		log "failed: invalid qmodem section '${SECTION}'"
+		record_event "$SOURCE" reboot_failed danger "$SECTION" "Modem reboot failed" "invalid section"
+		exit 1
+		;;
+esac
+
+if [ -z "$PORT" ] && [ -n "$SECTION" ]; then
+	PORT=$(uci -q get "qmodem.${SECTION}.override_at_port")
+	[ -n "$PORT" ] || PORT=$(uci -q get "qmodem.${SECTION}.at_port")
+fi
+
+if [ -z "$PORT" ]; then
+	for candidate in \
+		$(uci -q show qmodem 2>/dev/null | sed -n "s/.*\.override_at_port='\([^']*\)'.*/\1/p") \
+		$(uci -q show qmodem 2>/dev/null | sed -n "s/.*\.at_port='\([^']*\)'.*/\1/p") \
+		/dev/ttyUSB5 /dev/ttyUSB3 /dev/ttyUSB2 /dev/ttyUSB1 /dev/mhi_DUN /dev/at_pcie0 /dev/at_pcie1
+	do
+		[ -e "$candidate" ] || continue
+		PORT=$candidate
+		break
+	done
+fi
+
+case "$PORT" in
+	/dev/*) ;;
+	*)
+		log "failed: refused non-device AT port '${PORT:-empty}'"
+		record_event "$SOURCE" reboot_failed danger "$SECTION" "Modem reboot failed" "refused non-device AT port ${PORT:-empty}"
+		exit 1
+		;;
+esac
+
+if [ -z "$PORT" ] || [ ! -e "$PORT" ]; then
+	log "failed: no AT port available (section=${SECTION:-auto}, port=${PORT:-empty})"
+	record_event "$SOURCE" reboot_failed danger "$SECTION" "Modem reboot failed" "no AT port available port=${PORT:-empty}"
+	exit 1
+fi
+
+send_with_sms_tool() {
+	local tool=$1
+	"$tool" -d "$PORT" -t 8 at "$AT_CMD" 2>&1
+}
+
+send_with_tom_modem() {
+	tom_modem -d "$PORT" -o a -c "$AT_CMD" -t 8 2>&1
+}
+
+send_with_qmodem_at() {
+	. /usr/share/qmodem/modem_util.sh
+	at "$PORT" "$AT_CMD" 2>&1
+}
+
+for method in sms_tool sms_tool_q tom_modem qmodem_at; do
+	case "$method" in
+		sms_tool)
+			command -v sms_tool >/dev/null 2>&1 || continue
+			out=$(send_with_sms_tool sms_tool)
+			;;
+		sms_tool_q)
+			command -v sms_tool_q >/dev/null 2>&1 || continue
+			out=$(send_with_sms_tool sms_tool_q)
+			;;
+		tom_modem)
+			command -v tom_modem >/dev/null 2>&1 || continue
+			out=$(send_with_tom_modem)
+			;;
+		qmodem_at)
+			[ -r /usr/share/qmodem/modem_util.sh ] || continue
+			out=$(send_with_qmodem_at)
+			;;
+	esac
+	status=$?
+	if printf '%s\n' "$out" | grep -Eiq '(^|[^A-Z])OK([^A-Z]|$)'; then
+		log "ok: ${method} dispatched ${AT_CMD} on ${PORT}"
+		case "$REASON" in
+			auto_reboot)
+				record_event "$SOURCE" auto_reboot danger "${SECTION:-auto}" "Monitor auto rebooted modem" "method=${method} port=${PORT} command=${AT_CMD}"
+				;;
+			*)
+				case "$SOURCE" in
+					monitor) ;;
+					*) [ -x "$MONITOR_COOLDOWN_HELPER" ] && "$MONITOR_COOLDOWN_HELPER" mark-manual "${SECTION:-auto}" "$REASON" >/dev/null 2>&1 || true ;;
+				esac
+				record_event "$SOURCE" manual_reboot warning "${SECTION:-auto}" "Manual modem reboot dispatched" "method=${method} port=${PORT} command=${AT_CMD}"
+				;;
+		esac
+		printf '%s\n' "$out"
+		exit 0
+	fi
+	log "warn: ${method} failed on ${PORT} (exit=${status})"
+done
+
+log "failed: unable to dispatch ${AT_CMD} on ${PORT}"
+record_event "$SOURCE" reboot_failed danger "${SECTION:-auto}" "Modem reboot failed" "all methods failed port=${PORT} command=${AT_CMD}"
+exit 1

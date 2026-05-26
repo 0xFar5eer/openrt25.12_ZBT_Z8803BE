@@ -1,0 +1,116 @@
+#!/bin/sh
+
+COOLDOWN_FILE="/tmp/zbt-qmodem-monitor-action.lock"
+EXPIRY_FILE="/tmp/zbt-qmodem-monitor-action.until"
+DEFAULT_MANUAL_COOLDOWN_S=600
+DEFAULT_ACTION_COOLDOWN_S=300
+
+log() {
+	logger -t zbt-modem-monitor-cooldown "$1"
+}
+
+record_event() {
+	[ -x /usr/sbin/zbt-modem-events ] || return 0
+	/usr/sbin/zbt-modem-events record "$@" >/dev/null 2>&1 || true
+}
+
+load_defaults() {
+	. /lib/functions.sh
+	config_load qmodem 2>/dev/null || true
+	config_get MANUAL_COOLDOWN_S main zbt_manual_reboot_cooldown "$DEFAULT_MANUAL_COOLDOWN_S"
+	config_get ACTION_COOLDOWN_S main zbt_monitor_cooldown "$DEFAULT_ACTION_COOLDOWN_S"
+	case "$MANUAL_COOLDOWN_S" in *[!0-9]*|"") MANUAL_COOLDOWN_S=$DEFAULT_MANUAL_COOLDOWN_S ;; esac
+	case "$ACTION_COOLDOWN_S" in *[!0-9]*|"") ACTION_COOLDOWN_S=$DEFAULT_ACTION_COOLDOWN_S ;; esac
+	[ "$MANUAL_COOLDOWN_S" -gt 0 ] || MANUAL_COOLDOWN_S=$DEFAULT_MANUAL_COOLDOWN_S
+	[ "$ACTION_COOLDOWN_S" -gt 0 ] || ACTION_COOLDOWN_S=$DEFAULT_ACTION_COOLDOWN_S
+}
+
+now_s() {
+	date +%s 2>/dev/null || echo 0
+}
+
+write_expiry() {
+	local until source section reason duration now tmp
+	source=$1
+	section=$2
+	reason=$3
+	duration=$4
+	now=$(now_s)
+	until=$(( now + duration ))
+	tmp="${EXPIRY_FILE}.$$"
+	{
+		echo "until=$until"
+		echo "source=$source"
+		echo "section=$section"
+		echo "reason=$reason"
+		echo "duration=$duration"
+		echo "created=$now"
+	} > "$tmp" 2>/dev/null && mv "$tmp" "$EXPIRY_FILE" 2>/dev/null || rm -f "$tmp"
+	touch "$COOLDOWN_FILE" 2>/dev/null || true
+	log "marked cooldown: source=${source} section=${section:-auto} reason=${reason} duration=${duration}s until=${until}"
+	record_event "$source" monitor_cooldown warning "${section:-auto}" "Monitor cooldown started" "reason=${reason} duration=${duration}s until=${until}"
+}
+
+read_expiry_until() {
+	local until
+	[ -r "$EXPIRY_FILE" ] || return 1
+	until=$(sed -n 's/^until=//p' "$EXPIRY_FILE" 2>/dev/null | head -n1)
+	case "$until" in *[!0-9]*|"") return 1 ;; esac
+	printf '%s\n' "$until"
+}
+
+legacy_remaining() {
+	local mtime now age duration
+	duration=${1:-$ACTION_COOLDOWN_S}
+	[ -f "$COOLDOWN_FILE" ] || return 1
+	mtime=$(stat -c %Y "$COOLDOWN_FILE" 2>/dev/null || echo 0)
+	now=$(now_s)
+	case "$mtime" in *[!0-9]*|"") return 1 ;; esac
+	age=$(( now - mtime ))
+	[ "$age" -ge 0 ] || age=0
+	[ "$age" -lt "$duration" ] || return 1
+	printf '%s\n' "$(( duration - age ))"
+}
+
+remaining() {
+	local until now rem legacy
+	until=$(read_expiry_until 2>/dev/null || true)
+	now=$(now_s)
+	if [ -n "$until" ]; then
+		rem=$(( until - now ))
+		if [ "$rem" -gt 0 ]; then
+			printf '%s\n' "$rem"
+			return 0
+		fi
+		rm -f "$EXPIRY_FILE" 2>/dev/null || true
+	fi
+	legacy=$(legacy_remaining "$ACTION_COOLDOWN_S" 2>/dev/null || true)
+	[ -n "$legacy" ] || return 1
+	printf '%s\n' "$legacy"
+}
+
+load_defaults
+cmd=${1:-active}
+case "$cmd" in
+	mark-manual)
+		write_expiry qmodem "${2:-auto}" "${3:-manual_reboot}" "$MANUAL_COOLDOWN_S"
+		;;
+	mark-action)
+		write_expiry monitor "${2:-auto}" "${3:-monitor_action}" "$ACTION_COOLDOWN_S"
+		;;
+	active)
+		rem=$(remaining 2>/dev/null || true)
+		[ -n "$rem" ] || exit 1
+		printf '%s\n' "$rem"
+		;;
+	remaining)
+		remaining
+		;;
+	clear)
+		rm -f "$COOLDOWN_FILE" "$EXPIRY_FILE" 2>/dev/null || true
+		;;
+	*)
+		echo "Usage: $0 {mark-manual|mark-action|active|remaining|clear} [section] [reason]" >&2
+		exit 2
+		;;
+esac

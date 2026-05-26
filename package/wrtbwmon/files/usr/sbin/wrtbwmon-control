@@ -1,0 +1,218 @@
+#!/bin/sh
+
+CRON_MARKER_PREFIX="# wrtbwmon-managed:"
+CRONTAB=/etc/crontabs/root
+DNSMASQ_MARKER=/etc/wrtbwmon/dnsmasq-logqueries.previous
+
+uci_bool() {
+	case "$1" in
+		1|true|yes|on|enabled) printf '1' ;;
+		*) printf '0' ;;
+	esac
+}
+
+uci_get() {
+	uci -q get "wrtbwmon.general.$1" 2>/dev/null || true
+}
+
+conf_get() {
+	local value
+	value=$(uci_get "$1")
+	[ -n "$value" ] && printf '%s' "$value" || printf '%s' "$2"
+}
+
+clean_path() {
+	case "$1" in
+		/*) ;;
+		*) printf '%s' "$2"; return ;;
+	esac
+	case "$1" in
+		*..*) printf '%s' "$2"; return ;;
+	esac
+	if printf '%s' "$1" | grep -q '[^A-Za-z0-9_./-]'; then
+		printf '%s' "$2"
+	else
+		printf '%s' "$1"
+	fi
+}
+
+clean_uint() {
+	case "$1" in
+		''|*[!0-9]*) printf '%s' "$2" ;;
+		*) printf '%s' "$1" ;;
+	esac
+}
+
+clean_log_level() {
+	case "$1" in
+		debug|info|warn|error) printf '%s' "$1" ;;
+		*) printf 'info' ;;
+	esac
+}
+
+write_flat_config() {
+	local db_file db_keep cleanup cleanup_days domain domain_ttl dns_backend log_level
+	db_file=$(clean_path "$(conf_get db_file /etc/wrtbwmon/traffic.db)" /etc/wrtbwmon/traffic.db)
+	db_keep=$(clean_uint "$(conf_get db_keep_days 90)" 90)
+	cleanup=$(uci_bool "$(conf_get cleanup_enabled 1)")
+	cleanup_days=$(clean_uint "$(conf_get cleanup_inactive_days 90)" 90)
+	domain=$(uci_bool "$(conf_get domain_tracking 1)")
+	domain_ttl=$(clean_uint "$(conf_get domain_cache_ttl 604800)" 604800)
+	case "$(conf_get dns_backend auto)" in
+		adguard|dnsmasq) dns_backend=$(conf_get dns_backend auto) ;;
+		*) dns_backend=auto ;;
+	esac
+	log_level=$(clean_log_level "$(conf_get log_level info)")
+	mkdir -p /etc/wrtbwmon
+	cat > /etc/wrtbwmon.conf << EOF
+DB_FILE="$db_file"
+DB_KEEP_DAYS=$db_keep
+NFT_TABLE="netdev wrtbwmon_acct"
+NFT_MAP_V4="wrtbwmon_dispatch_v4"
+NFT_MAP_V6="wrtbwmon_dispatch_v6"
+NFTABLES_MAXELEM=65536
+CLEANUP_ENABLED=$cleanup
+CLEANUP_INACTIVE_DAYS=$cleanup_days
+DOMAIN_TRACKING_ENABLED=$domain
+DOMAIN_CACHE_TTL=$domain_ttl
+DNS_BACKEND="$dns_backend"
+DOMAIN_RETENTION_DAYS=90
+TRAFFIC_RETENTION_DAYS=90
+RULE_INACTIVE_DAYS=7
+MAX_DOMAINS_PER_DEVICE=5000
+LOG_LEVEL="$log_level"
+LOG_FILE=""
+EOF
+}
+
+remove_cron() {
+	[ -f "$CRONTAB" ] || return 0
+	local tmp
+	tmp="$CRONTAB.tmp.$$"
+	grep -v \
+		-e "$CRON_MARKER_PREFIX" \
+		-e "/usr/sbin/wrtbwmon update" \
+		-e "/usr/sbin/wrtbwmon-monitor.py" \
+		-e "/usr/sbin/wrtbwmon-cleanup.py" \
+		-e "/usr/sbin/wrtbwmon-dns-interceptor.py" \
+		-e "/usr/sbin/wrtbwmon-domain-manager.py" \
+		-e "/usr/sbin/wrtbwmon-domain-sync.py" \
+		-e "/usr/sbin/wrtbwmon-update.py" \
+		"$CRONTAB" > "$tmp" 2>/dev/null || true
+	cat "$tmp" > "$CRONTAB"
+	rm -f "$tmp"
+}
+
+stop_running_jobs() {
+	local targets children proc pid cmd child ppid child_cmd
+	targets=""
+	children=""
+	for proc in /proc/[0-9]*; do
+		[ -r "$proc/cmdline" ] || continue
+		pid=${proc#/proc/}
+		[ "$pid" = "$$" ] && continue
+		cmd=$(tr '\000' ' ' < "$proc/cmdline" 2>/dev/null)
+		case "$cmd" in
+			*"/usr/sbin/wrtbwmon-control"*) continue ;;
+			*"/usr/sbin/wrtbwmon update"*|*"/usr/sbin/wrtbwmon-monitor.py"*|*"/usr/sbin/wrtbwmon-cleanup.py"*|*"/usr/sbin/wrtbwmon-dns-interceptor.py"*|*"/usr/sbin/wrtbwmon-domain-manager.py"*|*"/usr/sbin/wrtbwmon-domain-sync.py"*|*"/usr/sbin/wrtbwmon-update.py"*)
+				targets="$targets $pid"
+				;;
+		esac
+	done
+	for pid in $targets; do
+		for proc in /proc/[0-9]*; do
+			[ -r "$proc/stat" ] || continue
+			child=${proc#/proc/}
+			ppid=$(awk '{print $4}' "$proc/stat" 2>/dev/null)
+			[ "$ppid" = "$pid" ] || continue
+			child_cmd=$(tr '\000' ' ' < "$proc/cmdline" 2>/dev/null)
+			case "$child_cmd" in
+				"nft -f -"*|*"/nft -f -"*) children="$children $child" ;;
+			esac
+		done
+	done
+	[ -n "$children" ] && kill $children 2>/dev/null || true
+	[ -n "$targets" ] && kill $targets 2>/dev/null || true
+	sleep 1
+	[ -n "$children" ] && kill -9 $children 2>/dev/null || true
+	[ -n "$targets" ] && kill -9 $targets 2>/dev/null || true
+}
+
+add_cron() {
+	local domain
+	domain=$1
+	mkdir -p /etc/crontabs
+	touch "$CRONTAB"
+	remove_cron
+	cat >> "$CRONTAB" << EOF
+* * * * * [ "\$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] && /usr/sbin/wrtbwmon update $CRON_MARKER_PREFIX wrtbwmon-update
+* * * * * sleep 30 && [ "\$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] && . /etc/wrtbwmon.conf && export DB_FILE NFT_TABLE DOMAIN_TRACKING_ENABLED DOMAIN_CACHE_TTL DNS_BACKEND && /usr/sbin/wrtbwmon-monitor.py $CRON_MARKER_PREFIX wrtbwmon-monitor
+0 3 * * * [ "\$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] && . /etc/wrtbwmon.conf && export DB_FILE NFT_TABLE DOMAIN_TRACKING_ENABLED DOMAIN_CACHE_TTL DNS_BACKEND && /usr/sbin/wrtbwmon-cleanup.py $CRON_MARKER_PREFIX wrtbwmon-cleanup
+EOF
+	if [ "$domain" = 1 ]; then
+		cat >> "$CRONTAB" << EOF
+*/5 * * * * sleep 10 && [ "\$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] && [ "\$(uci -q get wrtbwmon.general.domain_tracking 2>/dev/null)" = "1" ] && . /etc/wrtbwmon.conf && export DB_FILE NFT_TABLE DOMAIN_TRACKING_ENABLED DOMAIN_CACHE_TTL DNS_BACKEND && /usr/sbin/wrtbwmon-dns-interceptor.py $CRON_MARKER_PREFIX wrtbwmon-dns-interceptor
+*/5 * * * * sleep 20 && [ "\$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] && [ "\$(uci -q get wrtbwmon.general.domain_tracking 2>/dev/null)" = "1" ] && . /etc/wrtbwmon.conf && export DB_FILE NFT_TABLE DOMAIN_TRACKING_ENABLED DOMAIN_CACHE_TTL DNS_BACKEND && /usr/sbin/wrtbwmon-domain-sync.py $CRON_MARKER_PREFIX wrtbwmon-domain-sync
+EOF
+	fi
+	/etc/init.d/cron restart 2>/dev/null || /etc/init.d/cron reload 2>/dev/null || true
+}
+
+enable_dns_logging() {
+	mkdir -p /etc/wrtbwmon
+	if [ ! -f "$DNSMASQ_MARKER" ]; then
+		uci -q get dhcp.@dnsmasq[0].logqueries > "$DNSMASQ_MARKER" 2>/dev/null || : > "$DNSMASQ_MARKER"
+	fi
+	uci set dhcp.@dnsmasq[0].logqueries='1'
+	uci commit dhcp
+	/etc/init.d/dnsmasq restart 2>/dev/null || true
+}
+
+restore_dns_logging() {
+	[ -f "$DNSMASQ_MARKER" ] || return 0
+	local previous
+	previous=$(cat "$DNSMASQ_MARKER" 2>/dev/null || true)
+	if [ -n "$previous" ]; then
+		uci set dhcp.@dnsmasq[0].logqueries="$previous"
+	else
+		uci -q delete dhcp.@dnsmasq[0].logqueries || true
+	fi
+	uci commit dhcp
+	rm -f "$DNSMASQ_MARKER"
+	/etc/init.d/dnsmasq restart 2>/dev/null || true
+}
+
+apply_config() {
+	local enabled domain
+	enabled=$(uci_bool "$(conf_get enabled 0)")
+	domain=$(uci_bool "$(conf_get domain_tracking 1)")
+	write_flat_config
+	if [ "$enabled" = 1 ]; then
+		/etc/init.d/wrtbwmon enable 2>/dev/null || true
+		if [ "$domain" = 1 ]; then
+			enable_dns_logging
+		else
+			restore_dns_logging
+		fi
+		/usr/sbin/wrtbwmon setup
+		if [ "$domain" = 1 ] && [ -x /usr/sbin/wrtbwmon-domain-manager.py ]; then
+			. /etc/wrtbwmon.conf
+			export DB_FILE NFT_TABLE DOMAIN_TRACKING_ENABLED DOMAIN_CACHE_TTL DNS_BACKEND
+			/usr/sbin/wrtbwmon-domain-manager.py init >/dev/null 2>&1 || true
+		fi
+		add_cron "$domain"
+		/etc/init.d/wrtbwmon start
+	else
+		/etc/init.d/wrtbwmon stop 2>/dev/null || true
+		/etc/init.d/wrtbwmon disable 2>/dev/null || true
+		remove_cron
+		restore_dns_logging
+		/etc/init.d/cron restart 2>/dev/null || /etc/init.d/cron reload 2>/dev/null || true
+		stop_running_jobs
+	fi
+}
+
+case "${1:-apply}" in
+	apply) apply_config ;;
+	*) echo "Usage: $0 [apply]" >&2; exit 1 ;;
+esac

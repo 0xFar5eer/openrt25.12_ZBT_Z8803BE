@@ -1,0 +1,61 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: GPL-3.0-or-later
+# procd-managed long-running poller that drives the per-slot
+# blue:mobile-1 / blue:mobile-2 LEDs from modem AT-port state. The actual loop body lives in
+# /usr/sbin/zbt-modem-led-poller; this init script's only job is to
+# (a) board-guard so we don't burn cycles on hardware that doesn't
+# have these LEDs, (b) wait for sms_tool / Quectel modem support to
+# be ready before the poller starts hitting AT ports, (c) restart
+# the poller automatically if it ever dies.
+#
+# START=95 puts us after networks (20), modem dialer (qmodem-init,
+# typically ~85-90), and the SYS LED state machine (zbt-leds, 10).
+# By the time we run, the modems should already be enumerated and
+# the AT ports populated — so the poller's first iteration will
+# usually classify correctly rather than spending the first five
+# seconds in the no_signal fallback.
+
+START=95
+STOP=05
+
+USE_PROCD=1
+PROG=/usr/sbin/zbt-modem-led-poller
+
+board_match() {
+	case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+		zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+start_service() {
+	board_match || return 0
+	[ -x "$PROG" ] || return 0
+
+	procd_open_instance
+	procd_set_param command "$PROG"
+	# Restart on crash. The respawn triple is "threshold timeout
+	# retry": don't bin the service if it crashes more than 5
+	# times in 60 seconds (with a 10s back-off between retries) —
+	# that's enough room for transient ttyUSB stalls during modem
+	# reboot without giving up forever.
+	procd_set_param respawn 60 10 5
+	# Stay attached to the modem subsystem so a `service
+	# zbt-modem-leds reload` reaches the poller. We don't actually
+	# handle SIGHUP in the poller; reload ends up restarting it,
+	# which is the simplest way to apply changes to POLL_INTERVAL
+	# / AT_TIMEOUT env vars (set in /etc/config/zbt-modem-leds if
+	# the user wants to tune them later).
+	procd_set_param reload_signal SIGHUP
+	# stdout / stderr -> logread, so the poller's `logger` calls
+	# end up in the system log alongside everything else. Without
+	# this, procd just discards them.
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+}
+
+reload_service() {
+	stop
+	start
+}

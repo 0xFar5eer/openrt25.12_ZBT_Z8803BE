@@ -1,0 +1,18 @@
+  _______                     ________        __
+ |       |.-----.-----.-----.|  |  |  |.----.|  |_
+ |   -   ||  _  |  -__|     ||  |  |  ||   _||   _|
+ |_______||   __|_____|__|__||________||__|  |____|
+          |__| W I R E L E S S   F R E E D O M
+ -----------------------------------------------------
+ ZBT-Z8803BE community build  -  WiFi 7 / BE19000
+ %D %V  -  kernel 6.18  -  build %C
+ -----------------------------------------------------
+ Releases : https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/releases
+ Issues   : https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/issues  (PRs welcome)
+ Contact  : https://t.me/Far5eer
+ Credits  : @pttuan (openwrt#23053) - upstream board port
+            FUjr/QModem            - QModem Next UI
+            OneB1t/Z8803BE-research - vendor firmware research
+ -----------------------------------------------------
+ Community build - expect rough edges; report bugs via Issues or Telegram.
+ -----------------------------------------------------

@@ -1,0 +1,123 @@
+. /lib/functions.sh
+
+board=$(board_name)
+
+case "$board" in
+zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand)
+	;;
+*)
+	exit 0
+	;;
+esac
+
+# Ensure /etc/config/wireless is populated (first boot races us sometimes).
+[ -s /etc/config/wireless ] || /sbin/wifi config >/dev/null 2>&1
+[ -s /etc/config/wireless ] || /sbin/wifi detect > /etc/config/wireless 2>/dev/null
+
+for iface in $(uci -q show wireless | sed -nE 's/^wireless\.([^.]+)=wifi-iface$/\1/p'); do
+	ssid=$(uci -q get "wireless.${iface}.ssid")
+	case "$ssid" in
+	""|OpenWrt)
+		;;
+	*)
+		exit 0
+		;;
+	esac
+done
+
+# Derive a 6-char MAC suffix from the first readable NIC MAC.
+mac=""
+for f in /sys/class/net/br-lan/address \
+	 /sys/class/net/eth0/address \
+	 /sys/class/net/eth1/address; do
+	[ -r "$f" ] && mac=$(cat "$f") && [ -n "$mac" ] && break
+done
+mac6=""
+[ -n "$mac" ] && mac6=$(echo "$mac" | awk -F: '{printf "%s%s%s", toupper($4), toupper($5), toupper($6)}')
+[ -n "$mac6" ] || mac6="Z8803BE"
+
+# Every wifi-device: pin country to PH and enable the radio.
+for radio in $(uci -q show wireless | sed -nE 's/^wireless\.([^.]+)=wifi-device$/\1/p'); do
+	uci -q set "wireless.${radio}.country=PH"
+	uci -q set "wireless.${radio}.cell_density=0"
+	uci -q delete "wireless.${radio}.txpower" 2>/dev/null
+	uci -q delete "wireless.${radio}.min_tx_power" 2>/dev/null
+	uci -q delete "wireless.${radio}.channels" 2>/dev/null
+	uci -q delete "wireless.${radio}.scan_list" 2>/dev/null
+	uci -q set "wireless.${radio}.disabled=0"
+done
+
+# Every wifi-iface on our device: match the vendor label exactly -
+#   2.4 GHz: WIFI7-<MAC6>         (no band infix)
+#   5   GHz: WIFI7-5G-<MAC6>
+#   6   GHz: WIFI7-6G-<MAC6>
+# so the rear-label SSIDs line up with what users expect on a factory
+# unbox. MLO is intentionally OFF in the default state - three
+# different SSIDs mean three standalone APs, not one MLD. Users who
+# want a single tri-band WiFi 7 MLD open LuCI -> Network -> WiFi 7 MLO
+# (luci-app-mlo), merge the three into one MLD record with matching
+# SSID + security, and `option mlo '1'` gets written to all three
+# wifi-iface sections atomically. Both modes survive reboots.
+#
+# All three bands ship pure WPA3-SAE (not sae-mixed) with PMF required.
+# Same security on every link keeps hostapd happy with MLO negotiation
+# later (mixed PMF between links would break MLD association on strict
+# clients like iOS 26).
+#
+# The starter key is 12345678 (WPA minimum length). Users are expected
+# to change it on first login from LuCI -> Network -> Wireless. Legacy
+# WPA2-only IoT gear cannot connect in this mode and should be moved
+# off this WiFi 7 AP onto a separate 2.4 GHz WPA2 SSID.
+for iface in $(uci -q show wireless | sed -nE 's/^wireless\.([^.]+)=wifi-iface$/\1/p'); do
+	dev=$(uci -q get "wireless.${iface}.device")
+	[ -n "$dev" ] || continue
+
+	band=$(uci -q get "wireless.${dev}.band")
+	case "$band" in
+	2g) ssid="WIFI7-${mac6}"    ;;
+	5g) ssid="WIFI7-5G-${mac6}" ;;
+	6g) ssid="WIFI7-6G-${mac6}" ;;
+	*)  continue                ;;
+	esac
+
+	uci -q set "wireless.${iface}.mode=ap"
+	uci -q set "wireless.${iface}.network=lan"
+	uci -q set "wireless.${iface}.ssid=${ssid}"
+	uci -q set "wireless.${iface}.encryption=sae"
+	uci -q set "wireless.${iface}.key=12345678"
+	uci -q set "wireless.${iface}.ieee80211w=2"
+	uci -q set "wireless.${iface}.disabled=0"
+	# MLO intentionally off at factory defaults. Opt-in via luci-app-mlo.
+	uci -q delete "wireless.${iface}.mlo" 2>/dev/null
+done
+
+# Per-band channel + htmode defaults tuned for WiFi 7 on this radio.
+#
+# Rationale per band:
+#   2.4 GHz -> ch 11, EHT20
+#     20 MHz is the only sane width on 2.4 in a dense area; 40 MHz
+#     causes severe co-channel interference with neighbour networks.
+#     EHT20 still flags the BSS as 802.11be so WiFi 7 clients pick
+#     higher-order MCS tables.
+#
+#   5 GHz -> ch 149, EHT80
+#     Channel 149 keeps 3FL separated from 2FL ch36 and 1FL ch100.
+#     EHT80 avoids overlap with adjacent-floor 80 MHz cells.
+#
+#   6 GHz -> ch 37, EHT160
+#     37 is a Preferred Scanning Channel (PSC): WiFi 6E/7 clients
+#     only scan PSC frequencies to save battery, so a non-PSC AP is
+#     effectively invisible. EHT160 with primary ch 37 keeps 3-floor
+#     deployments separable inside the PH lower-6 GHz range, while 80 MHz
+#     clients negotiate down cleanly.
+for radio in $(uci -q show wireless | sed -nE 's/^wireless\.([^.]+)=wifi-device$/\1/p'); do
+	band=$(uci -q get "wireless.${radio}.band")
+	case "$band" in
+	2g) uci -q set "wireless.${radio}.channel=11"  ; uci -q set "wireless.${radio}.htmode=EHT20"  ;;
+	5g) uci -q set "wireless.${radio}.channel=149" ; uci -q set "wireless.${radio}.htmode=EHT80" ;;
+	6g) uci -q set "wireless.${radio}.channel=37" ; uci -q set "wireless.${radio}.htmode=EHT160" ;;
+	esac
+done
+
+uci -q commit wireless
+exit 0

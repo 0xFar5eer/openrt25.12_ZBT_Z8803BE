@@ -1,0 +1,165 @@
+#!/bin/sh
+set -e
+
+LOCK_FILE="/tmp/zbt-modem-reboot.lock"
+MONITOR_COOLDOWN_HELPER="/usr/sbin/zbt-modem-monitor-cooldown"
+BOOT_GRACE_S_DEFAULT=300
+LOCKOUT_S_DEFAULT=300
+TAG="zbt-modem-hard-reboot-guard"
+
+log() {
+	logger -t "$TAG" "$1"
+}
+
+record_event() {
+	[ -x /usr/sbin/zbt-modem-events ] || return 0
+	/usr/sbin/zbt-modem-events record "$@" >/dev/null 2>&1 || true
+}
+
+. /lib/functions.sh
+config_load qmodem 2>/dev/null || true
+config_get BOOT_GRACE_S main zbt_reboot_boot_grace "$BOOT_GRACE_S_DEFAULT"
+config_get LOCKOUT_S main zbt_reboot_lockout "$LOCKOUT_S_DEFAULT"
+
+case "$BOOT_GRACE_S" in *[!0-9]*|"") BOOT_GRACE_S=$BOOT_GRACE_S_DEFAULT ;; esac
+case "$LOCKOUT_S" in *[!0-9]*|"") LOCKOUT_S=$LOCKOUT_S_DEFAULT ;; esac
+
+UPTIME_S=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)
+if [ "$UPTIME_S" -lt "$BOOT_GRACE_S" ]; then
+	log "skip: router uptime ${UPTIME_S}s < boot grace ${BOOT_GRACE_S}s"
+	record_event monitor auto_hard_reboot_skipped warning "" "Monitor hard reboot skipped by boot grace" "uptime=${UPTIME_S}s boot_grace=${BOOT_GRACE_S}s"
+	exit 0
+fi
+
+if [ -f "$LOCK_FILE" ]; then
+	LOCK_MTIME=$(stat -c %Y "$LOCK_FILE" 2>/dev/null || echo 0)
+	NOW=$(date +%s)
+	AGE=$(( NOW - LOCK_MTIME ))
+	if [ "$AGE" -lt "$LOCKOUT_S" ]; then
+		log "skip: last reboot ${AGE}s ago < lockout ${LOCKOUT_S}s"
+		record_event monitor auto_hard_reboot_skipped warning "" "Monitor hard reboot skipped by lockout" "last_reboot_age=${AGE}s lockout=${LOCKOUT_S}s"
+		exit 0
+	fi
+fi
+
+if [ -x "$MONITOR_COOLDOWN_HELPER" ]; then
+	REMAINING=$("$MONITOR_COOLDOWN_HELPER" active 2>/dev/null || true)
+	if [ -n "$REMAINING" ]; then
+		log "skip: monitor cooldown active, ${REMAINING}s remaining"
+		record_event monitor auto_hard_reboot_skipped warning "" "Monitor hard reboot skipped by cooldown" "remaining=${REMAINING}s"
+		exit 0
+	fi
+fi
+
+TARGET_SECTION="${1:-}"
+case "$TARGET_SECTION" in *[!A-Za-z0-9_]* ) TARGET_SECTION="" ;; esac
+
+_find_monitored() {
+	local sec=$1
+	local en
+	config_get en "$sec" monitor_enabled 0
+	[ "$en" = "1" ] || return 0
+	[ -n "$TARGET_SECTION" ] && return 0
+	TARGET_SECTION=$sec
+}
+
+[ -n "$TARGET_SECTION" ] || config_foreach _find_monitored modem-device
+if [ -z "$TARGET_SECTION" ]; then
+	log "skip: no modem-device section has monitor_enabled=1"
+	record_event monitor auto_hard_reboot_skipped warning "" "Monitor hard reboot skipped because monitoring is disabled" "monitor_enabled=0"
+	exit 0
+fi
+
+config_get MONITOR_ENABLED "$TARGET_SECTION" monitor_enabled 0
+if [ "$MONITOR_ENABLED" != "1" ]; then
+	log "skip: section ${TARGET_SECTION} has monitor_enabled=${MONITOR_ENABLED:-0}"
+	record_event monitor auto_hard_reboot_skipped warning "$TARGET_SECTION" "Monitor hard reboot skipped because monitoring is disabled" "monitor_enabled=${MONITOR_ENABLED:-0}"
+	exit 0
+fi
+
+config_get AT_PORT "$TARGET_SECTION" override_at_port
+[ -n "$AT_PORT" ] || config_get AT_PORT "$TARGET_SECTION" at_port
+
+query_cpin() {
+	local out
+
+	[ -n "$AT_PORT" ] && [ -e "$AT_PORT" ] || return 1
+	if command -v tom_modem >/dev/null 2>&1; then
+		out=$(tom_modem -d "$AT_PORT" -o a -c "AT+CPIN?" -t 5 2>&1 || true)
+		[ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+	fi
+	if command -v sms_tool >/dev/null 2>&1; then
+		out=$(sms_tool -d "$AT_PORT" -t 5 at "AT+CPIN?" 2>&1 || true)
+		[ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+	fi
+	if command -v sms_tool_q >/dev/null 2>&1; then
+		out=$(sms_tool_q -d "$AT_PORT" at "AT+CPIN?" 2>&1 || true)
+		[ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+	fi
+	if [ -r /usr/share/qmodem/modem_util.sh ]; then
+		out=$(. /usr/share/qmodem/modem_util.sh; at "$AT_PORT" "AT+CPIN?" 2>&1 || true)
+		[ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+	fi
+
+	return 1
+}
+
+CPIN_OUT=$(query_cpin || true)
+case "$CPIN_OUT" in
+	*"+CME ERROR: 10"*|*"SIM not inserted"*|*"SIM NOT INSERTED"*|*"NO SIM"*|*"No SIM"*)
+		log "skip: no SIM present on section ${TARGET_SECTION}; not power-cycling modem"
+		record_event monitor auto_hard_reboot_skipped warning "$TARGET_SECTION" "Monitor hard reboot skipped because SIM is missing" "at_port=${AT_PORT}"
+		exit 0
+		;;
+esac
+
+config_get MODEM_PATH "$TARGET_SECTION" path
+MODEM_SLOT="$(basename "$MODEM_PATH" 2>/dev/null || true)"
+if [ -z "$MODEM_SLOT" ] || [ "$MODEM_SLOT" = "." ]; then
+	MODEM_SLOT=$(printf '%s' "$TARGET_SECTION" | tr '_' '-')
+fi
+
+GPIO_NAME=""
+GPIO_UP=""
+GPIO_DOWN=""
+_find_slot() {
+	local cfg=$1
+	local slot
+	config_get slot "$cfg" slot
+	if [ "$slot" = "$MODEM_SLOT" ]; then
+		config_get GPIO_NAME "$cfg" gpio
+		config_get GPIO_UP "$cfg" gpio_up
+		config_get GPIO_DOWN "$cfg" gpio_down
+	fi
+}
+config_foreach _find_slot modem-slot
+
+case "$GPIO_NAME" in *[!A-Za-z0-9_:-]*|"")
+	log "failed: no valid GPIO for section=${TARGET_SECTION} slot=${MODEM_SLOT}"
+	record_event monitor auto_hard_reboot_failed danger "$TARGET_SECTION" "Monitor hard reboot failed" "slot=${MODEM_SLOT} gpio=${GPIO_NAME:-empty}"
+	exit 1
+	;;
+esac
+case "$GPIO_UP:$GPIO_DOWN" in *[!0-9:]*|":"|*:|:*)
+	log "failed: invalid GPIO levels for ${GPIO_NAME}: up=${GPIO_UP:-empty} down=${GPIO_DOWN:-empty}"
+	record_event monitor auto_hard_reboot_failed danger "$TARGET_SECTION" "Monitor hard reboot failed" "gpio=${GPIO_NAME} up=${GPIO_UP:-empty} down=${GPIO_DOWN:-empty}"
+	exit 1
+	;;
+esac
+
+GPIO_PATH="/sys/class/gpio/${GPIO_NAME}/value"
+if [ ! -w "$GPIO_PATH" ]; then
+	log "failed: GPIO path not writable: $GPIO_PATH"
+	record_event monitor auto_hard_reboot_failed danger "$TARGET_SECTION" "Monitor hard reboot failed" "gpio_path=${GPIO_PATH}"
+	exit 1
+fi
+
+touch "$LOCK_FILE"
+log "trigger: section=${TARGET_SECTION} slot=${MODEM_SLOT} gpio=${GPIO_NAME} uptime=${UPTIME_S}s — power-cycling modem"
+record_event monitor auto_hard_reboot danger "$TARGET_SECTION" "Monitor hard reboot dispatched" "slot=${MODEM_SLOT} gpio=${GPIO_NAME}"
+echo "$GPIO_DOWN" > "$GPIO_PATH"
+sleep 1
+echo "$GPIO_UP" > "$GPIO_PATH"
+log "hard reboot dispatched OK: section=${TARGET_SECTION} gpio=${GPIO_NAME}"
+
+exit 0

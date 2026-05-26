@@ -1,0 +1,59 @@
+{
+	"admin/services/traffic": {
+		"title": "Traffic Statistics",
+		"order": 30,
+		"action": {
+			"type": "alias",
+			"path": "admin/services/traffic/details"
+		},
+		"depends": {
+			"acl": [ "luci-app-wrtbwmon" ],
+			"uci": { "wrtbwmon": true }
+		}
+	},
+
+	"admin/services/traffic/details": {
+		"title": "Devices",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "wrtbwmon/details"
+		}
+	},
+
+	"admin/services/traffic/top-domains": {
+		"title": "Top Domains",
+		"order": 15,
+		"action": {
+			"type": "view",
+			"path": "wrtbwmon/top-domains"
+		}
+	},
+
+	"admin/services/traffic/device-domains": {
+		"title": "Device Domains",
+		"order": 16,
+		"action": {
+			"type": "view",
+			"path": "wrtbwmon/device-domains"
+		}
+	},
+
+	"admin/services/traffic/config": {
+		"title": "Setup",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "wrtbwmon/config"
+		}
+	},
+
+	"admin/services/traffic/custom": {
+		"title": "User file",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "wrtbwmon/custom"
+		}
+	}
+}

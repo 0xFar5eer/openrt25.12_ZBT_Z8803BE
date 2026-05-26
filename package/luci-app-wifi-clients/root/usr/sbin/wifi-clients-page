@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+"""
+wifi-clients page renderer.
+"""
+
+import html
+import json
+import os
+import re
+import subprocess
+import time
+
+COLLECTOR = "/usr/bin/wifi-clients-collector.py"
+DEFAULT_CACHE_FILE = "/tmp/wifi-clients-cache.json"
+
+
+def uci_get(option: str, default: str) -> str:
+    try:
+        result = subprocess.run(
+            ["uci", "-q", "get", f"wifi-clients.general.{option}"],
+            capture_output=True, text=True, timeout=2
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return default
+
+
+def load_runtime_config() -> dict:
+    cache_max_age = uci_get("cache_max_age", "60")
+    try:
+        cache_max_age_int = int(cache_max_age)
+    except ValueError:
+        cache_max_age_int = 60
+    cache_file = uci_get("cache_file", DEFAULT_CACHE_FILE)
+    if not cache_file.startswith(("/tmp/", "/var/run/")) or ".." in cache_file:
+        cache_file = DEFAULT_CACHE_FILE
+    if not re.fullmatch(r"[A-Za-z0-9_./-]+", cache_file):
+        cache_file = DEFAULT_CACHE_FILE
+    return {
+        "network_title": uci_get("network_title", "WiFi network"),
+        "cache_file": cache_file,
+        "cache_max_age": cache_max_age_int,
+    }
+
+
+RUNTIME_CONFIG = load_runtime_config()
+CACHE_FILE = RUNTIME_CONFIG["cache_file"]
+CACHE_MAX_AGE = RUNTIME_CONFIG["cache_max_age"]
+
+
+def esc(value) -> str:
+    return html.escape(str(value or ""), quote=True)
+
+
+def run_collector():
+    try:
+        if os.path.exists(CACHE_FILE):
+            age = time.time() - os.path.getmtime(CACHE_FILE)
+            if age < CACHE_MAX_AGE:
+                with open(CACHE_FILE) as f:
+                    data = json.load(f)
+                    data["_cache_age"] = int(age)
+                    return data
+    except Exception:
+        pass
+
+    try:
+        result = subprocess.run(
+            ["/usr/bin/python3", COLLECTOR],
+            capture_output=True, text=True, timeout=35
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            data = json.loads(result.stdout)
+            data["_cache_age"] = 0
+            return data
+    except Exception as e:
+        return {"error": str(e), "routers": [], "clients": [], "timestamp": "", "_cache_age": -1}
+    return {"error": "Collector returned no data", "routers": [], "clients": [], "timestamp": "", "_cache_age": -1}
+
+
+def wifi_gen_badge(gen: str) -> str:
+    colors = {
+        "WiFi 7 (MLD)": ("#6a1b9a", "rgba(106,27,154,0.14)"),
+        "WiFi 7": ("#1565c0", "rgba(21,101,192,0.12)"),
+        "WiFi 6E": ("#00838f", "rgba(0,131,143,0.12)"),
+        "WiFi 6": ("#00838f", "rgba(0,131,143,0.12)"),
+        "WiFi 5": ("#607d8b", "rgba(96,125,139,0.12)"),
+        "WiFi 4": ("#607d8b", "rgba(96,125,139,0.12)"),
+    }
+    color, bg = colors.get(gen, ("#607d8b", "rgba(96,125,139,0.12)"))
+    return f'<span class="badge" style="border-color:{color};background:{bg};color:{color}">{esc(gen)}</span>'
+
+
+def mld_detail(client: dict) -> str:
+    if not client.get("is_mld"):
+        return '<span class="muted">-</span>'
+    links = client.get("mld_links") or []
+    links_text = " + ".join(str(link) for link in links if link) or client.get("band") or "active link"
+    try:
+        link_count = int(client.get("mld_link_count") or len(links) or 0)
+    except (TypeError, ValueError):
+        link_count = len(links)
+    label = "MLD" if link_count >= 2 else "MLD-capable"
+    count_text = f'{link_count} link' if link_count == 1 else f'{link_count} links'
+    return f'<strong style="color:#6a1b9a">{esc(label)}</strong><br><small class="muted">{esc(count_text)}: {esc(links_text)}</small>'
+
+
+def signal_bar(signal_str) -> str:
+    try:
+        dbm = int(signal_str)
+    except (ValueError, TypeError):
+        return '<span class="muted">-</span>'
+    if dbm >= -50:
+        color, label = "#2e7d32", "Excellent"
+    elif dbm >= -60:
+        color, label = "#558b2f", "Good"
+    elif dbm >= -70:
+        color, label = "#ef6c00", "Fair"
+    elif dbm >= -80:
+        color, label = "#ef6c00", "Weak"
+    else:
+        color, label = "#c62828", "Poor"
+    return f'<strong style="color:{color}">{dbm} dBm</strong><br><small style="color:{color};opacity:.8">{label}</small>'
+
+
+def router_badge(label: str) -> str:
+    return f'<span class="badge" style="border-color:#1565c0;background:rgba(21,101,192,0.12);color:#1565c0">{esc(label)}</span>'
+
+
+def band_label(band: str) -> str:
+    return esc(band or "-")
+
+
+def render_card(label: str, value, accent: str) -> str:
+    return f'''
+    <div class="summary-card" style="border-top-color:{accent}">
+      <div class="summary-value">{esc(value)}</div>
+      <div class="summary-label">{esc(label)}</div>
+    </div>'''
+
+
+def render_html(data: dict) -> str:
+    error = data.get("error", "")
+    routers = data.get("routers", [])
+    clients = data.get("clients", [])
+    ts = data.get("timestamp", "")
+    network_title = data.get("network_title") or RUNTIME_CONFIG["network_title"]
+
+    router_cards = ""
+    for router in routers:
+        if router.get("online"):
+            status = f'<strong style="color:#2e7d32">Online</strong> <span class="muted">({int(router.get("count", 0) or 0)} clients)</span>'
+        else:
+            status = '<strong style="color:#c62828">Offline</strong>'
+        label = router.get("label") or router.get("name") or router.get("host") or "Router"
+        router_cards += f'''
+        <div class="router-card">
+          <div class="router-name">{esc(label)}</div>
+          <div class="muted small">{esc(router.get("host", ""))}</div>
+          <div class="small" style="margin-top:0.4em">{status}</div>
+        </div>'''
+
+    rows = ""
+    if not clients:
+        rows = '<tr class="placeholder"><td colspan="9">No WiFi clients connected</td></tr>'
+    else:
+        for c in sorted(clients, key=lambda x: (-x.get("connected_secs", 0))):
+            name = c.get("name") or ""
+            ip_addr = c.get("ip") or ""
+            mac = c.get("mac", "")
+            display_name = f'<strong>{esc(name)}</strong>' if name else '<span class="muted">(unknown)</span>'
+            ip_span = f'<br><small class="muted">{esc(ip_addr)}</small>' if ip_addr else ""
+            mac_span = f'<br><small class="mono muted">{esc(mac)}</small>'
+            router_label = c.get("router_label") or c.get("router") or ""
+            rows += f"""<tr>
+              <td>{display_name}{ip_span}{mac_span}</td>
+              <td>{router_badge(router_label)}</td>
+              <td>{band_label(c.get("band", ""))}<br><small class="muted">{esc(c.get("ssid", ""))}</small></td>
+              <td>{wifi_gen_badge(c.get("wifi_gen", ""))}</td>
+              <td>{mld_detail(c)}</td>
+              <td>{signal_bar(c.get("signal", ""))}</td>
+              <td>{esc(c.get("tx_rate", "-"))}<br><small class="muted">TX</small></td>
+              <td>{esc(c.get("rx_rate", "-"))}<br><small class="muted">RX</small></td>
+              <td class="muted" style="white-space:nowrap">{esc(c.get("connected_time", "-"))}</td>
+            </tr>"""
+
+    notices = ""
+    if error:
+        notices += f'<div class="notice danger">{esc(error)}</div>'
+    offline_routers = [r.get("label") or r.get("name") for r in routers if not r.get("online")]
+    if offline_routers:
+        notices += f'<div class="notice warning">Offline routers: {esc(", ".join(offline_routers))}. Data may be incomplete.</div>'
+
+    total = len(clients)
+    mld_count = sum(1 for c in clients if c.get("is_mld"))
+    online_count = sum(1 for r in routers if r.get("online"))
+    ts_short = ts.split(".")[0].replace("T", " ") if ts else "unknown"
+    cache_age = data.get("_cache_age", -1)
+    if cache_age == 0:
+        cache_note = "live data"
+    elif cache_age > 0:
+        cache_note = f"cached {cache_age}s ago"
+    else:
+        cache_note = "live data"
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WiFi Clients - {esc(network_title)}</title>
+<meta http-equiv="refresh" content="10">
+<style>
+  * {{ box-sizing: border-box; }}
+  body {{ margin:0; padding:1em; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:inherit; background:transparent; }}
+  h2 {{ margin:0 0 0.35em; font-size:1.5em; }}
+  h3 {{ margin:0 0 0.75em; font-size:1.1em; }}
+  .descr {{ opacity:.72; margin:0 0 1em; }}
+  .section {{ margin:0 0 1em; padding:1em; border-radius:10px; background:rgba(128,128,128,0.08); }}
+  .summary {{ display:flex; flex-wrap:wrap; gap:.75em; }}
+  .summary-card {{ min-width:11em; flex:1; padding:1em; border-radius:10px; background:rgba(128,128,128,0.10); border-top:3px solid #607d8b; }}
+  .summary-value {{ font-size:1.6em; font-weight:700; margin-bottom:.15em; }}
+  .summary-label {{ opacity:.75; }}
+  .router-grid {{ display:flex; flex-wrap:wrap; gap:.75em; }}
+  .router-card {{ min-width:12em; flex:1; padding:1em; border-radius:10px; background:rgba(128,128,128,0.10); border-left:4px solid #1565c0; }}
+  .router-name {{ font-weight:700; margin-bottom:.2em; }}
+  .notice {{ margin:0 0 1em; padding:.9em 1em; border-radius:10px; border-left:4px solid; background:rgba(128,128,128,0.10); }}
+  .notice.warning {{ border-color:#ef6c00; color:#ef6c00; }}
+  .notice.danger {{ border-color:#c62828; color:#c62828; }}
+  table {{ width:100%; border-collapse:collapse; }}
+  th, td {{ padding:.75em; text-align:left; vertical-align:top; border-bottom:1px solid rgba(128,128,128,0.18); }}
+  th {{ font-size:.82em; text-transform:uppercase; letter-spacing:.03em; opacity:.72; }}
+  tr:hover td {{ background:rgba(128,128,128,0.08); }}
+  .placeholder td {{ text-align:center; padding:1.5em; opacity:.72; }}
+  .badge {{ display:inline-block; padding:.15em .55em; border:1px solid; border-radius:999px; font-size:.82em; font-weight:700; white-space:nowrap; }}
+  .muted {{ opacity:.72; }}
+  .small {{ font-size:.9em; }}
+  .mono {{ font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }}
+</style>
+</head>
+<body>
+<h2>WiFi Clients</h2>
+<p class="descr">{esc(network_title)} - refreshed every 10 seconds - {esc(ts_short)} - {esc(cache_note)}</p>
+{notices}
+<div class="section">
+  <h3>Summary</h3>
+  <div class="summary">
+    {render_card("Total clients", total, "#607d8b")}
+    {render_card("MLD clients", mld_count, "#6a1b9a")}
+    {render_card("Other clients", total - mld_count, "#00838f")}
+    {render_card("Online routers", f"{online_count}/{len(routers)}", "#2e7d32")}
+  </div>
+</div>
+<div class="section">
+  <h3>Routers</h3>
+  <div class="router-grid">{router_cards}</div>
+</div>
+<div class="section">
+  <h3>Connected clients</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Device</th>
+        <th>Router</th>
+        <th>Band / SSID</th>
+        <th>WiFi Gen</th>
+        <th>MLD</th>
+        <th>Signal</th>
+        <th>TX Rate</th>
+        <th>RX Rate</th>
+        <th>Connected</th>
+      </tr>
+    </thead>
+    <tbody>{rows}</tbody>
+  </table>
+</div>
+</body>
+</html>"""
+
+
+def main():
+    if os.environ.get("GATEWAY_INTERFACE"):
+        print("Content-Type: text/html; charset=utf-8")
+        print("Cache-Control: no-cache")
+        print()
+
+    data = run_collector()
+    print(render_html(data))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,13 @@
+{
+	"admin/services/zbt-speedtest": {
+		"title": "Speed Test",
+		"order": 32,
+		"action": {
+			"type": "view",
+			"path": "zbt8803be/speedtest"
+		},
+		"depends": {
+			"acl": [ "luci-app-zbt-speedtest" ]
+		}
+	}
+}

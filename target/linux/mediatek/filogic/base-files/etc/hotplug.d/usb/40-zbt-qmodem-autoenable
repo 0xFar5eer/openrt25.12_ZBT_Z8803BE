@@ -1,0 +1,90 @@
+#!/bin/sh
+# Auto-enable qmodem WWAN slot only when cellular is explicitly enabled.
+#
+# WAN-only is the firmware default. This hotplug is intentionally
+# fail-closed: it exits unless qmodem.main.enable_dial is explicitly set
+# to 1 and qmodem.main.block_auto_probe is not set. In that opt-in mode,
+# it waits for modem_scan.sh to create qmodem.4_1, enables the section,
+# and re-asserts the dormant network stubs needed by cellular failover.
+#
+# Trigger: USB add events for Quectel modems (Vendor 2c7c).
+# Debounce: 6s wait for qmodem to create the section.
+# Idempotent: only flips state if section exists and state != 'enabled'.
+
+[ "$ACTION" = "add" ] || exit 0
+[ -n "$DEVICENAME" ] || exit 0
+
+# Board guard.
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+[ -e /etc/config/qmodem ] || exit 0
+[ "$(uci -q get qmodem.main.block_auto_probe 2>/dev/null)" = "1" ] && exit 0
+[ "$(uci -q get qmodem.main.enable_dial 2>/dev/null)" = "1" ] || exit 0
+
+# Match Quectel modems only (idVendor 2c7c covers RM-series 5G/LTE modules).
+[ -e "/sys/$DEVPATH/idVendor" ] || exit 0
+[ "$(cat "/sys/$DEVPATH/idVendor" 2>/dev/null)" = "2c7c" ] || exit 0
+
+# Defer to /etc/hotplug.d/usb/20-zbt-modem-factory-reset when a one-shot
+# post-flash modem reset is in flight. Both hotplugs fire on the same
+# USB ADD event (procd runs hotplug.d/usb/* in alphabetical order, but
+# 29- backgrounds its work, so without this guard we would start
+# quectel-CM-M here just as 29- is about to AT+CFUN=1,1 the modem -
+# the dialer would be torn down mid-setup. After CFUN finishes and
+# the modem re-enumerates, the marker file is gone and we get a fresh
+# ADD event on which this hotplug runs normally.
+if [ -f /etc/zbt-modem-factory-reset-pending ]; then
+	logger -t zbt-qmodem-autoenable "factory reset pending; deferring autoenable until post-CFUN re-enum"
+	exit 0
+fi
+
+# Wait for qmodem's own hotplug to create the qmodem.4_1 section. The
+# modem enumeration + ttyUSB scan + AT-port-probe takes ~5s on this SoC.
+# Run this in the background so we don't block the USB hotplug pipeline.
+(
+	for _ in 1 2 3 4 5 6; do
+		sleep 2
+		uci -q get qmodem.4_1 >/dev/null 2>&1 && break
+	done
+
+	# qmodem section now exists (or never will - bail).
+	uci -q get qmodem.4_1 >/dev/null 2>&1 || exit 0
+
+	current_state="$(uci -q get qmodem.4_1.state)"
+	if [ "$current_state" != "enabled" ]; then
+		logger -t zbt-qmodem-autoenable "flipping qmodem.4_1.state -> enabled"
+		uci -q set qmodem.4_1.state='enabled'
+		uci -q commit qmodem
+	fi
+
+	# Re-assert network.4_1 / 4_1v6 stubs (qmodem_init may have wiped them).
+	if ! uci -q get network.4_1 >/dev/null 2>&1; then
+		uci -q set network.4_1=interface
+		uci -q set network.4_1.proto='none'
+		uci -q set network.4_1.device='wwan0'
+		uci -q set network.4_1.metric='200'
+		uci -q set network.4_1.defaultroute='0'
+		uci -q set network.4_1.peerdns='0'
+	fi
+	if ! uci -q get network.4_1v6 >/dev/null 2>&1; then
+		uci -q set network.4_1v6=interface
+		uci -q set network.4_1v6.proto='none'
+		uci -q set network.4_1v6.device='wwan0'
+		uci -q set network.4_1v6.metric='200'
+		uci -q set network.4_1v6.disabled='1'
+	fi
+	uci -q commit network
+
+	# Reload firewall + nudge qmodem_network so dial actually starts.
+	/etc/init.d/network reload >/dev/null 2>&1
+	fw4 reload >/dev/null 2>&1
+	[ -x /etc/init.d/qmodem_network ] && \
+		/etc/init.d/qmodem_network restart >/dev/null 2>&1
+
+	logger -t zbt-qmodem-autoenable "qmodem.4_1 enabled, network stubs re-asserted, qmodem_network restarted"
+) &
+
+exit 0

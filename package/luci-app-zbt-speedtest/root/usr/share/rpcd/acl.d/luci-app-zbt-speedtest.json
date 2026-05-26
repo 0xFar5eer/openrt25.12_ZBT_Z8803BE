@@ -1,0 +1,20 @@
+{
+	"luci-app-zbt-speedtest": {
+		"description": "Grant access to ZBT router speed test",
+		"read": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/usr/sbin/zbt-speedtest-json": [ "exec" ],
+				"/etc/zbt-speedtest/history.json": [ "read" ]
+			}
+		},
+		"write": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/usr/sbin/zbt-speedtest-json": [ "exec" ],
+				"/etc/config/zbt-speedtest": [ "write" ],
+				"/etc/zbt-speedtest/history.json": [ "write" ]
+			}
+		}
+	}
+}

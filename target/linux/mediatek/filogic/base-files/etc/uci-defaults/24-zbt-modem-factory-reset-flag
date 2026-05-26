@@ -1,0 +1,37 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Mark the modem as needing a factory reset on the next time it is
+# detected by the USB hotplug. Runs once on first boot after a fresh
+# `sysupgrade` (this script is in /etc/uci-defaults/* which OpenWrt
+# deletes after a successful first-boot run).
+#
+# WHY:
+#   On first flash (`sysupgrade -n`) the cellular modem may still carry
+#   non-default AT-level state from previous deployments / vendor pre-
+#   provisioning: stale PDP context definitions with empty/wrong APN,
+#   custom CFUN/QCFG tweaks, etc. Smart PH SIMs in particular have been
+#   observed failing PDP setup (QMUXError 0xe, call_end_reason 231)
+#   when the modem ships with `+CGDCONT: 1,"IP","",...` instead of the
+#   network-default IPV4V6 dual-stack context. Factory-resetting the
+#   modem the moment the new firmware first sees it gives users a clean
+#   baseline matching the modem's manufacturer defaults; APN then comes
+#   from SIM/network auto-discovery (the user's stated preference).
+#
+# IMPLEMENTATION:
+#   We just create a marker file here. The actual PDP cleanup, AT&W,
+#   and AT+CFUN=1,1 sequence runs in /etc/hotplug.d/usb/20-zbt-modem-factory-reset
+#   when the Quectel USB device first appears (so we don't have to
+#   guess whether the AT port is ready at uci-defaults time, which is
+#   very early in boot). The hotplug deletes the marker after the reset
+#   commands succeed, making this a one-shot per flash event.
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+mkdir -p /etc
+touch /etc/zbt-modem-factory-reset-pending
+
+exit 0

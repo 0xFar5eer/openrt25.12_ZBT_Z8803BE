@@ -1,0 +1,141 @@
+#!/bin/sh
+
+MODEM=${MODEM:-4_1}
+IFACE=${IFACE:-wwan0}
+LABEL=${1:-stock}
+SAMPLES=${SAMPLES:-5}
+SAMPLE_DELAY=${SAMPLE_DELAY:-5}
+AT_TIMEOUT=${AT_TIMEOUT:-8}
+DOWN_BYTES=${DOWN_BYTES:-25000000}
+UP_MIB=${UP_MIB:-5}
+INCLUDE_PRIVATE=${INCLUDE_PRIVATE:-0}
+DOWN_URL=${DOWN_URL:-https://speed.cloudflare.com/__down?bytes=${DOWN_BYTES}}
+UP_URL=${UP_URL:-https://speed.cloudflare.com/__up}
+OUT_DIR=${OUT_DIR:-/etc/zbt-modem-baseline}
+
+case "$1" in
+	-h|--help)
+		printf 'usage: %s [label]\n' "$0"
+		printf 'env: MODEM=%s IFACE=%s SAMPLES=%s SAMPLE_DELAY=%s DOWN_BYTES=%s UP_MIB=%s\n' "$MODEM" "$IFACE" "$SAMPLES" "$SAMPLE_DELAY" "$DOWN_BYTES" "$UP_MIB"
+		exit 0
+		;;
+esac
+
+safe_label=$(printf '%s' "$LABEL" | tr -c 'A-Za-z0-9_.-' '_')
+[ -n "$safe_label" ] || safe_label=baseline
+mkdir -p "$OUT_DIR"
+REPORT="$OUT_DIR/$(date +%Y%m%d-%H%M%S)-$safe_label.txt"
+
+find_tool() {
+	command -v sms_tool 2>/dev/null || command -v sms_tool_q 2>/dev/null || true
+}
+
+find_port() {
+	local port
+	port=$(uci -q get "qmodem.${MODEM}.at_port" 2>/dev/null || true)
+	[ -n "$port" ] && [ -e "$port" ] && { printf '%s\n' "$port"; return 0; }
+	for port in /dev/ttyUSB3 /dev/ttyUSB2 /dev/ttyUSB1 /dev/ttyUSB0 /dev/mhi_DUN /dev/at_pcie0 /dev/at_pcie1; do
+		[ -e "$port" ] && { printf '%s\n' "$port"; return 0; }
+	done
+	return 1
+}
+
+mbps_from_bps() {
+	awk -v bps="$1" 'BEGIN { if (bps ~ /^[0-9.]+$/) printf "%.2f", (bps * 8) / 1000000; else printf "0.00" }'
+}
+
+at_cmd() {
+	local cmd
+	cmd=$1
+	if [ -z "$TOOL" ] || [ -z "$PORT" ]; then
+		printf 'AT tool or port missing\n'
+		return 1
+	fi
+	timeout "$AT_TIMEOUT" "$TOOL" -d "$PORT" at "$cmd" 2>&1 || true
+}
+
+curl_test() {
+	local name url mode out status speed bytes seconds code remote mbps
+	name=$1
+	url=$2
+	mode=$3
+	if [ "$mode" = upload ]; then
+		out=$(dd if=/dev/zero bs=1M count="$UP_MIB" 2>/dev/null | curl --interface "$IFACE" -L --connect-timeout 10 --max-time 45 -o /dev/null -sS -X POST --data-binary @- -w 'http_code=%{http_code}\nremote_ip=%{remote_ip}\nsize_upload=%{size_upload}\ntime_total=%{time_total}\nspeed_upload=%{speed_upload}\n' "$url" 2>&1)
+		status=$?
+		speed=$(printf '%s\n' "$out" | sed -n 's/^speed_upload=//p' | tail -n 1)
+		bytes=$(printf '%s\n' "$out" | sed -n 's/^size_upload=//p' | tail -n 1)
+	else
+		out=$(curl --interface "$IFACE" -L --connect-timeout 10 --max-time 45 -o /dev/null -sS -w 'http_code=%{http_code}\nremote_ip=%{remote_ip}\nsize_download=%{size_download}\ntime_total=%{time_total}\nspeed_download=%{speed_download}\n' "$url" 2>&1)
+		status=$?
+		speed=$(printf '%s\n' "$out" | sed -n 's/^speed_download=//p' | tail -n 1)
+		bytes=$(printf '%s\n' "$out" | sed -n 's/^size_download=//p' | tail -n 1)
+	fi
+	seconds=$(printf '%s\n' "$out" | sed -n 's/^time_total=//p' | tail -n 1)
+	code=$(printf '%s\n' "$out" | sed -n 's/^http_code=//p' | tail -n 1)
+	remote=$(printf '%s\n' "$out" | sed -n 's/^remote_ip=//p' | tail -n 1)
+	mbps=$(mbps_from_bps "${speed:-0}")
+	printf '%s_status=%s\n' "$name" "$status"
+	printf '%s_http_code=%s\n' "$name" "${code:-unknown}"
+	printf '%s_remote_ip=%s\n' "$name" "${remote:-unknown}"
+	printf '%s_bytes=%s\n' "$name" "${bytes:-0}"
+	printf '%s_seconds=%s\n' "$name" "${seconds:-0}"
+	printf '%s_Bps=%s\n' "$name" "${speed:-0}"
+	printf '%s_Mbps=%s\n' "$name" "$mbps"
+}
+
+main() {
+	local i qcsq qeng qca nr_seen
+	TOOL=$(find_tool)
+	PORT=$(find_port 2>/dev/null || true)
+	nr_seen=0
+	printf 'label=%s\n' "$LABEL"
+	printf 'timestamp=%s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+	printf 'hostname=%s\n' "$(cat /proc/sys/kernel/hostname 2>/dev/null || uci -q get system.@system[0].hostname 2>/dev/null || echo unknown)"
+	printf 'modem=%s\n' "$MODEM"
+	printf 'iface=%s\n' "$IFACE"
+	printf 'at_tool=%s\n' "${TOOL:-missing}"
+	printf 'at_port=%s\n' "${PORT:-missing}"
+	printf 'samples=%s\n' "$SAMPLES"
+	printf 'sample_delay_s=%s\n' "$SAMPLE_DELAY"
+	printf '\n[interface]\n'
+	ifstatus wan 2>/dev/null | jsonfilter -e 'wan_up=@.up' -e 'wan_device=@.device' -e 'wan_ipv4=@["ipv4-address"][0].address' -e 'wan_gateway=@.route[0].nexthop' -e 'wan_metric=@.metric' 2>/dev/null || true
+	ifstatus modem1 2>/dev/null | jsonfilter -e 'modem_up=@.up' -e 'modem_device=@.device' -e 'modem_ipv4=@["ipv4-address"][0].address' -e 'modem_gateway=@.route[0].nexthop' -e 'modem_metric=@.metric' 2>/dev/null || true
+	ip -4 route get 8.8.8.8 oif "$IFACE" 2>/dev/null || true
+	printf '\n[sim_operator]\n'
+	at_cmd 'AT+CPIN?'
+	if [ "$INCLUDE_PRIVATE" = "1" ]; then
+		at_cmd 'AT+CIMI'
+	else
+		printf 'AT+CIMI: redacted (set INCLUDE_PRIVATE=1 to include IMSI)\n'
+	fi
+	at_cmd 'AT+COPS?'
+	printf '\n[signal_samples]\n'
+	i=1
+	while [ "$i" -le "$SAMPLES" ]; do
+		printf '\n-- sample %s/%s %s --\n' "$i" "$SAMPLES" "$(date '+%H:%M:%S')"
+		qcsq=$(at_cmd 'AT+QCSQ')
+		qeng=$(at_cmd 'AT+QENG="servingcell"')
+		qca=$(at_cmd 'AT+QCAINFO')
+		printf '%s\n' "$qcsq"
+		printf '%s\n' "$qeng"
+		printf '%s\n' "$qca"
+		at_cmd 'AT+QRSRP'
+		at_cmd 'AT+QRSRQ'
+		at_cmd 'AT+QSINR'
+		printf '%s\n%s\n' "$qeng" "$qca" | grep -q 'NR5G' && nr_seen=1
+		i=$((i + 1))
+		[ "$i" -le "$SAMPLES" ] && sleep "$SAMPLE_DELAY"
+	done
+	printf '\n[temperature]\n'
+	at_cmd 'AT+QTEMP'
+	printf '\n[speed]\n'
+	ping -I "$IFACE" -c 5 -W 3 8.8.8.8 2>&1 || true
+	curl_test download "$DOWN_URL" download
+	curl_test upload "$UP_URL" upload
+	printf '\n[summary]\n'
+	printf 'nr5g_seen=%s\n' "$nr_seen"
+	[ "$nr_seen" = 1 ] || printf 'warning=NR5G not observed during this run\n'
+	printf 'report=%s\n' "$REPORT"
+}
+
+main | tee "$REPORT"
