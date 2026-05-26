@@ -1,0 +1,13 @@
+{
+	"luci-app-zbt-modem-events": {
+		"description": "Grant access to ZBT modem event history",
+		"read": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/etc/zbt-modem-events/events.csv": [ "read" ],
+				"/usr/sbin/zbt-modem-events sample": [ "exec" ]
+			}
+		},
+		"write": {}
+	}
+}

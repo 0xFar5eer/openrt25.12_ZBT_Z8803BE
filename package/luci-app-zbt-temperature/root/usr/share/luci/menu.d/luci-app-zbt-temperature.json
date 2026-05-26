@@ -1,0 +1,13 @@
+{
+	"admin/services/zbt-temperature": {
+		"title": "Temperature Monitor",
+		"order": 85,
+		"action": {
+			"type": "view",
+			"path": "zbt8803be/temperature"
+		},
+		"depends": {
+			"acl": [ "luci-app-zbt-temperature" ]
+		}
+	}
+}

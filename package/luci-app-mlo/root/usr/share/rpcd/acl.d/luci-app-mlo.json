@@ -1,0 +1,17 @@
+{
+	"luci-app-mlo": {
+		"description": "Grant access to wireless MLO configuration",
+		"read": {
+			"ubus": {
+				"network.wireless": [ "status" ]
+			},
+			"uci": [ "wireless" ]
+		},
+		"write": {
+			"file": {
+				"/sbin/wifi": [ "exec" ]
+			},
+			"uci": [ "wireless" ]
+		}
+	}
+}

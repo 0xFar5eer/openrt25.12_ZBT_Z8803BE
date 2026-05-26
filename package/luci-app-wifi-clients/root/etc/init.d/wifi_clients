@@ -1,0 +1,68 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=10
+
+CRONTAB=/etc/crontabs/root
+MARKER_PREFIX="# wifi-clients-managed:"
+DEFAULT_CACHE_FILE="/tmp/wifi-clients-cache.json"
+
+sanitize_path() {
+	case "$1" in
+		/tmp/*|/var/run/*)
+			case "$1" in
+				*..*|*[!A-Za-z0-9_./-]*) echo "$DEFAULT_CACHE_FILE" ;;
+				*) echo "$1" ;;
+			esac
+			;;
+		*) echo "$DEFAULT_CACHE_FILE" ;;
+	esac
+}
+
+sanitize_uint() {
+	case "$1" in
+		''|*[!0-9]*) echo "$2" ;;
+		*) echo "$1" ;;
+	esac
+}
+
+remove_cron() {
+	local tmp
+	tmp="${CRONTAB}.tmp.$$"
+	mkdir -p "$(dirname "$CRONTAB")"
+	if [ -f "$CRONTAB" ]; then
+		grep -v -e "$MARKER_PREFIX" -e "wifi-clients-collector\.py" "$CRONTAB" > "$tmp" 2>/dev/null || :
+		cat "$tmp" > "$CRONTAB"
+		rm -f "$tmp"
+	fi
+}
+
+install_cron() {
+	local enabled cache_file interval
+	config_load wifi-clients
+	config_get_bool enabled general enabled 1
+	config_get cache_file general cache_file "$DEFAULT_CACHE_FILE"
+	config_get interval general refresh_interval 30
+	cache_file=$(sanitize_path "$cache_file")
+	interval=$(sanitize_uint "$interval" 30)
+	remove_cron
+	[ "$enabled" = "1" ] || return 0
+	{
+		echo "* * * * * /usr/bin/python3 /usr/bin/wifi-clients-collector.py > $cache_file 2>/dev/null $MARKER_PREFIX wifi-clients-collector"
+		[ "$interval" -le 30 ] 2>/dev/null && echo "* * * * * sleep 30 && /usr/bin/python3 /usr/bin/wifi-clients-collector.py > $cache_file 2>/dev/null $MARKER_PREFIX wifi-clients-collector-30s"
+	} >> "$CRONTAB"
+}
+
+start() {
+	install_cron
+	/etc/init.d/cron reload >/dev/null 2>&1 || /etc/init.d/cron restart >/dev/null 2>&1 || true
+}
+
+stop() {
+	remove_cron
+	/etc/init.d/cron reload >/dev/null 2>&1 || /etc/init.d/cron restart >/dev/null 2>&1 || true
+}
+
+restart() {
+	start
+}

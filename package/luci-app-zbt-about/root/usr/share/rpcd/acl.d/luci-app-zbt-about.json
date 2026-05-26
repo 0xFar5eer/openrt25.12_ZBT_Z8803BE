@@ -1,0 +1,15 @@
+{
+	"luci-app-zbt-about": {
+		"description": "Grant read access to ZBT-Z8803BE build info and credits",
+		"read": {
+			"ubus": {
+				"system": [ "board", "info" ]
+			},
+			"file": {
+				"/etc/openwrt_release": [ "read" ],
+				"/etc/openwrt_version": [ "read" ]
+			}
+		},
+		"write": {}
+	}
+}

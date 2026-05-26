@@ -1,0 +1,18 @@
+{
+	"luci-app-wifi-clients": {
+		"description": "Grant access to WiFi clients dashboard",
+		"read": {
+			"file": {
+				"/usr/sbin/wifi-clients-page": [ "exec" ],
+				"/usr/bin/wifi-clients-collector.py": [ "exec" ]
+			},
+			"uci": [ "wifi-clients" ]
+		},
+		"write": {
+			"file": {
+				"/etc/init.d/wifi_clients": [ "exec" ]
+			},
+			"uci": [ "wifi-clients" ]
+		}
+	}
+}

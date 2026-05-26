@@ -1,0 +1,93 @@
+{
+    "admin/services/qosmate": {
+        "title": "QoSmate",
+        "order": 70,
+        "action": {
+            "type": "firstchild"
+        },
+        "depends": {
+            "acl": [ "luci-app-qosmate" ],
+            "uci": { "qosmate": true }
+        }
+    },
+    "admin/services/qosmate/settings": {
+        "title": "Settings",
+        "order": 10,
+        "action": {
+            "type": "view",
+            "path": "qosmate/settings"
+        }
+    },
+    "admin/services/qosmate/hfsc": {
+        "title": "HFSC",
+        "order": 20,
+        "action": {
+            "type": "view",
+            "path": "qosmate/hfsc"
+        }
+    },
+    "admin/services/qosmate/cake": {
+        "title": "CAKE",
+        "order": 30,
+        "action": {
+            "type": "view",
+            "path": "qosmate/cake"
+        }
+    },
+    "admin/services/qosmate/advanced": {
+        "title": "Advanced",
+        "order": 40,
+        "action": {
+            "type": "view",
+            "path": "qosmate/advanced"
+        }
+    },
+    "admin/services/qosmate/rules": {
+        "title": "Rules",
+        "order": 50,
+        "action": {
+            "type": "view",
+            "path": "qosmate/rules"
+        }
+    },
+    "admin/services/qosmate/ipsets": {
+        "title": "IP Sets",
+        "order": 45,
+        "action": {
+            "type": "view",
+            "path": "qosmate/ipsets"
+        }
+    },
+    "admin/services/qosmate/ratelimits": {
+        "title": "Rate Limits",
+        "order": 55,
+        "action": {
+            "type": "view",
+            "path": "qosmate/ratelimits"
+        }
+    },
+    "admin/services/qosmate/custom_rules": {
+        "title": "Custom Rules",
+        "order": 60,
+        "action": {
+            "type": "view",
+            "path": "qosmate/custom_rules"
+        }
+    },
+    "admin/services/qosmate/connections": {
+        "title": "Connections",
+        "order": 70,
+        "action": {
+            "type": "view",
+            "path": "qosmate/connections"
+        }
+    },
+    "admin/services/qosmate/statistics": {
+        "title": "Statistics",
+        "order": 80,
+        "action": {
+            "type": "view",
+            "path": "qosmate/statistics"
+        }
+    }
+}

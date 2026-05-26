@@ -1,0 +1,122 @@
+#!/bin/sh
+# Drive the ZBT-Z8803BE chassis SYS LED state machine on every wan/
+# wan6/wwan/wwan6 ifup/ifdown event from netifd. The actual mapping
+# of state -> LED triggers lives in /etc/zbt-leds.sh; this script's
+# job is purely to compute *which* state the router is in right now
+# (online vs offline) by inspecting the kernel routing table.
+#
+# Behaviour matrix:
+#
+#   any default route present -> "online"  (blinking green)
+#   no default route          -> "offline" (solid blue)
+#
+# Boot-time orange ("boot" state) is set by /etc/init.d/zbt-leds
+# at procd boot, *before* network init runs. The first hotplug
+# ifup that fires after network comes up replaces it with
+# online/offline, so the user sees a clear orange -> green
+# transition the moment connectivity is established.
+#
+# We deliberately don't filter $INTERFACE: qmodem dials its modems
+# under per-slot UCI section names ("4_1", "4_2", ...) which a
+# static allow-list would have to track every time hardware
+# topology changes. The route-table read is cheap (one ip(8) call,
+# one sed) so re-running on lan or loopback events is harmless.
+#
+# Board-guarded so this is a no-op on any other target that
+# happens to share this base-files tree.
+
+[ "$ACTION" = "ifup" ] || [ "$ACTION" = "ifdown" ] || exit 0
+
+# No interface-name filter on purpose. qmodem doesn't use the
+# conventional "wwan" UCI section name for its dialed connection;
+# it names the section after the M.2 slot path (e.g., "4_1" for slot
+# 4-1, "4_2" for slot 4-2), which a static allow-list would have to
+# duplicate every time hardware topology changes. Script is idempotent
+# and cheap (a sed parse and a sysfs write), so re-running on lan or
+# loopback events is harmless and keeps the wiring future-proof.
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+[ -x /etc/zbt-leds.sh ] || exit 0
+
+# netifd fires the ifdown hotplug *before* it finishes pulling the
+# interface's default route out of the kernel routing table. Reading
+# `ip route` at hotplug-time on an ifdown event therefore still sees
+# the about-to-die route, and we'd conclude "still online" — exactly
+# the wrong answer (the user pulled the cable; the LED should switch
+# to offline). Resolve the L3 device of the interface being torn
+# down and exclude its routes from consideration.
+#
+# Look up the device via UCI rather than ubus: by the time hotplug
+# ifdown fires, netifd has already removed the dynamic
+# network.interface.<name> object from ubus, so a `ubus call ...
+# status` returns empty and we'd silently skip the exclusion. UCI is
+# the static config and is always queryable. We try `device` first
+# (current OpenWrt convention: bridge name like br-wan), fall back
+# to legacy `ifname` (older configs / non-bridged interfaces), and
+# finally to ubus for genuinely dynamic interfaces that aren't in
+# /etc/config/network at all (rare).
+#
+# ifup events have the opposite timing (route already installed by
+# the time hotplug fires), so no exclusion is needed in that path.
+exclude_dev=""
+if [ "$ACTION" = "ifdown" ] && [ -n "${INTERFACE:-}" ]; then
+	exclude_dev=$(uci -q get "network.${INTERFACE}.device")
+	[ -n "$exclude_dev" ] || \
+		exclude_dev=$(uci -q get "network.${INTERFACE}.ifname")
+	[ -n "$exclude_dev" ] || exclude_dev=$(
+		ubus call "network.interface.$INTERFACE" status 2>/dev/null |
+		sed -nE 's/.*"l3_device":[[:space:]]*"([^"]+)".*/\1/p' |
+		head -n 1
+	)
+fi
+
+# Pick the egress device of the lowest-metric IPv4 default route.
+# `ip route` reports an explicit "metric N" field only when the route
+# was installed with one; routes without it are kernel-default metric 0
+# and have the field omitted entirely, so we parse defensively per
+# line and fall back to 0 when "metric N" is missing. We only need
+# *whether* a default route exists post-event, not its device, so
+# this is just a presence check (with the ifdown-race exclusion).
+primary_dev=$(
+	ip -4 route show default 2>/dev/null | while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		metric=$(printf '%s' "$line" | sed -nE 's/.*metric ([0-9]+).*/\1/p')
+		[ -n "$metric" ] || metric=0
+		dev=$(printf '%s' "$line" | sed -nE 's/.*dev ([^ ]+).*/\1/p')
+		[ -n "$dev" ] || continue
+		# Skip the route belonging to the interface we just took
+		# down (race-window workaround; see exclude_dev block above).
+		[ -n "$exclude_dev" ] && [ "$dev" = "$exclude_dev" ] && continue
+		printf '%s %s\n' "$metric" "$dev"
+	done | sort -n | head -n 1 | awk '{print $2}'
+)
+
+if [ -z "$primary_dev" ]; then
+	/etc/zbt-leds.sh offline
+	logger -t zbt-leds "$ACTION $INTERFACE -> offline (blue)"
+else
+	/etc/zbt-leds.sh online
+	logger -t zbt-leds "$ACTION $INTERFACE -> online (green) via $primary_dev"
+fi
+
+# Flush the routing cache on every transition so the kernel re-resolves
+# next-hop on the very next packet instead of holding onto stale FIB
+# entries that point at the now-failed interface. Doesn't touch
+# conntrack (existing TCP flows still die naturally as their carriers
+# disappear and the apps retry), but it lets NEW connections route
+# through the failover interface immediately, which is the bulk of
+# what users perceive as "internet came back".
+#
+# DNS resilience across this transition is handled at the AdGuard Home
+# config layer (see setup/03-adguardhome.sh): the upstream_dns list is
+# plain UDP only, so each query opens a fresh socket and the route
+# lookup picks up whichever default route is active right now.
+ip route flush cache 2>/dev/null || true
+
+if [ "${INTERFACE:-}" = "wan" ] && command -v conntrack >/dev/null 2>&1; then
+	conntrack -F >/dev/null 2>&1 || true
+	logger -t zbt-leds "$ACTION $INTERFACE flushed conntrack"
+fi

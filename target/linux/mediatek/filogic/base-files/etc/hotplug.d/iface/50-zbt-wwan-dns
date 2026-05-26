@@ -1,0 +1,150 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Capture WWAN operator-pushed DNS into a dnsmasq config snippet so the
+# resolver picks it up automatically on the cellular uplink.
+#
+# CONTEXT:
+#   The cellular path on this board uses qmodem + quectel-CM-M with
+#   network.4_1.proto=none. Because proto=none has no netifd-side DNS
+#   plumbing (unlike proto=qmi/proto=mbim/proto=dhcp which call
+#   `proto_add_dns_server` after dial), operator-pushed DNS never gets
+#   written to /tmp/resolv.conf.d/resolv.conf.auto for the cellular
+#   interface. Without this, dnsmasq has no upstream when the only
+#   active uplink is cellular, and the firmware-default public-DNS
+#   fallback in /etc/uci-defaults/80-zbt-z8803be-dns-cache (1.1.1.1,
+#   8.8.8.8) is what actually resolves names.
+#
+# IMPLEMENTATION:
+#   On `ifup` for the cellular interface, parse the most recent
+#   `dns_list:` field from quectel-CM-M's dial_log, validate the IPs,
+#   and write `server=` lines to a snippet inside dnsmasq's conf-dir
+#   (`/tmp/dnsmasq.<cfgHash>.d/zbt-wwan-dns.conf`). dnsmasq reads
+#   conf-dir on every (re)load, so a single SIGHUP via
+#   `/etc/init.d/dnsmasq reload` is enough to pick up the new
+#   upstreams. On `ifdown` we delete the snippet and reload again.
+#
+#   The cfg hash in the conf-dir name is dynamic per UCI section
+#   (typically `cfg01411c` for the default dnsmasq instance) so we
+#   detect it at runtime instead of hardcoding.
+#
+# COEXISTENCE WITH FALLBACK SERVERS:
+#   `80-zbt-z8803be-dns-cache` seeds 1.1.1.1 / 8.8.8.8 in the dnsmasq
+#   server list as a safety net. dnsmasq's default round-robin lets
+#   operator DNS (when present) and the public fallbacks all serve;
+#   the fastest one wins on each query. On operators that push an
+#   empty dns_list (Smart Communications PH, observed), this hook is
+#   a no-op and the fallback servers carry the load.
+#
+# UCI TOGGLE:
+#   Setup scripts that take over DNS (e.g. AdGuardHome on port 53,
+#   or noresolv=1 + explicit upstreams) can disable this hook so it
+#   does not race their own DNS plumbing:
+#       uci set system.zbt_wwan_dns=zbt_wwan_dns
+#       uci set system.zbt_wwan_dns.enabled='0'
+#       uci commit system
+#   Default if section is absent: enabled (this hook runs).
+
+# Cellular interface logical name (qmodem slot 4-1).
+WWAN_IFACE='4_1'
+SNIPPET_NAME='zbt-wwan-dns.conf'
+
+# Trigger only on relevant ifup/ifdown/ifupdate events for the
+# cellular interface. ifupdate fires when DNS or routes change
+# without a full state transition (e.g. operator re-pushes DNS).
+case "$ACTION" in
+	ifup|ifupdate|ifdown) ;;
+	*) exit 0 ;;
+esac
+
+[ "$INTERFACE" = "$WWAN_IFACE" ] || exit 0
+
+# UCI toggle. If section exists and enabled='0', no-op.
+if [ "$(uci -q get system.zbt_wwan_dns.enabled 2>/dev/null)" = "0" ]; then
+	logger -t zbt-wwan-dns "disabled via uci (system.zbt_wwan_dns.enabled=0); skipping"
+	exit 0
+fi
+
+# Detect dnsmasq's conf-dir (cfg hash is dynamic per UCI section).
+CONF_DIR=$(ls -d /tmp/dnsmasq.*.d 2>/dev/null | head -1)
+if [ -z "$CONF_DIR" ] || [ ! -d "$CONF_DIR" ]; then
+	logger -t zbt-wwan-dns "no dnsmasq conf-dir under /tmp/dnsmasq.*.d; dnsmasq not running yet?"
+	exit 0
+fi
+
+SNIPPET="${CONF_DIR}/${SNIPPET_NAME}"
+DIAL_LOG="/var/run/qmodem/${WWAN_IFACE}_dir/dial_log"
+
+reload_dnsmasq() {
+	# /etc/init.d/dnsmasq reload sends SIGHUP via procd, which makes
+	# dnsmasq re-read all resolv-files and conf-dir snippets without
+	# dropping in-flight queries. Procd-managed signaling is more
+	# robust than parsing pid files (which use a per-instance hash).
+	/etc/init.d/dnsmasq reload >/dev/null 2>&1 || true
+}
+
+if [ "$ACTION" = "ifdown" ]; then
+	if [ -f "$SNIPPET" ]; then
+		rm -f "$SNIPPET"
+		logger -t zbt-wwan-dns "ifdown ${WWAN_IFACE}: removed ${SNIPPET}"
+		reload_dnsmasq
+	fi
+	exit 0
+fi
+
+# ifup / ifupdate path: pull operator DNS from the most recent dial.
+# The dial_log line looks like:
+#   modem_dial:modem_path=/sys/...,driver=qmi,interface=4_1,...,dns_list: 1.2.3.4 5.6.7.8
+# Where dns_list: is space-separated IPs, possibly empty.
+if [ ! -r "$DIAL_LOG" ]; then
+	logger -t zbt-wwan-dns "ifup ${WWAN_IFACE}: no dial_log at ${DIAL_LOG}; fallback servers handle DNS"
+	exit 0
+fi
+
+DNS_LINE=$(grep 'dns_list:' "$DIAL_LOG" 2>/dev/null | tail -1)
+DNS_RAW=$(printf '%s' "$DNS_LINE" | sed 's/.*dns_list:[[:space:]]*//')
+
+# Validate each token: anchored IPv4 dotted-quad or hex+colon IPv6.
+# Loose patterns earlier (e.g. `*[0-9].*[0-9].*[0-9].*[0-9]*`) would
+# accept garbage like `12345.foo.bar.baz`; strict regex prevents that.
+VALID=''
+for ip in $DNS_RAW; do
+	case "$ip" in
+		*.*.*.*)
+			printf '%s' "$ip" | grep -qE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' && \
+				VALID="${VALID}${VALID:+ }${ip}"
+			;;
+		*:*:*)
+			printf '%s' "$ip" | grep -qE '^[0-9a-fA-F:]+$' && \
+				VALID="${VALID}${VALID:+ }${ip}"
+			;;
+	esac
+done
+
+if [ -z "$VALID" ]; then
+	logger -t zbt-wwan-dns "ifup ${WWAN_IFACE}: operator pushed empty/invalid dns_list; fallback servers handle DNS"
+	# Strip stale snippet from a previous session, if any.
+	if [ -f "$SNIPPET" ]; then
+		rm -f "$SNIPPET"
+		reload_dnsmasq
+	fi
+	exit 0
+fi
+
+# Write dnsmasq config snippet. One `server=` line per upstream; dnsmasq
+# round-robins between all upstreams (operator + firmware fallbacks)
+# and uses the fastest-responding for each query. We do NOT set
+# `strict-order` because we want resilience: if operator DNS slows or
+# dies, queries automatically fail over to 1.1.1.1 / 8.8.8.8.
+{
+	echo "# Generated by /etc/hotplug.d/iface/50-zbt-wwan-dns @ $(date '+%Y-%m-%d %H:%M:%S')"
+	echo "# Operator-pushed DNS for cellular (${WWAN_IFACE})"
+	for ip in $VALID; do
+		echo "server=${ip}"
+	done
+} > "$SNIPPET"
+
+logger -t zbt-wwan-dns "ifup ${WWAN_IFACE}: captured operator DNS '${VALID}', wrote ${SNIPPET}"
+reload_dnsmasq
+
+exit 0

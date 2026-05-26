@@ -1,0 +1,98 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Z8803BE — install ZBT-patched qmodem_monitor onto the live system.
+#
+# WHY:
+# The upstream qmodem_monitor (FUjr/QModem feed, file
+# /usr/share/qmodem/modem_monitor.sh) has three independent bugs in
+# its update_netcfg() routine that together produce a chronic
+# false-positive on modern OpenWrt:
+#
+#   1. ALIAS="-" treated as set
+#      qmodem stores "no alias" as the literal dash, not as empty.
+#      [ -n "$ALIAS" ] is true for "-", so the script tries to read
+#      network.-.ifname which never exists -> NET_DEV is empty.
+#
+#   2. ifname-only lookup
+#      Modern OpenWrt netifd (21.02+) writes layer-2 device names on
+#      `option device`. The legacy `option ifname` is no longer set
+#      for new wwan interfaces. Reading only ifname yields empty on
+#      every current-image install.
+#
+#   3. No alias-name -> modem-id fallback
+#      Setting a sensible alias (e.g. "modem1") for human-readable
+#      logs requires also creating a network.modem1 section, which
+#      is awkward and conflicts with the actual network.<modem_id>
+#      that qmodem itself maintains.
+#
+# Together these three drop NET_DEV to empty in the common deploy
+# shape. Then curl/ping run without --interface, probes leak through
+# the system default route (often the OTHER WAN on a multi-uplink
+# router), and any flakiness on that other path becomes a chronic
+# false-positive that escalates monitor_action=run_scripts into
+# reboot dispatches against a healthy modem every ~6 minutes.
+#
+# Our patched version (shipped in this firmware at
+# /usr/lib/zbt/qmodem-modem_monitor.sh) layers all three fixes.
+#
+# WHY OVERLAY-ON-BOOT (not patch the package source):
+# The qmodem_monitor package comes from an external feed
+# (https://github.com/FUjr/QModem). We don't fork it because
+# upstream is actively maintained and we want to inherit fixes.
+# Maintaining the patch as a uci-default-driven file overlay keeps
+# the package source pristine, makes our delta auditable in one
+# place, and survives package upgrades (the uci-default re-runs on
+# every image flash, which is exactly when the package would have
+# been replaced with a fresh upstream copy).
+#
+# IDEMPOTENCE:
+# Compares the live file with our shipped copy via cmp(1). Only
+# rewrites if they differ. cmp is a busybox built-in on every
+# OpenWrt image. Restarts qmodem_monitor only when the file actually
+# changed, so a no-op re-run doesn't cycle the service.
+#
+# UPGRADE PATH:
+# When the upstream package is updated and the new release fixes
+# the underlying bugs, simply removing /usr/lib/zbt/qmodem-modem_monitor.sh
+# from this firmware tree (and this uci-default) reverts to upstream
+# without per-deploy migration.
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+        zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+        *) exit 0 ;;
+esac
+
+SRC=/usr/lib/zbt/qmodem-modem_monitor.sh
+DST=/usr/share/qmodem/modem_monitor.sh
+
+# Skip cleanly on builds without the source file or the target dir.
+[ -r "$SRC" ] || exit 0
+[ -d "$(dirname "$DST")" ] || exit 0
+
+# If the destination doesn't exist yet (qmodem_monitor not installed
+# in this image), drop the file in place anyway so a later install
+# of the package gets its file replaced. Compare otherwise.
+need_install=0
+if [ ! -e "$DST" ]; then
+        need_install=1
+elif ! cmp -s "$SRC" "$DST"; then
+        need_install=1
+fi
+
+if [ "$need_install" = "1" ]; then
+        cp -f "$SRC" "$DST"
+        chmod +x "$DST"
+
+        # Reload the service if it's currently running. Safe no-op if
+        # it isn't. We use restart (not reload) because modem_monitor.sh
+        # is the worker script the service execs; the service has to
+        # tear down and re-spawn the worker to pick up the new file.
+        if [ -x /etc/init.d/qmodem_monitor ]; then
+                if pgrep -f "modem_monitor.sh" >/dev/null 2>&1; then
+                        /etc/init.d/qmodem_monitor restart >/dev/null 2>&1 || true
+                fi
+        fi
+fi
+
+exit 0

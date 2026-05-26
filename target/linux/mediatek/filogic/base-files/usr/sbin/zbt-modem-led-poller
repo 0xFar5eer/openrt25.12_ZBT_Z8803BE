@@ -1,0 +1,268 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Per-modem-slot LED poller for ZBT-Z8803BE.
+#
+# Background: the chassis has two M.2 Key-B modem slots (front-panel
+# silk "5G1" / "5G2") each with its own status LED. The user-facing
+# spec is:
+#
+#   modem powered, no SIM / no tower    -> "red solid"
+#   LTE network connected               -> "orange blink (with activity)"
+#   5G NR network connected             -> "blue blink (with activity)"
+#
+# There is no kernel-driven trigger for modem registration state, so
+# we drive the LEDs from userspace by polling each slot's AT port
+# every few seconds and asking the modem for its current radio
+# technology. The state machine itself (state -> trigger/colour
+# mapping) lives in /etc/zbt-leds.sh; this script's job is purely
+# the discovery+classification loop.
+#
+# Slot enumeration: each M.2 modem on this board enumerates as four
+# /dev/ttyUSB* nodes hanging off USB bus 4-1 (slot 1) or 4-2
+# (slot 2). The third interface (index .2 in /sys/bus/usb topology)
+# is the AT command port on every Quectel RM5xx / EC25 / EM05 we've
+# seen, which is what we probe.
+#
+# Modem absence: if the slot's power-enable GPIO is off, or if no
+# AT-capable ttyUSB shows up under that bus, we drive the slot LED
+# to "off". This keeps the indicator silent for empty slots
+# (rather than showing a confusing "no_signal" red on a slot that
+# has no modem at all).
+#
+# AT timeout: 3 seconds per query is enough for a healthy modem
+# (typical response < 200 ms) without holding the loop up forever
+# if the modem is in a stuck state. The poll interval (5 s by
+# default) is the upper bound on UI lag — pressing reboot on the
+# modem will be reflected in the LED within ~5 s of recovery.
+#
+# Hotplug interaction: this poller runs continuously in a procd
+# instance (see /etc/init.d/zbt-modem-leds). It deliberately does
+# NOT compete with the SYS LED state machine: 5g1/5g2 are separate
+# /sys/class/leds nodes from red:status / green:wan / blue:power,
+# so trigger writes here can't clobber the SYS indicator.
+
+# --- config ------------------------------------------------------
+
+POLL_INTERVAL=${POLL_INTERVAL:-5}
+AT_TIMEOUT=${AT_TIMEOUT:-3}
+HELPER=/etc/zbt-leds.sh
+
+case "$POLL_INTERVAL" in *[!0-9]*|"") POLL_INTERVAL=5 ;; esac
+case "$AT_TIMEOUT" in *[!0-9]*|"") AT_TIMEOUT=3 ;; esac
+[ "$POLL_INTERVAL" -gt 0 ] || POLL_INTERVAL=5
+[ "$AT_TIMEOUT" -gt 0 ] || AT_TIMEOUT=3
+
+# --- helpers -----------------------------------------------------
+
+# Read the slot's power-enable GPIO via /sys/class/gpio/<name>/value.
+# The names "5g1" / "5g2" come from the gpio-export block in the
+# DTS and match the front-panel slot names. Returns "1" for
+# powered, "0" otherwise.
+slot_powered() {
+	local slot="$1"
+	local gpio="5g${slot}"
+	[ -e "/sys/class/gpio/${gpio}/value" ] && {
+		cat "/sys/class/gpio/${gpio}/value" 2>/dev/null
+		return
+	}
+	echo 0
+}
+
+# Locate the AT command port for a slot. Walks /sys/class/tty/
+# rather than /sys/bus/usb/devices/4-N because the latter is a
+# symlink farm whose targets vary (and find(1) without -L doesn't
+# follow them, so the obvious globbing approach silently returns
+# nothing). The realpath of each tty's device link is the canonical
+# /sys/devices/platform/.../4-N/4-N:1.M/ttyUSBN path which we can
+# pattern-match cheaply.
+#
+# Quectel modems we ship expose AT on USB interface index .2 (the
+# third interface). If the canonical interface isn't present (older
+# firmware variants, vendor reflashes that shuffle interface order)
+# we fall back to *any* tty on the slot's bus — the poller's at_query
+# will simply time out on a non-AT port and we'll log no_signal,
+# which is the correct conservative answer.
+slot_at_port() {
+	local slot="$1"
+	local canonical=""
+	local fallback=""
+	local tty rp name
+	for tty in /sys/class/tty/ttyUSB*; do
+		[ -d "$tty" ] || continue
+		rp=$(readlink -f "$tty/device" 2>/dev/null) || continue
+		# Skip ttys that don't belong to this slot's USB bus.
+		case "$rp" in
+			*"/4-${slot}/4-${slot}:"*) ;;
+			*) continue ;;
+		esac
+		name=$(basename "$tty")
+		# Canonical AT port: interface index .2.
+		case "$rp" in
+			*"/4-${slot}:"*".2/"*) canonical="$name" ;;
+			*) [ -z "$fallback" ] && fallback="$name" ;;
+		esac
+	done
+	if [ -n "$canonical" ]; then
+		printf '/dev/%s' "$canonical"
+		return 0
+	fi
+	if [ -n "$fallback" ]; then
+		printf '/dev/%s' "$fallback"
+		return 0
+	fi
+	return 1
+}
+
+slot_netdev() {
+	local slot="$1" sys iface dev base i
+	for sys in /sys/class/net/*; do
+		[ -d "$sys" ] || continue
+		[ -d "$sys/qmi" ] || [ -d "$sys/mhi" ] || continue
+		iface=${sys##*/}
+		dev=$(readlink -f "$sys/device" 2>/dev/null) || continue
+		i=0
+		while [ -n "$dev" ] && [ "$i" -lt 6 ]; do
+			base=$(basename "$dev")
+			case "$slot:$base" in
+				1:*-1|2:*-2)
+					printf '%s\n' "$iface"
+					return 0
+					;;
+			esac
+			dev=$(dirname "$dev")
+			i=$((i + 1))
+		done
+	done
+	return 1
+}
+
+# Issue an AT command via sms_tool with a short timeout. Returns
+# the response on stdout, empty string on timeout/error. Strips the
+# echoed command and trailing OK/empty lines so callers can grep
+# directly.
+at_query() {
+	local port="$1" cmd="$2"
+	command -v sms_tool >/dev/null 2>&1 || return 1
+	[ -c "$port" ] || return 1
+	sms_tool -d "$port" -t "$AT_TIMEOUT" at "$cmd" 2>/dev/null \
+		| tr -d '\r' \
+		| grep -vE '^(AT|OK|)$'
+}
+
+# Translate the QENG servingcell response into one of off/no_signal/
+# lte/nr5g. The line format from Quectel is:
+#
+#   +QENG: "servingcell","<state>","<tech>",...
+#
+# where <tech> is "LTE", "NR5G-NSA", "NR5G-SA", "WCDMA", etc., and
+# <state> is "NOCONN" / "CONNECT" / "SEARCH" / "NOSERVICE" /
+# "LIMSRV". The "tech is NR5G" check is deliberately a substring
+# match (rather than equality) so both NSA and SA flavours map to
+# the same nr5g state — both are "5G connected" from the user's
+# perspective.
+classify() {
+	local resp="$1"
+	# No signal at all: SEARCH or NOSERVICE state, or +CME ERROR.
+	echo "$resp" | grep -qE 'SEARCH|NOSERVICE|LIMSRV|CME ERROR|CMS ERROR' && {
+		echo no_signal
+		return
+	}
+	# 5G NR connected (NSA or SA).
+	echo "$resp" | grep -q 'NR5G' && { echo nr5g; return; }
+	# Plain LTE.
+	echo "$resp" | grep -q '"LTE"' && { echo lte; return; }
+	# Anything else (WCDMA fallback, GSM, unknown) treat as
+	# no_signal so the user knows something is wrong rather than
+	# defaulting to a misleading "lte" state.
+	echo no_signal
+}
+
+# Apply a state to a slot via the helper. Quietly skip if the
+# helper is missing (e.g., the helper failed to install — better to
+# leave LEDs in their last state than crash the daemon).
+apply_state() {
+	local slot="$1" state="$2"
+	[ -x "$HELPER" ] || return 0
+	if [ "$state" = "wwan" ]; then
+		[ -n "$SLOT_NETDEV" ] || return 0
+		"$HELPER" slot "$slot" "$state" "$SLOT_NETDEV"
+	else
+		"$HELPER" slot "$slot" "$state"
+	fi
+}
+
+# --- main loop ---------------------------------------------------
+
+detect_slot() {
+	local slot="$1"
+	SLOT_POWERED="$(slot_powered "$slot" 2>/dev/null)"
+	SLOT_PORT=""
+	SLOT_NETDEV=""
+	SLOT_RESP=""
+	SLOT_STATE=off
+	SLOT_KEY=off
+
+	if [ "$SLOT_POWERED" = "1" ]; then
+		SLOT_NETDEV=$(slot_netdev "$slot" 2>/dev/null || true)
+		if [ -n "$SLOT_NETDEV" ]; then
+			SLOT_STATE=wwan
+			SLOT_KEY="wwan:${SLOT_NETDEV}"
+			return
+		fi
+		SLOT_PORT=$(slot_at_port "$slot" 2>/dev/null || true)
+		if [ -n "$SLOT_PORT" ] && [ -c "$SLOT_PORT" ]; then
+			SLOT_RESP=$(at_query "$SLOT_PORT" 'AT+QENG="servingcell"' 2>/dev/null || true)
+			if [ -n "$SLOT_RESP" ]; then
+				SLOT_STATE=$(classify "$SLOT_RESP")
+			else
+				SLOT_STATE=no_signal
+			fi
+		else
+			SLOT_STATE=no_signal
+		fi
+	fi
+	SLOT_KEY="$SLOT_STATE"
+}
+
+run_cycle() {
+	local once="$1"
+	local slot prev
+
+	for slot in 1 2; do
+		detect_slot "$slot"
+		case "$slot" in
+			1) prev=$last1 ;;
+			2) prev=$last2 ;;
+		esac
+		if [ "$SLOT_KEY" != "$prev" ]; then
+			apply_state "$slot" "$SLOT_STATE"
+			logger -t zbt-modem-leds "slot $slot: $prev -> $SLOT_KEY"
+			case "$slot" in
+				1) last1=$SLOT_KEY ;;
+				2) last2=$SLOT_KEY ;;
+			esac
+		fi
+		if [ "$once" = "1" ]; then
+			echo "slot=$slot powered=${SLOT_POWERED:-0} port=${SLOT_PORT:-none} netdev=${SLOT_NETDEV:-none} state=$SLOT_STATE"
+		fi
+	done
+}
+
+last1=""
+last2=""
+
+case "${1:-daemon}" in
+	daemon)
+		while :; do
+			run_cycle 0
+			sleep "$POLL_INTERVAL"
+		done
+		;;
+	once|--once)
+		run_cycle 1
+		;;
+	*)
+		echo "usage: $0 [daemon|once]" >&2
+		exit 1
+		;;
+esac

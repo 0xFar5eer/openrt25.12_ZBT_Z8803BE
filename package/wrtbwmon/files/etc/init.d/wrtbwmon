@@ -1,0 +1,214 @@
+#!/bin/sh /etc/rc.common
+#
+# wrtbwmon init script - nftables + SQLite architecture
+
+### BEGIN INIT INFO
+# Provides:           wrtbwmon
+# Required-Start:     $network $local_fs $remote_fs firewall
+# Required-Stop:      $local_fs $remote_fs
+# Default-Start:      2 3 4 5
+# Default-Stop:       0 1 6
+# Short-Description:  nftables-based bandwidth monitor with SQLite
+### END INIT INFO
+
+START=95
+STOP=10
+USE_PROCD=0
+
+# Configuration
+LIB_DIR="/usr/lib/wrtbwmon"
+[ -d "/etc/init.d/../lib/wrtbwmon" ] && LIB_DIR="/etc/init.d/../lib/wrtbwmon"
+
+# Load core libraries
+. "$LIB_DIR/logger.sh" || { echo "ERROR: logger.sh not found" >&2; exit 1; }
+. "$LIB_DIR/error_handler.sh" || { echo "ERROR: error_handler.sh not found" >&2; exit 1; }
+. "$LIB_DIR/config.sh" || { echo "ERROR: config.sh not found" >&2; exit 1; }
+. "$LIB_DIR/retry.sh" || { echo "ERROR: retry.sh not found" >&2; exit 1; }
+
+# Load manager libraries
+. "$LIB_DIR/sqlite_manager.sh" || { log_error "SQLite manager not found"; exit 1; }
+. "$LIB_DIR/chain_manager.sh" || { log_error "chain manager not found"; exit 1; }
+
+# Start service
+start() {
+    # Initialize logging
+    log_init "wrtbwmon-init" "${LOG_LEVEL:-info}"
+
+    log_info "Starting wrtbwmon (nftables + SQLite)"
+
+    # Check prerequisites
+    if ! command -v nft >/dev/null 2>&1; then
+        log_error "nftables not available"
+        return 1
+    fi
+
+    if ! command -v sqlite3 >/dev/null 2>&1; then
+        log_error "sqlite3 not available"
+        return 1
+    fi
+
+    # Load configuration
+    config_load
+    if [ "$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" != "1" ]; then
+        log_info "wrtbwmon disabled in UCI, skipping start"
+        return 0
+    fi
+    local db_file
+    db_file=$(config_get "DB_FILE")
+
+    # Initialize SQLite database
+    log_info "Initializing SQLite database: $db_file"
+    if ! sqlite_init "$db_file"; then
+        log_error "SQLite initialization failed"
+        return 1
+    fi
+
+    # Initialize domain tracking tables and chains
+    log_info "Initializing domain tracking"
+    if [ "$DOMAIN_TRACKING_ENABLED" = "1" ] && [ -x /usr/sbin/wrtbwmon-domain-manager.py ]; then
+        /usr/sbin/wrtbwmon-domain-manager.py init 2>/dev/null || {
+            log_warn "Domain tracking initialization failed"
+        }
+    fi
+
+    # Initialize nftables verdict maps and dispatch rules
+    log_info "Initializing nftables verdict maps and dispatch rules"
+    if ! nft_init; then
+        log_error "nftables initialization failed"
+        return 1
+    fi
+
+    log_info "wrtbwmon started successfully"
+    return 0
+}
+
+# Stop service
+stop() {
+    # Initialize logging
+    log_init "wrtbwmon-init" "${LOG_LEVEL:-info}"
+
+    log_info "Stopping wrtbwmon"
+
+    # Cleanup nftables
+    log_info "Cleaning up nftables objects"
+    nft_cleanup
+
+    # Database remains (persistent storage)
+    log_info "wrtbwmon stopped (database preserved)"
+    return 0
+}
+
+# Restart service
+restart() {
+    stop
+    sleep 2
+    start
+}
+
+# Reload service (same as restart for now)
+reload() {
+    restart
+}
+
+# Show status
+status() {
+    # Initialize logging
+    log_init "wrtbwmon-init" "${LOG_LEVEL:-info}"
+
+    # Load configuration
+    config_load
+    local db_file
+    db_file=$(config_get "DB_FILE")
+    local table
+    table=$(config_get "NFT_TABLE")
+
+    echo "=== wrtbwmon Status ==="
+    echo ""
+
+    # Check nftables
+    echo "nftables verdict maps:"
+    if nft list maps "$table" 2>/dev/null | grep -q wrtbwmon; then
+        echo "  ✓ Verdict maps present"
+        nft_stats
+    else
+        echo "  ✗ Verdict maps not found"
+    fi
+
+    echo ""
+
+    # Check database
+    echo "Database:"
+    if [ -f "$db_file" ]; then
+        echo "  ✓ Database exists: $db_file"
+        sqlite_stats "$db_file"
+    else
+        echo "  ✗ Database not found"
+    fi
+
+    echo ""
+}
+
+# Boot sequence - called during system boot
+boot() {
+    # Use a more reliable boot mechanism
+    local boot_script="/tmp/wrtbwmon_boot.sh"
+
+    # Create boot script
+    cat > "$boot_script" << 'BOOTSCRIPT'
+#!/bin/sh
+[ "$(uci -q get wrtbwmon.general.enabled 2>/dev/null)" = "1" ] || {
+    logger -t "wrtbwmon-boot" "wrtbwmon disabled in UCI, skipping boot start"
+    rm -f /tmp/wrtbwmon_boot.sh
+    exit 0
+}
+
+# Wait for firewall4 to be ready (fw4 table must exist)
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if nft list table inet fw4 >/dev/null 2>&1; then
+        logger -t "wrtbwmon-boot" "fw4 table ready after ${i}s"
+        break
+    fi
+    sleep 1
+done
+
+# Additional wait for fw4 rules to be fully loaded
+sleep 3
+
+# Log boot attempt
+logger -t "wrtbwmon-boot" "Starting wrtbwmon after boot"
+
+# Start the service
+/etc/init.d/wrtbwmon start 2>&1 | logger -t "wrtbwmon-boot"
+
+# Create device IP chains from ARP table
+logger -t "wrtbwmon-boot" "Creating device chains"
+/usr/sbin/wrtbwmon update 2>&1 | logger -t "wrtbwmon-boot"
+
+. /usr/lib/wrtbwmon/config.sh 2>/dev/null
+config_load >/dev/null 2>&1
+if [ "$DOMAIN_TRACKING_ENABLED" = "1" ]; then
+    logger -t "wrtbwmon-boot" "Rebuilding domain tracking chains"
+    /usr/sbin/wrtbwmon-domain-manager.py init 2>&1 | logger -t "wrtbwmon-boot"
+fi
+
+# Verify dispatch rules exist
+if nft list chain inet fw4 forward 2>/dev/null | grep -q "wrtbwmon-dispatch"; then
+    logger -t "wrtbwmon-boot" "wrtbwmon started successfully"
+else
+    logger -t "wrtbwmon-boot" "ERROR: dispatch rules missing, retrying"
+    sleep 5
+    /usr/sbin/wrtbwmon update 2>&1 | logger -t "wrtbwmon-boot-retry"
+    if [ "$DOMAIN_TRACKING_ENABLED" = "1" ]; then
+        /usr/sbin/wrtbwmon-domain-manager.py init 2>&1 | logger -t "wrtbwmon-boot-retry"
+    fi
+fi
+
+# Cleanup
+rm -f /tmp/wrtbwmon_boot.sh
+BOOTSCRIPT
+
+    chmod +x "$boot_script"
+    "$boot_script" &
+
+    return 0
+}

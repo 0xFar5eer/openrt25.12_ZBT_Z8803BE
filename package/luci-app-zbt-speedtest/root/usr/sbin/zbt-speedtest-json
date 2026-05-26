@@ -1,0 +1,915 @@
+#!/usr/bin/env python3
+import concurrent.futures
+import fcntl
+import math
+import json
+import os
+import re
+import shutil
+import shlex
+import subprocess
+import sys
+import time
+import unicodedata
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+
+DEFAULT_DOWN_BYTES = 25000000
+DEFAULT_UP_BYTES = 5000000
+MAX_DOWN_BYTES = 200000000
+MAX_UP_BYTES = 50000000
+DEFAULT_COUNTRY = 'PH'
+CONFIG_FILE = '/etc/config/zbt-speedtest'
+HISTORY_FILE = '/etc/zbt-speedtest/history.json'
+HISTORY_LOCK_FILE = '/var/lock/zbt-speedtest-history.lock'
+MAX_HISTORY = 100
+USER_AGENT = 'Mozilla/5.0 (OpenWrt; ZBT-Z8803BE) zbt-speedtest/1.0'
+CONFIG_URLS = [
+    'https://www.speedtest.net/speedtest-config.php',
+    'http://www.speedtest.net/speedtest-config.php'
+]
+SERVER_URLS = [
+    'https://www.speedtest.net/speedtest-servers-static.php?threads=4',
+    'http://www.speedtest.net/speedtest-servers-static.php?threads=4',
+    'https://www.speedtest.net/speedtest-servers.php?threads=4',
+    'http://www.speedtest.net/speedtest-servers.php?threads=4',
+    'http://c.speedtest.net/speedtest-servers-static.php?threads=4',
+    'http://c.speedtest.net/speedtest-servers.php?threads=4'
+]
+PINNED_SERVERS = {
+    'ph-globe-santa-rosa': {
+        'id': '41188',
+        'sponsor': 'Globe Telecom',
+        'name': 'Santa Rosa',
+        'country': 'Philippines',
+        'cc': 'PH',
+        'host': 'srs-speedtest.globe.com.ph.prod.hosts.ooklaserver.net:8080',
+        'url': 'http://srs-speedtest.globe.com.ph:8080/speedtest/upload.php',
+        'd': 36.0
+    },
+    'ph-smart-paranaque': {
+        'id': '7521',
+        'sponsor': 'Smart Communications',
+        'name': 'Paranaque City',
+        'country': 'Philippines',
+        'cc': 'PH',
+        'host': 'laspinas1.smart.com.ph.prod.hosts.ooklaserver.net:8080',
+        'url': 'http://laspinas1.smart.com.ph:8080/speedtest/upload.php',
+        'd': 50.0
+    },
+    'kh-phnom-penh': {
+        'id': '67101',
+        'sponsor': 'ONLINE ISP',
+        'name': 'Phnom Penh',
+        'country': 'Cambodia',
+        'cc': 'KH',
+        'host': 'speedtest10g.online.com.kh:8080',
+        'url': 'http://speedtest10g.online.com.kh:8080/speedtest/upload.php',
+        'd': 1100.0
+    },
+    'sg-singtel': {
+        'id': '13623',
+        'sponsor': 'Singtel',
+        'name': 'Singapore',
+        'country': 'Singapore',
+        'cc': 'SG',
+        'host': 'speedtest.singnet.com.sg:8080',
+        'url': 'http://speedtest.singnet.com.sg:8080/speedtest/upload.php',
+        'd': 1462.0
+    },
+    'my-time-kuala-lumpur': {
+        'id': '50737',
+        'sponsor': 'TIME MY',
+        'name': 'Kuala Lumpur',
+        'country': 'Malaysia',
+        'cc': 'MY',
+        'host': 'speedkl.time.com.my.prod.hosts.ooklaserver.net:8080',
+        'url': 'http://speedkl.time.com.my:8080/speedtest/upload.php',
+        'd': 1514.0
+    },
+    'us-frontier-los-angeles': {
+        'id': '14236',
+        'sponsor': 'Frontier',
+        'name': 'Los Angeles, CA',
+        'country': 'United States',
+        'cc': 'US',
+        'host': 'losangeles.ca.speedtest.frontier.com:8080',
+        'url': 'http://losangeles.ca.speedtest.frontier.com:8080/speedtest/upload.php',
+        'd': 7340.0
+    },
+    'de-telekom-berlin': {
+        'id': '30907',
+        'sponsor': 'Deutsche Telekom',
+        'name': 'Berlin',
+        'country': 'Germany',
+        'cc': 'DE',
+        'host': 'ber.wsqm.telekom-dienste.de.prod.hosts.ooklaserver.net:8080',
+        'url': 'http://ber.wsqm.telekom-dienste.de:8080/speedtest/upload.php',
+        'd': 6188.0
+    },
+    'nl-solcon-dronten': {
+        'id': '1747',
+        'sponsor': 'Solcon Internetdiensten B.V.',
+        'name': 'Dronten',
+        'country': 'Netherlands',
+        'cc': 'NL',
+        'host': 'speedtest01.dro3.solcon.nl:8080',
+        'url': 'http://speedtest01.dro3.solcon.nl:8080/speedtest/upload.php',
+        'd': 6480.0
+    },
+    'fr-orange-strasbourg': {
+        'id': '61300',
+        'sponsor': 'ORANGE FRANCE',
+        'name': 'Strasbourg',
+        'country': 'France',
+        'cc': 'FR',
+        'host': 'strasbourg3.d2m.c2d.liveservices.fr.prod.hosts.ooklaserver.net:8080',
+        'url': 'http://strasbourg3.d2m.c2d.liveservices.fr:8080/speedtest/upload.php',
+        'd': 6527.0
+    },
+    'th-ais-bangkok': {
+        'id': '36978',
+        'sponsor': 'AIS Fibre',
+        'name': 'Bangkok',
+        'country': 'Thailand',
+        'cc': 'TH',
+        'host': 'tlssp1.myaisfibre.com.prod.hosts.ooklaserver.net:8080',
+        'url': 'http://tlssp1.myaisfibre.com:8080/speedtest/upload.php',
+        'd': 1381.0
+    }
+}
+DEFAULT_GENERAL = {
+    'country': 'PH',
+    'preset': 'auto',
+    'connections': '4',
+    'candidate_limit': '12',
+    'download_bytes': str(DEFAULT_DOWN_BYTES),
+    'upload_bytes': str(DEFAULT_UP_BYTES)
+}
+PRESET_ALIASES = {
+    'globe-sta-rosa': 'ph-globe-santa-rosa',
+    'smart-paranaque': 'ph-smart-paranaque',
+    'kh-auto': 'kh-phnom-penh',
+    'sg-auto': 'sg-singtel',
+    'my-auto': 'my-time-kuala-lumpur',
+    'us-auto': 'us-frontier-los-angeles',
+    'de-auto': 'de-telekom-berlin',
+    'nl-auto': 'nl-solcon-dronten',
+    'fr-auto': 'fr-orange-strasbourg',
+    'th-auto': 'th-ais-bangkok'
+}
+DEFAULT_PRESETS = [
+    {'key': 'auto', 'label': 'Auto (selected country)', 'country': '', 'mode': 'auto'},
+    {'key': 'ph-globe-santa-rosa', 'label': 'PH - Globe Telecom Santa Rosa', 'country': 'PH', 'mode': 'pinned', **PINNED_SERVERS['ph-globe-santa-rosa']},
+    {'key': 'ph-smart-paranaque', 'label': 'PH - Smart Communications Parañaque', 'country': 'PH', 'mode': 'pinned', **PINNED_SERVERS['ph-smart-paranaque']},
+    {'key': 'kh-phnom-penh', 'label': 'KH - ONLINE ISP Phnom Penh', 'country': 'KH', 'mode': 'pinned', **PINNED_SERVERS['kh-phnom-penh']},
+    {'key': 'sg-singtel', 'label': 'SG - Singtel Singapore', 'country': 'SG', 'mode': 'pinned', **PINNED_SERVERS['sg-singtel']},
+    {'key': 'my-time-kuala-lumpur', 'label': 'MY - TIME Kuala Lumpur', 'country': 'MY', 'mode': 'pinned', **PINNED_SERVERS['my-time-kuala-lumpur']},
+    {'key': 'us-frontier-los-angeles', 'label': 'US - Frontier Los Angeles', 'country': 'US', 'mode': 'pinned', **PINNED_SERVERS['us-frontier-los-angeles']},
+    {'key': 'de-telekom-berlin', 'label': 'DE - Deutsche Telekom Berlin', 'country': 'DE', 'mode': 'pinned', **PINNED_SERVERS['de-telekom-berlin']},
+    {'key': 'nl-solcon-dronten', 'label': 'NL - Solcon Dronten', 'country': 'NL', 'mode': 'pinned', **PINNED_SERVERS['nl-solcon-dronten']},
+    {'key': 'fr-orange-strasbourg', 'label': 'FR - Orange Strasbourg', 'country': 'FR', 'mode': 'pinned', **PINNED_SERVERS['fr-orange-strasbourg']},
+    {'key': 'th-ais-bangkok', 'label': 'TH - AIS Fibre Bangkok', 'country': 'TH', 'mode': 'pinned', **PINNED_SERVERS['th-ais-bangkok']}
+]
+
+
+def clamp_int(value, default, low, high):
+    try:
+        number = int(str(value).strip())
+    except Exception:
+        number = default
+    return max(low, min(number, high))
+
+
+def run_cmd(cmd, input_data=None, timeout=30):
+    try:
+        proc = subprocess.run(cmd, input=input_data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+        return proc.returncode, proc.stdout.decode('utf-8', 'replace'), proc.stderr.decode('utf-8', 'replace')
+    except subprocess.TimeoutExpired as exc:
+        out = exc.stdout.decode('utf-8', 'replace') if exc.stdout else ''
+        err = exc.stderr.decode('utf-8', 'replace') if exc.stderr else ''
+        return 124, out, err or 'timeout'
+    except Exception as exc:
+        return 1, '', str(exc)
+
+
+def parse_route_line(line):
+    data = {'raw': line.strip()}
+    tokens = line.strip().split()
+    for key in ('dev', 'via', 'src'):
+        if key in tokens:
+            idx = tokens.index(key)
+            if idx + 1 < len(tokens):
+                data[key] = tokens[idx + 1]
+    return data
+
+
+def route_info():
+    info = {}
+    rc, out, err = run_cmd(['ip', '-4', 'route', 'get', '1.1.1.1'], timeout=5)
+    if rc == 0 and out.strip():
+        info['route_get'] = parse_route_line(out.strip().splitlines()[0])
+    elif err.strip():
+        info['route_get_error'] = err.strip()
+    rc, out, err = run_cmd(['ip', '-4', 'route', 'show', 'default'], timeout=5)
+    if rc == 0 and out.strip():
+        info['default_routes'] = [parse_route_line(line) for line in out.strip().splitlines() if line.strip()]
+    elif err.strip():
+        info['default_route_error'] = err.strip()
+    return info
+
+
+def ifstatus(name):
+    rc, out, _ = run_cmd(['ifstatus', name], timeout=5)
+    if rc != 0 or not out.strip():
+        return None
+    try:
+        data = json.loads(out)
+    except Exception:
+        return None
+    keep = {}
+    for key in ('up', 'pending', 'available', 'autostart', 'proto', 'device', 'l3_device'):
+        if key in data:
+            keep[key] = data[key]
+    addrs = data.get('ipv4-address') or []
+    if addrs:
+        keep['ipv4_address'] = [a.get('address') for a in addrs if a.get('address')]
+    routes = data.get('route') or []
+    if routes:
+        keep['route'] = [{k: r.get(k) for k in ('target', 'nexthop', 'metric') if k in r} for r in routes[:5]]
+    return keep
+
+
+def tools_info():
+    names = ('python3', 'ping', 'ip', 'ifstatus')
+    return {name: shutil.which(name) or '' for name in names}
+
+
+def parse_float(value, default=0.0):
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def normalize_country(value):
+    value = str(value or DEFAULT_COUNTRY).strip()
+    if not value:
+        return DEFAULT_COUNTRY
+    if value.lower() in ('philippines', 'phl'):
+        return 'PH'
+    return value.upper()
+
+
+def normalize_key(value):
+    value = unicodedata.normalize('NFKD', str(value or '')).encode('ascii', 'ignore').decode('ascii')
+    value = value.lower()
+    value = re.sub(r'[^a-z0-9]+', '-', value)
+    return value.strip('-')
+
+
+def resolve_preset_key(value):
+    key = normalize_key(value or 'auto') or 'auto'
+    return PRESET_ALIASES.get(key, key)
+
+
+def is_http_url(url):
+    try:
+        parsed = urllib.parse.urlsplit(str(url or ''))
+    except Exception:
+        return False
+    return parsed.scheme in ('http', 'https') and bool(parsed.netloc)
+
+
+def uci_quote(value):
+    return "'%s'" % str(value or '').replace("'", "'\\''")
+
+
+def parse_uci_config(path):
+    sections = []
+    current = None
+    try:
+        with open(path, 'r', encoding='utf-8') as fh:
+            lines = fh.readlines()
+    except OSError:
+        return sections
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith('#'):
+            continue
+        try:
+            parts = shlex.split(line, comments=True, posix=True)
+        except ValueError:
+            continue
+        if not parts:
+            continue
+        if parts[0] == 'config' and len(parts) >= 2:
+            current = {'_type': parts[1], '_name': parts[2] if len(parts) > 2 else ''}
+            sections.append(current)
+        elif current is not None and parts[0] == 'option' and len(parts) >= 3:
+            current[parts[1]] = parts[2]
+    return sections
+
+
+def load_app_config():
+    general = dict(DEFAULT_GENERAL)
+    presets = []
+    for section in parse_uci_config(CONFIG_FILE):
+        if section.get('_type') in ('speedtest', 'general') and section.get('_name') in ('', 'general'):
+            for key in DEFAULT_GENERAL:
+                if section.get(key) not in (None, ''):
+                    general[key] = section[key]
+        elif section.get('_type') == 'preset':
+            preset = {k: v for k, v in section.items() if k not in ('_type', '_name')}
+            if preset.get('key'):
+                presets.append(preset)
+    if not presets:
+        presets = [dict(p) for p in DEFAULT_PRESETS]
+    if not any(p.get('key') == 'auto' for p in presets):
+        presets.insert(0, dict(DEFAULT_PRESETS[0]))
+    general['preset'] = resolve_preset_key(general.get('preset', 'auto'))
+    if not any(normalize_key(p.get('key')) == general['preset'] for p in presets):
+        general['preset'] = 'auto'
+    return {'general': general, 'presets': presets}
+
+
+def write_app_config(general, presets):
+    os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+    tmp = '%s.%s.%s.tmp' % (CONFIG_FILE, os.getpid(), int(time.time() * 1000))
+    with open(tmp, 'w', encoding='utf-8') as fh:
+        fh.write("config speedtest 'general'\n")
+        for key in ('country', 'preset', 'connections', 'candidate_limit', 'download_bytes', 'upload_bytes'):
+            fh.write("\toption %s %s\n" % (key, uci_quote(general.get(key, DEFAULT_GENERAL.get(key, '')))))
+        for preset in presets:
+            fh.write("\nconfig preset\n")
+            for key in ('key', 'label', 'country', 'mode', 'id', 'sponsor', 'name', 'cc', 'host', 'url', 'd'):
+                if preset.get(key) not in (None, ''):
+                    fh.write("\toption %s %s\n" % (key, uci_quote(preset.get(key, ''))))
+    os.replace(tmp, CONFIG_FILE)
+
+
+def load_history():
+    try:
+        with open(HISTORY_FILE, 'r', encoding='utf-8') as fh:
+            data = json.load(fh)
+    except Exception:
+        data = []
+    if isinstance(data, dict):
+        data = data.get('history') or []
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+
+def write_history(history):
+    os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
+    tmp = '%s.%s.%s.tmp' % (HISTORY_FILE, os.getpid(), int(time.time() * 1000))
+    with open(tmp, 'w', encoding='utf-8') as fh:
+        json.dump(history[:MAX_HISTORY], fh, sort_keys=True, separators=(',', ':'))
+    os.replace(tmp, HISTORY_FILE)
+
+
+def update_history(mutator):
+    os.makedirs(os.path.dirname(HISTORY_LOCK_FILE), exist_ok=True)
+    with open(HISTORY_LOCK_FILE, 'w', encoding='utf-8') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        history = load_history()
+        updated = mutator(history)
+        write_history(updated if isinstance(updated, list) else history)
+
+
+def history_response(limit=50):
+    return {
+        'ok': True,
+        'history': load_history()[:clamp_int(limit, 50, 1, MAX_HISTORY)]
+    }
+
+
+def clear_history():
+    update_history(lambda history: [])
+    return history_response()
+
+
+def append_history(result, config=None):
+    if not result:
+        return
+    requested = result.get('requested') or {}
+    server = result.get('server') or {}
+    download = result.get('download') or {}
+    upload = result.get('upload') or {}
+    ping = result.get('ping') or {}
+    preset_key = requested.get('server') or ''
+    preset = find_preset(config or {}, preset_key) or find_preset({'presets': DEFAULT_PRESETS}, preset_key) or {}
+    entry = {
+        'timestamp': result.get('finished_at') or result.get('started_at') or int(time.time()),
+        'ok': bool(result.get('ok')),
+        'country': requested.get('country') or server.get('cc') or '',
+        'preset': preset_key,
+        'preset_label': preset.get('label') or preset_key,
+        'server_id': server.get('id') or '',
+        'server_sponsor': server.get('sponsor') or '',
+        'server_name': server.get('name') or '',
+        'server_country': server.get('country') or server.get('cc') or '',
+        'download_mbps': download.get('mbps') or 0,
+        'upload_mbps': upload.get('mbps') or 0,
+        'ping_ms': ping.get('avg_ms') or 0,
+        'connections': requested.get('connections') or '',
+        'download_bytes': download.get('bytes') or 0,
+        'upload_bytes': upload.get('bytes') or 0,
+        'duration_s': result.get('duration_s') or 0
+    }
+    def add_entry(history):
+        history.insert(0, entry)
+        return history[:MAX_HISTORY]
+    update_history(add_entry)
+
+
+def seed_app_config():
+    cfg = load_app_config()
+    general = dict(DEFAULT_GENERAL)
+    general.update(cfg.get('general') or {})
+    general['preset'] = resolve_preset_key(general.get('preset', 'auto'))
+    if not any(p.get('key') == general['preset'] for p in DEFAULT_PRESETS):
+        general['preset'] = 'auto'
+    write_app_config(general, [dict(p) for p in DEFAULT_PRESETS])
+    return load_app_config()
+
+
+def find_preset(config, key):
+    key = resolve_preset_key(key)
+    for preset in config.get('presets') or []:
+        if normalize_key(preset.get('key')) == key:
+            return preset
+    return None
+
+
+def preset_is_pinned(preset):
+    return bool(preset and (preset.get('mode') == 'pinned' or preset.get('url')))
+
+
+def preset_country(preset, fallback):
+    if preset:
+        return normalize_country(preset.get('cc') or preset.get('country') or fallback)
+    return normalize_country(fallback)
+
+
+def config_response():
+    cfg = load_app_config()
+    return {
+        'ok': True,
+        'general': cfg['general'],
+        'presets': cfg['presets'],
+        'sizes': [
+            {'label': 'Quick (10 MB down / 2 MB up)', 'download_bytes': '10000000', 'upload_bytes': '2000000'},
+            {'label': 'Standard (25 MB down / 5 MB up)', 'download_bytes': '25000000', 'upload_bytes': '5000000'},
+            {'label': 'Large (100 MB down / 20 MB up)', 'download_bytes': '100000000', 'upload_bytes': '20000000'}
+        ],
+        'engine': 'speedtest.net'
+    }
+
+
+def parse_args(argv):
+    cfg = load_app_config()
+    general = cfg['general']
+    opts = {
+        'down_bytes': general.get('download_bytes', DEFAULT_DOWN_BYTES),
+        'up_bytes': general.get('upload_bytes', DEFAULT_UP_BYTES),
+        'country': general.get('country', DEFAULT_COUNTRY),
+        'candidate_limit': general.get('candidate_limit', 12),
+        'connections': general.get('connections', 4),
+        'server_id': '',
+        'server': general.get('preset', 'auto'),
+        'save': '0',
+        'config': '0',
+        'seed_config': '0',
+        'history': '0',
+        'clear_history': '0',
+        'history_limit': '50'
+    }
+    pos = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg.startswith('--'):
+            key = arg[2:].replace('-', '_')
+            if i + 1 < len(argv) and not argv[i + 1].startswith('--'):
+                opts[key] = argv[i + 1]
+                i += 2
+            else:
+                opts[key] = '1'
+                i += 1
+        else:
+            pos.append(arg)
+            i += 1
+    if pos:
+        opts['down_bytes'] = pos[0]
+    if len(pos) > 1:
+        opts['up_bytes'] = pos[1]
+    if len(pos) > 2:
+        if pos[2].upper() in ('PH', 'PHL') or pos[2].lower() == 'philippines':
+            opts['country'] = 'PH'
+    if len(pos) > 3:
+        if pos[3].upper() in ('PH', 'PHL') or pos[3].lower() == 'philippines':
+            opts['country'] = 'PH'
+    opts['down_bytes'] = clamp_int(opts.get('download_bytes', opts['down_bytes']), DEFAULT_DOWN_BYTES, 1000000, MAX_DOWN_BYTES)
+    opts['up_bytes'] = clamp_int(opts.get('upload_bytes', opts['up_bytes']), DEFAULT_UP_BYTES, 250000, MAX_UP_BYTES)
+    opts['candidate_limit'] = clamp_int(opts.get('candidate_limit'), 12, 3, 30)
+    opts['connections'] = clamp_int(opts.get('connections'), 4, 1, 8)
+    opts['country'] = normalize_country(opts.get('country', DEFAULT_COUNTRY))
+    opts['server_id'] = str(opts.get('server_id') or '').strip()
+    opts['server'] = resolve_preset_key(opts.get('server') or opts.get('preset') or 'auto')
+    preset = find_preset(cfg, opts['server'])
+    if preset and (preset.get('cc') or preset.get('country')):
+        opts['country'] = preset_country(preset, opts['country'])
+    opts['config'] = str(opts.get('config', '0')).lower() in ('1', 'true', 'yes')
+    opts['seed_config'] = str(opts.get('seed_config', '0')).lower() in ('1', 'true', 'yes')
+    opts['history'] = str(opts.get('history', '0')).lower() in ('1', 'true', 'yes')
+    opts['clear_history'] = str(opts.get('clear_history', '0')).lower() in ('1', 'true', 'yes')
+    opts['history_limit'] = clamp_int(opts.get('history_limit'), 50, 1, MAX_HISTORY)
+    opts['save'] = str(opts.get('save', '0')).lower() in ('1', 'true', 'yes')
+    opts['app_config'] = cfg
+    return opts
+
+
+def save_run_options(opts):
+    cfg = opts.get('app_config') or load_app_config()
+    general = dict(cfg['general'])
+    general.update({
+        'country': opts['country'],
+        'preset': opts['server'],
+        'connections': str(opts['connections']),
+        'candidate_limit': str(opts['candidate_limit']),
+        'download_bytes': str(opts['down_bytes']),
+        'upload_bytes': str(opts['up_bytes'])
+    })
+    write_app_config(general, cfg['presets'])
+
+
+def request_url(url, data=None, timeout=10, read_limit=None):
+    if not is_http_url(url):
+        raise ValueError('invalid URL: %s' % url)
+    headers = {
+        'User-Agent': USER_AGENT,
+        'Accept': '*/*',
+        'Cache-Control': 'no-cache'
+    }
+    req = urllib.request.Request(url, data=data, headers=headers)
+    start = time.monotonic()
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        total = 0
+        chunks = []
+        kept = 0
+        while True:
+            chunk = resp.read(65536)
+            if not chunk:
+                break
+            total += len(chunk)
+            if read_limit is None:
+                chunks.append(chunk)
+            elif kept < read_limit:
+                chunks.append(chunk[:max(0, read_limit - kept)])
+                kept += len(chunks[-1])
+                if kept >= read_limit:
+                    break
+        elapsed = time.monotonic() - start
+        return {
+            'status': getattr(resp, 'status', resp.getcode()),
+            'url': resp.geturl(),
+            'bytes': total,
+            'elapsed': elapsed,
+            'body': b''.join(chunks)
+        }
+
+
+def fetch_xml(urls, timeout=12):
+    errors = []
+    for url in urls:
+        try:
+            res = request_url(url, timeout=timeout, read_limit=20000000)
+            if int(res['status']) != 200:
+                errors.append('%s HTTP %s' % (url, res['status']))
+                continue
+            return ET.fromstring(res['body']), url
+        except Exception as exc:
+            errors.append('%s %s' % (url, exc))
+    raise RuntimeError('; '.join(errors[-4:]))
+
+
+def distance(origin, destination):
+    lat1, lon1 = origin
+    lat2, lon2 = destination
+    radius = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    return radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def get_config(warnings):
+    try:
+        root, source_url = fetch_xml(CONFIG_URLS)
+        client_node = root.find('client')
+        server_node = root.find('server-config')
+        client = dict(client_node.attrib) if client_node is not None else {}
+        server_config = dict(server_node.attrib) if server_node is not None else {}
+        ignore = []
+        for item in server_config.get('ignoreids', '').split(','):
+            if item.strip().isdigit():
+                ignore.append(int(item.strip()))
+        return {
+            'source_url': source_url,
+            'client': client,
+            'ignore_servers': ignore,
+            'lat_lon': (parse_float(client.get('lat'), 14.5995), parse_float(client.get('lon'), 120.9842))
+        }
+    except Exception as exc:
+        warnings.append('speedtest.net config failed; using Manila coordinates: %s' % exc)
+        return {
+            'source_url': '',
+            'client': {'lat': '14.5995', 'lon': '120.9842', 'country': 'PH', 'isp': 'unknown', 'ip': ''},
+            'ignore_servers': [],
+            'lat_lon': (14.5995, 120.9842)
+        }
+
+
+def get_servers(config, country, warnings):
+    root, source_url = fetch_xml(SERVER_URLS, timeout=20)
+    servers = []
+    ignore = set(config.get('ignore_servers') or [])
+    for elem in root.iter('server'):
+        server = dict(elem.attrib)
+        server_id = str(server.get('id', '')).strip()
+        if server_id.isdigit() and int(server_id) in ignore:
+            continue
+        if not server.get('url'):
+            continue
+        try:
+            server['d'] = round(distance(config['lat_lon'], (float(server.get('lat')), float(server.get('lon')))), 2)
+        except Exception:
+            server['d'] = 999999.0
+        server['cc'] = str(server.get('cc') or '').upper()
+        servers.append(server)
+    if not servers:
+        raise RuntimeError('speedtest.net returned no servers')
+    country = normalize_country(country)
+    filtered = [s for s in servers if s.get('cc') == country]
+    if filtered:
+        servers = filtered
+    else:
+        warnings.append('No %s speedtest.net servers found; using nearest global servers' % country)
+    servers.sort(key=lambda s: (float(s.get('d', 999999.0)), str(s.get('sponsor', ''))))
+    return servers, source_url
+
+
+def server_base_url(server):
+    return str(server.get('url', '')).rsplit('/', 1)[0]
+
+
+def timed_latency(server, attempts=3):
+    base = server_base_url(server)
+    good = []
+    errors = []
+    for attempt in range(attempts):
+        url = '%s/latency.txt?x=%d.%d' % (base, int(time.time() * 1000), attempt)
+        try:
+            res = request_url(url, timeout=3, read_limit=32)
+            if int(res['status']) == 200 and b'test=test' in res['body']:
+                good.append(res['elapsed'] * 1000.0)
+            else:
+                errors.append('HTTP %s' % res['status'])
+        except Exception as exc:
+            errors.append(str(exc))
+    if not good:
+        return None, '; '.join(errors[-2:])
+    return round(sum(good) / len(good), 2), ''
+
+
+def compact_server(server):
+    keys = ('id', 'sponsor', 'name', 'country', 'cc', 'host', 'url', 'd', 'latency', 'latency_error')
+    return {key: server.get(key) for key in keys if server.get(key) not in (None, '')}
+
+
+def choose_best_server(servers, opts, warnings):
+    if opts.get('server_id'):
+        matched = [s for s in servers if str(s.get('id')) == opts['server_id']]
+        if not matched:
+            raise RuntimeError('Requested server id %s was not found' % opts['server_id'])
+        servers = matched
+    elif opts.get('server') not in ('', 'auto'):
+        preset = find_preset(opts.get('app_config') or load_app_config(), opts['server'])
+        if not preset:
+            raise RuntimeError('Requested preset %s is not configured' % opts['server'])
+        if preset_is_pinned(preset):
+            if not is_http_url(preset.get('url')):
+                raise RuntimeError('Requested preset %s has an invalid URL' % opts['server'])
+            servers = [dict(preset)]
+        else:
+            wanted_country = preset_country(preset, opts.get('country'))
+            servers = [s for s in servers if s.get('cc') == wanted_country]
+            if not servers:
+                raise RuntimeError('No servers found for preset country %s' % wanted_country)
+    candidates = []
+    for server in servers[:opts['candidate_limit']]:
+        latency, error = timed_latency(server)
+        item = dict(server)
+        if latency is not None:
+            item['latency'] = latency
+        elif error:
+            item['latency_error'] = error
+        candidates.append(item)
+    reachable = [s for s in candidates if 'latency' in s]
+    if not reachable:
+        raise RuntimeError('No candidate speedtest.net servers answered latency checks')
+    reachable.sort(key=lambda s: (float(s['latency']), float(s.get('d', 999999.0))))
+    return reachable[0], candidates
+
+
+def download_one(url):
+    try:
+        res = request_url(url, timeout=35)
+        if int(res['status']) < 200 or int(res['status']) >= 400:
+            return {'ok': False, 'bytes': 0, 'seconds': round(res['elapsed'], 3), 'error': 'HTTP %s' % res['status']}
+        return {'ok': True, 'bytes': int(res['bytes']), 'seconds': round(res['elapsed'], 3)}
+    except Exception as exc:
+        return {'ok': False, 'bytes': 0, 'seconds': 0, 'error': str(exc)}
+
+
+def download_urls(server, target_bytes):
+    base = server_base_url(server)
+    if target_bytes <= 12000000:
+        sizes = [750, 1000, 1500, 2000]
+    elif target_bytes <= 40000000:
+        sizes = [1000, 1500, 2000, 2500]
+    else:
+        sizes = [2000, 2500, 3000, 3500, 4000, 4000, 4000, 4000]
+    return ['%s/random%sx%s.jpg?x=%d.%d' % (base, size, size, int(time.time() * 1000), idx) for idx, size in enumerate(sizes)]
+
+
+def run_download(server, target_bytes, connections):
+    urls = download_urls(server, target_bytes)
+    started = time.monotonic()
+    results = []
+    workers = min(connections, len(urls))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(download_one, url) for url in urls]
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
+    elapsed = time.monotonic() - started
+    total = sum(r.get('bytes', 0) for r in results if r.get('ok'))
+    errors = [r.get('error') for r in results if r.get('error')]
+    return {
+        'ok': total > 0,
+        'bytes': total,
+        'seconds': round(elapsed, 3),
+        'mbps': mbps(total, elapsed),
+        'requests': len(urls),
+        'connections': workers,
+        'errors': errors[:3]
+    }
+
+
+def make_payload(size):
+    pattern = b'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+    return (pattern * ((size // len(pattern)) + 1))[:size]
+
+
+def upload_one(url, size):
+    try:
+        if not is_http_url(url):
+            raise ValueError('invalid URL: %s' % url)
+        data = make_payload(size)
+        headers = {
+            'User-Agent': USER_AGENT,
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': str(size),
+            'Cache-Control': 'no-cache'
+        }
+        req = urllib.request.Request('%s?x=%d' % (url, int(time.time() * 1000)), data=data, headers=headers)
+        started = time.monotonic()
+        with urllib.request.urlopen(req, timeout=35) as resp:
+            body = resp.read(128)
+            elapsed = time.monotonic() - started
+            status = getattr(resp, 'status', resp.getcode())
+        if int(status) < 200 or int(status) >= 400:
+            return {'ok': False, 'bytes': 0, 'seconds': round(elapsed, 3), 'error': 'HTTP %s' % status}
+        if body and b'size=' in body:
+            match = re.search(rb'size=([0-9]+)', body)
+            if match:
+                size = int(match.group(1))
+        return {'ok': True, 'bytes': size, 'seconds': round(elapsed, 3)}
+    except Exception as exc:
+        return {'ok': False, 'bytes': 0, 'seconds': 0, 'error': str(exc)}
+
+
+def upload_sizes(target_bytes, connections):
+    chunk = max(262144, int(math.ceil(float(target_bytes) / max(1, connections))))
+    sizes = []
+    remaining = target_bytes
+    while remaining > 0:
+        size = min(chunk, remaining)
+        sizes.append(size)
+        remaining -= size
+    return sizes
+
+
+def run_upload(server, target_bytes, connections):
+    sizes = upload_sizes(target_bytes, connections)
+    started = time.monotonic()
+    results = []
+    workers = min(connections, len(sizes))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(upload_one, server.get('url'), size) for size in sizes]
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
+    elapsed = time.monotonic() - started
+    total = sum(r.get('bytes', 0) for r in results if r.get('ok'))
+    errors = [r.get('error') for r in results if r.get('error')]
+    return {
+        'ok': total > 0,
+        'bytes': total,
+        'seconds': round(elapsed, 3),
+        'mbps': mbps(total, elapsed),
+        'requests': len(sizes),
+        'connections': workers,
+        'errors': errors[:3]
+    }
+
+
+def run_speedtestnet(opts, warnings):
+    config = get_config(warnings)
+    preset = find_preset(opts.get('app_config') or load_app_config(), opts.get('server'))
+    if preset_is_pinned(preset):
+        if not is_http_url(preset.get('url')):
+            raise RuntimeError('Requested preset %s has an invalid URL' % opts.get('server'))
+        servers = [dict(preset)]
+        servers_source = 'preset:%s' % opts.get('server')
+    else:
+        servers, servers_source = get_servers(config, opts['country'], warnings)
+    best, candidates = choose_best_server(servers, opts, warnings)
+    download = run_download(best, opts['down_bytes'], opts['connections'])
+    upload = run_upload(best, opts['up_bytes'], opts['connections'])
+    return {
+        'ok': bool(download.get('ok') and upload.get('ok')),
+        'backend': 'speedtest-net-python',
+        'client': config.get('client', {}),
+        'config_url': config.get('source_url', ''),
+        'servers_url': servers_source,
+        'server': compact_server(best),
+        'candidates': [compact_server(c) for c in candidates],
+        'ping': {'ok': True, 'avg_ms': best.get('latency'), 'min_ms': best.get('latency'), 'max_ms': best.get('latency')},
+        'download': download,
+        'upload': upload
+    }
+
+
+def mbps(byte_count, seconds):
+    if seconds <= 0:
+        return 0.0
+    return round((byte_count * 8.0) / seconds / 1000000.0, 2)
+
+
+def main():
+    started = int(time.time())
+    opts = parse_args(sys.argv[1:])
+    if opts['seed_config']:
+        print(json.dumps({'ok': True, 'config': seed_app_config()}, sort_keys=True))
+        return
+    if opts['clear_history']:
+        print(json.dumps(clear_history(), sort_keys=True))
+        return
+    if opts['history']:
+        print(json.dumps(history_response(opts['history_limit']), sort_keys=True))
+        return
+    if opts['config']:
+        print(json.dumps(config_response(), sort_keys=True))
+        return
+    if opts['save']:
+        save_run_options(opts)
+    warnings = []
+    base = {
+        'ok': False,
+        'started_at': started,
+        'requested_backend': 'speedtest.net',
+        'requested': {'download_bytes': opts['down_bytes'], 'upload_bytes': opts['up_bytes'], 'country': opts['country'], 'server': opts['server'], 'connections': opts['connections']},
+        'route': route_info(),
+        'interfaces': {'wan': ifstatus('wan'), 'modem1': ifstatus('modem1'), 'wwan': ifstatus('wwan')},
+        'tools': tools_info(),
+        'warnings': warnings
+    }
+    try:
+        result = run_speedtestnet(opts, warnings)
+        base.update(result or {})
+    except Exception as exc:
+        base.update({'ok': False, 'backend': 'speedtest-net-python', 'error': str(exc)})
+    base['finished_at'] = int(time.time())
+    base['duration_s'] = max(0, base['finished_at'] - started)
+    try:
+        append_history(base, opts.get('app_config'))
+    except Exception as exc:
+        warnings.append('history save failed: %s' % exc)
+    print(json.dumps(base, sort_keys=True))
+
+
+if __name__ == '__main__':
+    main()

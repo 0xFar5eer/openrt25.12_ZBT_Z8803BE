@@ -1,0 +1,28 @@
+#!/bin/sh
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+uci -q set firewall.@defaults[0].flow_offloading='1'
+uci -q set firewall.@defaults[0].flow_offloading_hw='1'
+uci -q commit firewall
+
+if [ -e /etc/config/qosmate ]; then
+	uci -q set qosmate.global.enabled='0'
+	uci -q commit qosmate
+fi
+
+[ -x /etc/init.d/qosmate ] && /etc/init.d/qosmate disable >/dev/null 2>&1
+
+mkdir -p /etc/nftables.d
+cat > /etc/nftables.d/99-tether-ttl.nft <<'NFT'
+chain postrouting {
+	type filter hook postrouting priority mangle; policy accept;
+	oifname "wwan0" ip ttl set 64
+	oifname "wwan0" ip6 hoplimit set 64
+}
+NFT
+
+exit 0

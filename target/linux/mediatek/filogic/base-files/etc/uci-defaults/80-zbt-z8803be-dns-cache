@@ -1,0 +1,83 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Z8803BE deterministic-DNS uci-default.
+#
+# WHY (root cause this fixes):
+#   On a fresh `sysupgrade -n` first boot the timing is:
+#     1. netifd brings up `wan`, udhcpc gets a DHCP lease, and
+#        operator-pushed DNS lands in /tmp/resolv.conf.d/resolv.conf.auto
+#        BEFORE uci-defaults can flip `peerdns` to 0.
+#     2. Once dnsmasq starts, it reads BOTH that auto-file AND any
+#        `option server` entries we seed.
+#     3. dnsmasq round-robins. If operator DNS NXDOMAINs faster than
+#        the public fallback (Globe / Smart / Smart Bro PH all do this
+#        when a customer is on a stale or hijacked cache), every
+#        in-flight query fails until either side stabilises - so the
+#        router boots with intermittent DNS and apt/apk fails with
+#        wget exit-4 (DNS) while raw-IP pings to 1.0.0.1 still work.
+#
+#   The fix is to make dnsmasq IGNORE /tmp/resolv.conf.auto entirely
+#   (`noresolv=1`) and forward only to the explicit list we seed here.
+#   Combined with `peerdns=0` on wan/4_1 and `do_not_add_dns=1` on
+#   qmodem (see 32-zbt-z8803be-wan-failover and
+#   40-zbt-qmodem-dns-suppress), the firmware now boots into a
+#   deterministic, operator-DNS-immune state regardless of which uplink
+#   came up first.
+#
+# DOWNSTREAM OVERRIDE (recommended pattern for setup scripts):
+#   Setup scripts that want a different upstream (e.g. AdGuardHome on
+#   loopback, DoH proxy, Pi-hole, etc.) should:
+#       uci -q delete dhcp.@dnsmasq[0].server
+#       uci add_list dhcp.@dnsmasq[0].server='127.0.0.1#5454'
+#       uci -q set dhcp.@dnsmasq[0].noresolv='1'
+#       uci commit dhcp
+#       /etc/init.d/dnsmasq restart
+#   Or take over port 53 entirely (AdGuardHome listening on 53), which
+#   bypasses dnsmasq's resolver path completely.
+#
+# CACHE TUNING:
+#   cachesize=10000 (~1 MiB RAM) replaces the stock 150-entry cache.
+#   When AdGuardHome is fronting on port 53 the AGH cache (4 MiB,
+#   pre-seeded in /etc/adguardhome/adguardhome.yaml) handles most
+#   queries; dnsmasq's cache only serves DHCP-learned hostnames.
+#
+# IDEMPOTENCE / SYSUPGRADE BEHAVIOUR:
+#   /etc/uci-defaults/* runs on every boot until the script self-deletes
+#   on success. base-files reinstalls this script on every sysupgrade,
+#   so a user who flipped `noresolv=0` in LuCI will see it flipped back
+#   to 1 on the next sysupgrade. This is intentional: the firmware
+#   contract for this board is "deterministic public DNS by default".
+#   Users who want operator DNS can disable this script via
+#   /etc/uci-defaults-disabled/ (out of scope here) or rebuild without
+#   this base-files entry.
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+        zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+        *) exit 0 ;;
+esac
+
+# 1. Cache: real resolver cache instead of the 150-entry default.
+uci -q set dhcp.@dnsmasq[0].cachesize='10000'
+
+# 2. Force deterministic upstreams. noresolv=1 makes dnsmasq ignore
+#    /tmp/resolv.conf.d/resolv.conf.auto so operator DNS pushed via
+#    DHCP (or by quectel-CM-M when do_not_add_dns is somehow off) can
+#    never poison the resolver path. Only `option server` entries are
+#    consulted from this point forward.
+uci -q set dhcp.@dnsmasq[0].noresolv='1'
+
+# 3. Seed Cloudflare + Google as the fixed forwarders. We unconditionally
+#    rewrite the list (delete-then-add) so a botched LuCI edit can't
+#    leave dnsmasq with zero upstreams after a sysupgrade. Setup scripts
+#    that want a different chain (AGH, Pi-hole, ...) should run AFTER
+#    this uci-default and replace the list - last write wins.
+uci -q delete dhcp.@dnsmasq[0].server
+uci -q add_list dhcp.@dnsmasq[0].server='1.1.1.1'
+uci -q add_list dhcp.@dnsmasq[0].server='1.0.0.1'
+uci -q add_list dhcp.@dnsmasq[0].server='8.8.8.8'
+uci -q add_list dhcp.@dnsmasq[0].server='8.8.4.4'
+
+uci -q commit dhcp
+
+exit 0

@@ -1,0 +1,23 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Turn off optional network services at first boot. Packages ship
+# "enabled at install" by default in OpenWrt; we want them bundled
+# (so the user can turn them on from LuCI) but not running until
+# the user opts in.
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+# Samba 4 NAS - bundled for the USB 3.0 port, but nothing to share
+# until the user mounts a disk and adds a share.
+for svc in samba4 wsdd2; do
+	if [ -x "/etc/init.d/${svc}" ]; then
+		/etc/init.d/"${svc}" disable 2>/dev/null
+		/etc/init.d/"${svc}" stop    2>/dev/null
+	fi
+done
+
+exit 0

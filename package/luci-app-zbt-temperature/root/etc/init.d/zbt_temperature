@@ -1,0 +1,48 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=10
+
+CRON_FILE=/etc/crontabs/root
+CRON_CMD='/usr/sbin/zbt-temperature-log sample >/dev/null 2>&1'
+
+remove_cron_line() {
+	local tmp
+	mkdir -p /etc/crontabs
+	touch "$CRON_FILE"
+	tmp=$(mktemp /tmp/zbt-temperature-cron.XXXXXX)
+	grep -Fv "$CRON_CMD" "$CRON_FILE" > "$tmp" || true
+	cat "$tmp" > "$CRON_FILE"
+	rm -f "$tmp"
+}
+
+add_cron_line() {
+	remove_cron_line
+	printf '* * * * * %s\n' "$CRON_CMD" >> "$CRON_FILE"
+}
+
+reload_cron() {
+	/etc/init.d/cron restart >/dev/null 2>&1 || true
+}
+
+start() {
+	/usr/sbin/zbt-temperature-log restore >/dev/null 2>&1 || true
+	add_cron_line
+	/usr/sbin/zbt-temperature-log sample >/dev/null 2>&1 || true
+	reload_cron
+}
+
+stop() {
+	remove_cron_line
+	/usr/sbin/zbt-temperature-log flush >/dev/null 2>&1 || true
+	reload_cron
+}
+
+restart() {
+	stop
+	start
+}
+
+reload() {
+	start
+}
