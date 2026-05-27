@@ -4,17 +4,16 @@
 
 Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
-- **Release tag:** `v25.12.12-zbt8803be-main6.18`
+- **Release tag:** `v25.12.13-zbt8803be-main6.18`
 - **Kernel:** `6.18.33`
-- **Build revision:** `r1-81fde127a8`
+- **Build revision:** `r34651-08fc94e13c`
 - **Target:** `mediatek/filogic`
 - **Default login:** `root` / `admin`
 
-## What's new since v25.12.11
+## What's new since v25.12.12
 
-- **Rebased onto latest upstream OpenWrt main with kernel 6.18.33.** Local ZBT-Z8803BE customizations were replayed onto the refreshed upstream tree and rebuilt from the new base.
-- **Added TUN/TAP support for userspace VPN and proxy tools.** The image now includes `kmod-tun`, providing `/dev/net/tun` for tools such as sing-box, xray-core, OpenVPN, wireguard-go, and podkop. This addresses GitHub issue #5.
-- **Added SFP/optical diagnostic tooling for ONU-in-SFP sticks.** The image now includes `i2c-tools`, `i2csfp`, `mdio-tools`, and `mii-tool` alongside existing `kmod-sfp`, `kmod-phy-aquantia`, `ethtool`, and `ip-full` support. This is intended for SC/UPC or SC/APC GPON/EPON ONU SFP modules with onboard PON MAC/OMCI logic and SFF-8472 digital diagnostics.
+- **Added VPN/proxy/DPI-bypass kernel modules requested in GitHub issue #6.** The image now includes TPROXY, NFQUEUE, socket diagnostic, and BBR support for passwall/passwall2, sing-box, xray-core, OpenClash, podkop, zapret/nfqws, and hev-socks5-tproxy style setups.
+- **No upstream rebase in this release.** This is a minimal rebuild on top of v25.12.12 with only the issue #6 kernel module package additions.
 
 ## Notes for PON SFP users
 
@@ -32,34 +31,34 @@ mdio --help
 
 ## Validation
 
-- Full Docker rebuild completed as `r1-81fde127a8` with kernel 6.18.33.
+- Full Docker rebuild completed as `r34651-08fc94e13c` with kernel 6.18.33.
 - `sha256sum -c sha256sums --ignore-missing` passed for staged assets.
-- Manifest confirms `kmod-tun`, `i2c-tools`, `i2csfp`, `mdio-tools`, `mii-tool`, `kmod-mdio-netlink`, `kmod-sfp`, and `kmod-phy-aquantia` are included.
+- Manifest confirms `kmod-nft-tproxy`, `kmod-nft-socket`, `kmod-ipt-tproxy`, `kmod-nft-queue`, `kmod-nfnetlink-queue`, `kmod-ipt-nfqueue`, `kmod-inet-diag`, `kmod-netlink-diag`, and `kmod-tcp-bbr` are included for issue #6.
 - Manifest includes:
 
 ```text
-kernel - 6.18.33~f20f4bdfe29c23a826260e96eee4651d-r1
+kernel - 6.18.33~b5bed36ea0c8dbdc37cedd79a92febea-r1
+kmod-inet-diag - 6.18.33-r1
+kmod-ipt-nfqueue - 6.18.33-r1
+kmod-ipt-tproxy - 6.18.33-r1
+kmod-netlink-diag - 6.18.33-r1
+kmod-nfnetlink-queue - 6.18.33-r1
+kmod-nft-queue - 6.18.33-r1
+kmod-nft-socket - 6.18.33-r1
+kmod-nft-tproxy - 6.18.33-r1
+kmod-tcp-bbr - 6.18.33-r1
 kmod-tun - 6.18.33-r1
-i2c-tools - 4.4-r2
-i2csfp - 2025.08.05~1b9b4e0f-r1
-mdio-tools - 1.3.1-r3
-mii-tool - 2.10-r2
-kmod-mdio-netlink - 6.18.33.1.3.1-r2
-kmod-sfp - 6.18.33-r1
-kmod-phy-aquantia - 6.18.33-r1
-ethtool - 6.19-r2
-ip-full - 6.18.0-r2
 ```
 
 ## Checksums
 
 ```text
-73ebcffff91ae63a33da0d7c5a7c8b169ac8d9c830cdebc6b018568cd3ad7a0e *config.buildinfo
+f226f8d9be2855d6fdb30a9a54e60f2cdc19028abecca8ba46262f184dfc5bc8 *config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e *feeds.buildinfo
-b5d0540d1d4e5dab3df034652ed704345fbbfce46a4a49b9643a95294c8d3683 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-b05d102c3da12bd255ed4668d55a7581978ad30f7c9d65ea366fd120afd92e17 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-0839cf21f4aa61c4ec13a948d18504ea24ca6b790a995dac22a672c40eb85ce7 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-b3c49ceec35c43f20da3896afc728e569df7c1ace68d820759535c14c95d46b3 *version.buildinfo
+9a63fca715067fe7c51f672deef83465131da860319cfa25965371907195cd00 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+a30435a9e3793aed02f2bd282d4d4fe014c933939a1b676d7f1c57c74bfb493f *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+f0af9518d21cb47a2905a60f22df40b14d9b2f7924ad84200b98e9c5d13d886d *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+2503f023144e11bb00097a4927c8af2cef1c7c8100685e3f97a99465211e006f *version.buildinfo
 ```
 
 ## Flash
