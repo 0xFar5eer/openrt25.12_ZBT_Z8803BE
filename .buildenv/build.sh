@@ -117,34 +117,18 @@ case "$cmd" in
         run_in_container bash
         ;;
     feeds)
-        run_in_container bash -c './scripts/feeds update -a && ./scripts/feeds install -a && rm -rf package/feeds/iwrt_luci/luci-app-homeproxy package/feeds/iwrt_luci/luci-app-passwall package/feeds/iwrt_luci/luci-app-ipsec-vpnd'
+        run_in_container bash -c './scripts/feeds update -a && ./scripts/feeds install -a && rm -rf package/feeds/iwrt_luci/luci-app-homeproxy package/feeds/iwrt_luci/luci-app-passwall package/feeds/iwrt_luci/luci-app-ipsec-vpnd package/feeds/packages/openvswitch package/feeds/packages/jool'
         ;;
     config)
         ensure_version_file
-        # Idempotently merge the seed file into .config so additions
-        # to .buildenv/zbt8803be.config are picked up on every run,
-        # then expand with `make defconfig`. Lines in the seed
-        # overwrite any previous setting with the same CONFIG key.
+        # Rebuild .config from the seed file on every run, then expand
+        # with `make defconfig`. This avoids stale entries accumulating
+        # across upstream rebases or repeated config passes.
         run_in_container bash -c '
-            touch .config
             if [ -s .buildenv/zbt8803be.config ]; then
-                while IFS= read -r line; do
-                    case "$line" in
-                    "# CONFIG_"*" is not set")
-                        key="${line#"# "}"
-                        key="${key%" is not set"}"
-                        sed -i "/^${key}=\|^# ${key} is not set/d" .config
-                        printf "%s\n" "$line" >> .config
-                        ;;
-                    "#"*|"") printf "%s\n" "$line" >> .config ;;
-                    CONFIG_*)
-                        key="${line%%=*}"
-                        sed -i "/^${key}=\|^# ${key} is not set/d" .config
-                        printf "%s\n" "$line" >> .config
-                        ;;
-                    *) printf "%s\n" "$line" >> .config ;;
-                    esac
-                done < .buildenv/zbt8803be.config
+                cp .buildenv/zbt8803be.config .config
+            else
+                : > .config
             fi
             make defconfig
         '
