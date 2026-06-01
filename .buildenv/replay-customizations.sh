@@ -111,6 +111,17 @@ for f in "$SRC/$UCI_DEFAULTS_PREFIX"/*-zbt-*; do
     echo "  uci-defaults: $(basename "$f")"
 done
 
+echo '== removing GitHub Actions workflows =='
+# This downstream tree publishes release assets manually. Keep upstream
+# GitHub metadata such as issue templates if present, but remove Actions
+# workflows so pushes and tags do not start CI/release jobs.
+if [ -d "$DST/.github/workflows" ]; then
+    rm -rf "$DST/.github/workflows"
+    echo '  removed: .github/workflows'
+else
+    echo '  absent: .github/workflows'
+fi
+
 echo '== patching target/linux/mediatek/image/filogic.mk =='
 FILOGIC=$DST/target/linux/mediatek/image/filogic.mk
 if [ ! -f "$FILOGIC" ]; then
