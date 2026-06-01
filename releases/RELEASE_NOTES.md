@@ -4,16 +4,17 @@
 
 Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 
-- **Release tag:** `v25.12.13-zbt8803be-main6.18`
+- **Release tag:** `v25.12.14-zbt8803be-main6.18`
 - **Kernel:** `6.18.33`
 - **Build revision:** `r34651-08fc94e13c`
 - **Target:** `mediatek/filogic`
 - **Default login:** `root` / `admin`
 
-## What's new since v25.12.12
+## What's new since v25.12.13
 
-- **Added VPN/proxy/DPI-bypass kernel modules requested in GitHub issue #6.** The image now includes TPROXY, NFQUEUE, socket diagnostic, and BBR support for passwall/passwall2, sing-box, xray-core, OpenClash, podkop, zapret/nfqws, and hev-socks5-tproxy style setups.
-- **No upstream rebase in this release.** This is a minimal rebuild on top of v25.12.12 with only the issue #6 kernel module package additions.
+- **Rebased onto newer OpenWrt upstream main** while staying on kernel **6.18.33**, then rebuilt the ZBT-Z8803BE image stack on top of that newer base.
+- **Retains the issue #6 VPN/proxy/DPI-bypass kernel modules** added in the previous release: TPROXY, NFQUEUE, socket diagnostic, and BBR support for passwall/passwall2, sing-box, xray-core, OpenClash, podkop, zapret/nfqws, and hev-socks5-tproxy style setups.
+- **Build flow hardened for repeatable rebases/rebuilds.** The local `.buildenv` helper now regenerates `.config` cleanly from the seed file each run and prunes incompatible feed packages (`openvswitch`, `jool`) that currently break package metadata generation in this tree.
 
 ## Notes for PON SFP users
 
@@ -31,7 +32,8 @@ mdio --help
 
 ## Validation
 
-- Full Docker rebuild completed as `r34651-08fc94e13c` with kernel 6.18.33.
+- Full Docker rebuild completed on the rebased branch as `r34651-08fc94e13c` with kernel 6.18.33.
+- Release artifacts were rebuilt after rebasing `zbt8803be-openwrt-main` onto newer `openwrt-upstream/main`.
 - `sha256sum -c sha256sums --ignore-missing` passed for staged assets.
 - Manifest confirms `kmod-nft-tproxy`, `kmod-nft-socket`, `kmod-ipt-tproxy`, `kmod-nft-queue`, `kmod-nfnetlink-queue`, `kmod-ipt-nfqueue`, `kmod-inet-diag`, `kmod-netlink-diag`, and `kmod-tcp-bbr` are included for issue #6.
 - Manifest includes:
@@ -53,11 +55,11 @@ kmod-tun - 6.18.33-r1
 ## Checksums
 
 ```text
-f226f8d9be2855d6fdb30a9a54e60f2cdc19028abecca8ba46262f184dfc5bc8 *config.buildinfo
+6f5cb43f6219fa6f111fbf8c1ae4171bc3577da67fcb9dc6aa035e19c2d414bd *config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e *feeds.buildinfo
-9a63fca715067fe7c51f672deef83465131da860319cfa25965371907195cd00 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-a30435a9e3793aed02f2bd282d4d4fe014c933939a1b676d7f1c57c74bfb493f *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-f0af9518d21cb47a2905a60f22df40b14d9b2f7924ad84200b98e9c5d13d886d *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+a9c2eea2b567b3a61004981bb94a82f1df029bb289a4c24f6c1a60a1dccae703 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+6844a0ce39a8f7e19ab188d0e1eafae8116fb790fec00a587bda4278ee3b2b86 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+90a1dee715024cf8ae6b75b40b3f3d772a4f52a667585a58af8fede4fd462d94 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 2503f023144e11bb00097a4927c8af2cef1c7c8100685e3f97a99465211e006f *version.buildinfo
 ```
 
