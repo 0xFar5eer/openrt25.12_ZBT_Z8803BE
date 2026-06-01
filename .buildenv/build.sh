@@ -20,8 +20,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJ="$(dirname "$HERE")"
 
 # A replay'd worktree (.buildenv/replay-customizations.sh seeds this)
-# may drop a per-tree env file with a different VOL. Source it first so
-# user env still wins.
+# may drop a per-tree env file with a different VOL. Auto-source it
+# first so user env still wins.
 [ -f "$HERE/local.env" ] && . "$HERE/local.env"
 
 # Image and Docker volume names. Both can be overridden via env so a
