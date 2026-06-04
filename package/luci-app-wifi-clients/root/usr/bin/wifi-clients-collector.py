@@ -528,6 +528,7 @@ def resolve_identity(
     mac_map:      dict,
     mac_cache:    dict,
     already_used: set,
+    is_wds: bool = False,
 ) -> tuple:
     """
     Resolve a WiFi link MAC to a real device identity.
@@ -543,7 +544,7 @@ def resolve_identity(
     lm = link_mac.lower()
 
     # 1. Direct
-    if lm in mac_map and lm not in already_used:
+    if lm in mac_map:
         e = mac_map[lm]
         return lm, e["name"], e["ip"], "direct"
 
@@ -564,9 +565,14 @@ def resolve_identity(
                 continue
             if co_mac in mac_map and co_mac not in already_used:
                 e = mac_map[co_mac]
+                if not e.get("name"):
+                    continue
                 # Persist to session cache
                 mac_cache[lm] = {"real_mac": co_mac, "ts": time.time()}
                 return co_mac, e["name"], e["ip"], "bridge"
+
+    if is_wds:
+        return lm, "", "", "unknown"
 
     # 4. ARP secondary source — only MACs directly connected to this router's bridge
     #    (mac_to_port keys = MACs seen in brctl showmacs = locally connected)
@@ -955,15 +961,28 @@ def get_router_clients(router: dict) -> dict:
             "mld_tx_rate_6g":  mld_tx_6g,
             "mld_signal_6g":   str(mld_sig_6g) if mld_sig_6g is not None else None,
             "wifi_gen":        detect_wifi_gen(cinfo, is_mld, band, mcs_family),
+            "wds":             bool(cinfo.get("wds")),
         }
         clients.append(client)
 
     arp_map = build_arp_map(host)
     mac_to_port, port_to_macs, iface_ports = get_bridge_data(host, ifaces)
 
+    # hostapd may expose WDS repeater AP virtual-interface MACs as extra
+    # associated clients on the mesh SSID. Real WDS station MACs appear in the
+    # bridge FDB; AP-VIF pseudo-clients do not. Hide the latter to avoid showing
+    # duplicate/misidentified extenders.
+    clients = [
+        client for client in clients
+        if not (client.get("wds") and client.get("mac") not in mac_to_port)
+    ]
+
     # Attach resolution helpers (stripped before final output by collect_all)
     for client in clients:
-        client["_bridge_port"] = iface_ports.get(client["iface"])
+        # WDS clients use per-station bridge ports (e.g. phy0.1-ap3.sta2),
+        # not the parent AP bridge port. Prefer the client's own FDB port when
+        # present so identity resolution sees the downstream extender MACs.
+        client["_bridge_port"] = mac_to_port.get(client["mac"], iface_ports.get(client["iface"]))
         client["_port_to_macs"] = port_to_macs
         client["_arp_map"]      = arp_map
 
@@ -1048,6 +1067,7 @@ def collect_all() -> dict:
                 mac_map      = mac_map,
                 mac_cache    = mac_cache,
                 already_used = already_used,
+                is_wds      = bool(client.get("wds")),
             )
 
             client["name"]     = name

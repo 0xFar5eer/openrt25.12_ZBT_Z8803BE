@@ -1,79 +1,44 @@
-# ZBT-Z8803BE OpenWrt main / kernel 6.18.33 release
+# v25.12.15-zbt8803be-main6.18
 
-[English](RELEASE_NOTES.md) | [中文](RELEASE_NOTES.zh-CN.md)
+ZBT-Z8803BE community build rebased on current OpenWrt main.
 
-Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
+## Highlights
 
-- **Release tag:** `v25.12.14-zbt8803be-main6.18`
-- **Kernel:** `6.18.33`
-- **Build revision:** `r34651-08fc94e13c`
-- **Target:** `mediatek/filogic`
-- **Default login:** `root` / `admin`
+- Rebased downstream ZBT-Z8803BE customization branch onto OpenWrt `main` at `c82f2724f5`.
+- Updated kernel from `6.18.33` to `6.18.34`.
+- Verified the ZBT-Z8803BE NAND layout before flashing:
+  - UBI volumes are `kernel`, `rootfs`, and `rootfs_data`.
+  - Existing ZBT sysupgrade path keeps writing FIT/kernel payload to `kernel`.
+- Validated by sysupgrade on ZBT-Z8803BE with settings preserved.
+- Added `platform.sh` to replay-customizations allowlist so board-specific upgrade logic is preserved on future upstream replays.
+- Preserved post-v12 customizations and local WDS client identity fix.
 
-## What's new since v25.12.13
+## Build info
 
-- **Rebased onto newer OpenWrt upstream main** while staying on kernel **6.18.33**, then rebuilt the ZBT-Z8803BE image stack on top of that newer base.
-- **Retains the issue #6 VPN/proxy/DPI-bypass kernel modules** added in the previous release: TPROXY, NFQUEUE, socket diagnostic, and BBR support for passwall/passwall2, sing-box, xray-core, OpenClash, podkop, zapret/nfqws, and hev-socks5-tproxy style setups.
-- **Build flow hardened for repeatable rebases/rebuilds.** The local `.buildenv` helper now regenerates `.config` cleanly from the seed file each run and prunes incompatible feed packages (`openvswitch`, `jool`) that currently break package metadata generation in this tree.
+- OpenWrt revision: `r34651-08fc94e13c`
+- Kernel: `6.18.34`
+- Target: `mediatek/filogic`
+- Device: `zbtlink_zbt-z8803be`
 
-## Notes for PON SFP users
+## Artifacts
 
-This release supports the router side of an ONU-in-SFP module: SFP cage detection, Ethernet link/PHY support, module EEPROM/DDM inspection, and MDIO/I2C diagnostics. It does **not** turn the router into a PON OLT, and it does not implement a software EPON/GPON MAC; the SFP stick must provide the ONU/PON function internally.
+- `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
+- `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
+- `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
+- `config.buildinfo`
+- `feeds.buildinfo`
+- `version.buildinfo`
+- `sha256sums`
 
-Useful diagnostics after inserting a compatible stick:
+## Checks
 
-```sh
-ethtool <sfp-netdev>
-ethtool -m <sfp-netdev>
-i2cdetect -l
-i2csfp -h
-mdio --help
-```
+- Shell syntax check passed for `target/linux/mediatek/filogic/base-files`.
+- Full Docker build completed and generated sysupgrade + initramfs images.
+- Sysupgrade tar contains `CONTROL`, `kernel`, and `root` entries.
+- Preserving-settings sysupgrade completed successfully on ZBT-Z8803BE.
+- Post-flash checks passed: kernel/revision, UBI layout, LAN route/DNS, radios, LuCI/SSH/rpcd, installed package versions.
+- Manifest confirms kernel package `6.18.34`.
 
-## Validation
+## Important flash note
 
-- Full Docker rebuild completed on the rebased branch as `r34651-08fc94e13c` with kernel 6.18.33.
-- Release artifacts were rebuilt after rebasing `zbt8803be-openwrt-main` onto newer `openwrt-upstream/main`.
-- `sha256sum -c sha256sums --ignore-missing` passed for staged assets.
-- Manifest confirms `kmod-nft-tproxy`, `kmod-nft-socket`, `kmod-ipt-tproxy`, `kmod-nft-queue`, `kmod-nfnetlink-queue`, `kmod-ipt-nfqueue`, `kmod-inet-diag`, `kmod-netlink-diag`, and `kmod-tcp-bbr` are included for issue #6.
-- Manifest includes:
-
-```text
-kernel - 6.18.33~b5bed36ea0c8dbdc37cedd79a92febea-r1
-kmod-inet-diag - 6.18.33-r1
-kmod-ipt-nfqueue - 6.18.33-r1
-kmod-ipt-tproxy - 6.18.33-r1
-kmod-netlink-diag - 6.18.33-r1
-kmod-nfnetlink-queue - 6.18.33-r1
-kmod-nft-queue - 6.18.33-r1
-kmod-nft-socket - 6.18.33-r1
-kmod-nft-tproxy - 6.18.33-r1
-kmod-tcp-bbr - 6.18.33-r1
-kmod-tun - 6.18.33-r1
-```
-
-## Checksums
-
-```text
-6f5cb43f6219fa6f111fbf8c1ae4171bc3577da67fcb9dc6aa035e19c2d414bd *config.buildinfo
-ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e *feeds.buildinfo
-a9c2eea2b567b3a61004981bb94a82f1df029bb289a4c24f6c1a60a1dccae703 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-6844a0ce39a8f7e19ab188d0e1eafae8116fb790fec00a587bda4278ee3b2b86 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-90a1dee715024cf8ae6b75b40b3f3d772a4f52a667585a58af8fede4fd462d94 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-2503f023144e11bb00097a4927c8af2cef1c7c8100685e3f97a99465211e006f *version.buildinfo
-```
-
-## Flash
-
-Preserve settings and app history:
-
-```sh
-scp openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin root@<router>:/tmp/
-ssh root@<router> 'sysupgrade -v /tmp/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin'
-```
-
-Clean reset:
-
-```sh
-sysupgrade -n openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-```
+Live pre-flash audit confirmed the working NAND layout uses UBI volumes `kernel`, `rootfs`, and `rootfs_data`. This release preserves that sysupgrade layout and has been validated with settings preserved.

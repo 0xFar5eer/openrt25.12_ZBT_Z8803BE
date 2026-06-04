@@ -2,10 +2,10 @@
 
 Local staging folder for the current **ZBTLink ZBT-Z8803BE** firmware release candidate.
 
-- **Tag:** v25.12.7-zbt8803be-main6.18
-- **OpenWrt base:** upstream `openwrt/openwrt` main HEAD `a7b5bb233f`
-- **Kernel:** `6.18.31`
-- **Build revision:** `r364-8682ae2528`
+- **Tag:** v25.12.15-zbt8803be-main6.18
+- **OpenWrt base:** upstream `openwrt/openwrt` main HEAD `c82f2724f5`
+- **Kernel:** `6.18.34`
+- **Build revision:** `r34651-08fc94e13c`
 - **Build output:** `output/mediatek/filogic`
 
 Firmware binaries are gitignored. Upload the final validated assets to GitHub Releases.
@@ -23,7 +23,6 @@ config.buildinfo
 feeds.buildinfo
 version.buildinfo
 RELEASE_NOTES.md
-RELEASE_NOTES.zh-CN.md
 ```
 
 Do not upload `REDDIT_POST.md`.
@@ -31,19 +30,20 @@ Do not upload `REDDIT_POST.md`.
 ## Current checksums
 
 ```text
-71984653705e0a1af73a3fc74521bb1e76488f0991d7a478254aae5f40a17a4d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-df09cbf8c926e73eb15b43d057b2ae7b850b47aa15b7e5c365736d409211923b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-a58f638fcd670ba302e810501a6470544cab4f8f1b318595e7e26a2e2fde8a52  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-4d913f988401ac01e6c989d1ae07b31b316a143cbdc625b8d6164da1444bf410  config.buildinfo
+74f8cd372e5c41942ce281942a4114813bb2de5830156d0e4dd172324c2cd2a7  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+a2482fcec710bdffd8ccf1881f96dd4d9d8fedb8e2cbdadbd0f4b521cf036f44  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+9cc19cf62dabdca83cb107b941465ee49ea19d750e3108f0664f241f8cf02e67  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+f226f8d9be2855d6fdb30a9a54e60f2cdc19028abecca8ba46262f184dfc5bc8  config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinfo
-cf7f42d03a5adbb0b72b4444da0b8c467b360389639bb01c81442761212a7b32  version.buildinfo
+2503f023144e11bb00097a4927c8af2cef1c7c8100685e3f97a99465211e006f  version.buildinfo
+89048f7ef7c907e2974047b55559b0bdb32b7b3a39ad5cba088c4d79792c5df4  RELEASE_NOTES.md
 ```
 
 ## Publish
 
 ```sh
-TAG=v25.12.7-zbt8803be-main6.18
-TITLE="ZBT-Z8803BE OpenWrt main / kernel 6.18.31 - source build fix + Aquantia SFP+"
+TAG=v25.12.15-zbt8803be-main6.18
+TITLE="ZBT-Z8803BE OpenWrt main / kernel 6.18.34 - latest upstream rebase"
 
 git tag -a "$TAG" -m "$TITLE"
 git push origin HEAD
@@ -58,7 +58,6 @@ gh release create "$TAG" \
   releases/feeds.buildinfo \
   releases/version.buildinfo \
   releases/RELEASE_NOTES.md \
-  releases/RELEASE_NOTES.zh-CN.md \
   --latest \
   --title "$TITLE" \
   --notes-file releases/RELEASE_NOTES.md

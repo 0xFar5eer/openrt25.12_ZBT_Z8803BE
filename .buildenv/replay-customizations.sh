@@ -52,6 +52,7 @@ FILES=(
     target/linux/mediatek/filogic/base-files/etc/banner
     target/linux/mediatek/filogic/base-files/etc/zbt-leds.sh
     target/linux/mediatek/filogic/base-files/etc/apk/keys/immortalwrt-snapshots.pem
+    target/linux/mediatek/filogic/base-files/lib/upgrade/platform.sh
     target/linux/mediatek/filogic/base-files/etc/init.d/zbt_qmodem_watchdog
     target/linux/mediatek/filogic/base-files/etc/init.d/zbt-leds
     target/linux/mediatek/filogic/base-files/etc/init.d/zbt-modem-leds
