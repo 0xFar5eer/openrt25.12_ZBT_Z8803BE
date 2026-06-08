@@ -1,20 +1,23 @@
-# ZBT-Z8803BE OpenWrt main / kernel 6.18.33 正式版
+# ZBT-Z8803BE OpenWrt main / kernel 6.18.34 正式版
 
 [English](RELEASE_NOTES.md) | [中文](RELEASE_NOTES.zh-CN.md)
 
 面向 **ZBTLink ZBT-Z8803BE** WiFi 7 路由器的自定义 OpenWrt 固件。
 
-- **发布标签:** `v25.12.14-zbt8803be-main6.18`
-- **内核:** `6.18.33`
-- **构建版本号:** `r34651-08fc94e13c`
+- **发布标签:** `v25.12.016`
+- **内核:** `6.18.34`
+- **构建版本号:** `r34764-819875e2d1`
 - **目标平台:** `mediatek/filogic`
 - **默认登录:** `root` / `admin`
 
-## 相比 v25.12.13 的变化
+## 本次版本更新
 
-- **rebase 到更新的 OpenWrt upstream main，** 同时继续保持内核 **6.18.33**，并在新的上游基线之上重新构建 ZBT-Z8803BE 固件。
-- **保留上一版为 GitHub issue #6 增加的 VPN/代理/DPI 绕过内核模块：** TPROXY、NFQUEUE、socket diagnostic 与 BBR，适配 passwall/passwall2、sing-box、xray-core、OpenClash、podkop、zapret/nfqws、hev-socks5-tproxy 等场景。
-- **增强了重复 rebase / rebuild 的构建稳定性。** 本地 `.buildenv` helper 现在会在每次运行时从 seed 文件重新生成 `.config`，并移除当前会破坏包元数据生成的 feed 包 `openvswitch` 与 `jool`。
+- **解决 GitHub issue #7 提到的 SFP 作为 WAN 默认行为问题。**
+- **保留 `eth1` 为 RJ45 WAN，`eth2` 为 SFP WAN。**
+- **两个有线上联现在都会在首次启动时自动生效，且 IPv4/IPv6 默认配置一致。**
+- **如果两个有线上联同时接入，默认按路由 metric 优先使用 SFP，RJ45 作为回退。**
+- **`wan_sfp` 与 `wan_sfp6` 默认加入 firewall 的 `wan` zone。**
+- **原有确定性 DNS 策略和高 metric 的蜂窝回退逻辑保持不变。**
 
 ## PON SFP 用户说明
 
@@ -32,35 +35,27 @@ mdio --help
 
 ## 验证
 
-- rebased 分支上已完成完整 Docker rebuild：`r34651-08fc94e13c`，内核 6.18.33。
-- release 资产是在 `zbt8803be-openwrt-main` rebase 到更新的 `openwrt-upstream/main` 之后重新生成的。
-- staged release assets 通过 `sha256sum -c sha256sums --ignore-missing`。
-- manifest 确认包含 `kmod-nft-tproxy`、`kmod-nft-socket`、`kmod-ipt-tproxy`、`kmod-nft-queue`、`kmod-nfnetlink-queue`、`kmod-ipt-nfqueue`、`kmod-inet-diag`、`kmod-netlink-diag`、`kmod-tcp-bbr`，对应 issue #6。
+- 已完成完整 Docker rebuild：`r34764-819875e2d1`，内核 6.18.34。
+- 已补齐 `wan` / `wan6` 与 `wan_sfp` / `wan_sfp6` 的首次启动 metric 默认值。
+- 已确保 `wan6` 与 `wan_sfp6` 在旧配置缺失时也会自动创建。
+- 已补充双有线 WAN 首次启动验证说明。
 - manifest 包含：
 
 ```text
-kernel - 6.18.33~b5bed36ea0c8dbdc37cedd79a92febea-r1
-kmod-inet-diag - 6.18.33-r1
-kmod-ipt-nfqueue - 6.18.33-r1
-kmod-ipt-tproxy - 6.18.33-r1
-kmod-netlink-diag - 6.18.33-r1
-kmod-nfnetlink-queue - 6.18.33-r1
-kmod-nft-queue - 6.18.33-r1
-kmod-nft-socket - 6.18.33-r1
-kmod-nft-tproxy - 6.18.33-r1
-kmod-tcp-bbr - 6.18.33-r1
-kmod-tun - 6.18.33-r1
+kernel - 6.18.34~b5bed36ea0c8dbdc37cedd79a92febea-r1
+kmod-phy-aquantia - 6.18.34-r1
+kmod-sfp - 6.18.34-r1
 ```
 
 ## 校验值
 
 ```text
-6f5cb43f6219fa6f111fbf8c1ae4171bc3577da67fcb9dc6aa035e19c2d414bd *config.buildinfo
+f226f8d9be2855d6fdb30a9a54e60f2cdc19028abecca8ba46262f184dfc5bc8 *config.buildinfo
 ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e *feeds.buildinfo
-a9c2eea2b567b3a61004981bb94a82f1df029bb289a4c24f6c1a60a1dccae703 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-6844a0ce39a8f7e19ab188d0e1eafae8116fb790fec00a587bda4278ee3b2b86 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-90a1dee715024cf8ae6b75b40b3f3d772a4f52a667585a58af8fede4fd462d94 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-2503f023144e11bb00097a4927c8af2cef1c7c8100685e3f97a99465211e006f *version.buildinfo
+6b417afd3de82f06d8279f9748e9dd135168b0deeefb8f571c02288af1687f3b *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+563436090b583af71c60abaff86d08dadc048ab4ab45479acc96aa967d2d4c5d *openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+8f6ed9bfc98222735d883fab1c0f6c31bfac0fad0dd5ff928d32eae877bd2072 *openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+4b36ec5747ddf223b41ddf41f84e631882f8db2f9ba449ef4cf336f4bfe42465 *version.buildinfo
 ```
 
 ## 刷机

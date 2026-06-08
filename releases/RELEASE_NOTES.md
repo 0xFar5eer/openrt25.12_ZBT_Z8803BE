@@ -1,21 +1,19 @@
-# v25.12.15-zbt8803be-main6.18
+# v25.12.016
 
 ZBT-Z8803BE community build rebased on current OpenWrt main.
 
 ## Highlights
 
-- Rebased downstream ZBT-Z8803BE customization branch onto OpenWrt `main` at `c82f2724f5`.
-- Updated kernel from `6.18.33` to `6.18.34`.
-- Verified the ZBT-Z8803BE NAND layout before flashing:
-  - UBI volumes are `kernel`, `rootfs`, and `rootfs_data`.
-  - Existing ZBT sysupgrade path keeps writing FIT/kernel payload to `kernel`.
-- Validated by sysupgrade on ZBT-Z8803BE with settings preserved.
-- Added `platform.sh` to replay-customizations allowlist so board-specific upgrade logic is preserved on future upstream replays.
-- Preserved post-v12 customizations and local WDS client identity fix.
+- Adds the default wired-WAN behavior requested in GitHub issue #7.
+- Keeps `eth1` as the RJ45 WAN path and `eth2` as the SFP WAN path.
+- Brings up both wired uplinks automatically at first boot with matching IPv4 and IPv6 defaults.
+- Prefers SFP by route metric when both wired uplinks are connected, while keeping RJ45 as fallback.
+- Keeps `wan_sfp` and `wan_sfp6` in the firewall `wan` zone by default.
+- Preserves the existing deterministic DNS policy and high-metric cellular fallback behavior.
 
 ## Build info
 
-- OpenWrt revision: `r34651-08fc94e13c`
+- OpenWrt revision: `r34764-819875e2d1`
 - Kernel: `6.18.34`
 - Target: `mediatek/filogic`
 - Device: `zbtlink_zbt-z8803be`
@@ -34,11 +32,11 @@ ZBT-Z8803BE community build rebased on current OpenWrt main.
 
 - Shell syntax check passed for `target/linux/mediatek/filogic/base-files`.
 - Full Docker build completed and generated sysupgrade + initramfs images.
-- Sysupgrade tar contains `CONTROL`, `kernel`, and `root` entries.
-- Preserving-settings sysupgrade completed successfully on ZBT-Z8803BE.
-- Post-flash checks passed: kernel/revision, UBI layout, LAN route/DNS, radios, LuCI/SSH/rpcd, installed package versions.
+- Added explicit first-boot metrics for `wan` / `wan6` and `wan_sfp` / `wan_sfp6`.
+- Ensured `wan6` and `wan_sfp6` are created even if missing in existing configs.
+- Added verification guidance for dual-uplink first-boot behavior.
 - Manifest confirms kernel package `6.18.34`.
 
-## Important flash note
+## Issue reference
 
-Live pre-flash audit confirmed the working NAND layout uses UBI volumes `kernel`, `rootfs`, and `rootfs_data`. This release preserves that sysupgrade layout and has been validated with settings preserved.
+- GitHub issue #7: SFP as WAN default/failover behavior.
