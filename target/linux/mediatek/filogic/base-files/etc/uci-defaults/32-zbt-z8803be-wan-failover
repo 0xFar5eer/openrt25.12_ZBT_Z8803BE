@@ -1,14 +1,15 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
 #
-# Z8803BE - wired-WAN topology + dormant WWAN DNS-policy contract.
+# Z8803BE - dual wired-WAN topology + dormant WWAN DNS-policy contract.
 #
 # DNS POLICY CONTRACT (firmware-wide):
 #   This board boots into deterministic public DNS by default. The
 #   resolver path is:
 #       LAN client -> dnsmasq (LAN IP:53) -> 1.1.1.1 / 8.8.8.8 (UDP/53)
 #   This file owns the netifd-side half of that contract:
-#       network.wan.peerdns   = 0   (drop ISP DHCP option 6)
+#       network.wan.peerdns      = 0   (drop ISP DHCP option 6)
+#       network.wan_sfp.peerdns  = 0   (same policy for SFP WAN)
 #       network.4_1.peerdns   = 0   (if cellular is explicitly enabled,
 #                                    drop operator DNS pushed via netifd
 #                                    for the qmodem proto=none stub)
@@ -31,12 +32,12 @@
 #
 # WHY (root cause this fixes):
 #   On a fresh `sysupgrade -n` first boot, the previous default
-#   (peerdns=1) let udhcpc on `wan` write the ISP's DNS into
-#   /tmp/resolv.conf.d/resolv.conf.auto BEFORE uci-defaults could
-#   intervene. dnsmasq then forwarded queries to that ISP DNS in
+#   (peerdns=1) let udhcpc on the wired WAN interfaces write the ISP's
+#   DNS into /tmp/resolv.conf.d/resolv.conf.auto BEFORE uci-defaults
+#   could intervene. dnsmasq then forwarded queries to that ISP DNS in
 #   round-robin alongside our seeded 1.1.1.1 / 8.8.8.8, and any
-#   transient brokenness in operator DNS (Globe / Smart / Smart Bro
-#   PH all observed) made the router boot with intermittent DNS even
+#   transient brokenness in operator DNS (Globe / Smart / Smart Bro PH
+#   all observed) made the router boot with intermittent DNS even
 #   though raw-IP routing worked. peerdns=0 here closes that hole at
 #   the netifd level; noresolv=1 in the dnsmasq-side closes the
 #   already-written-auto-file hole at the resolver level.
@@ -60,6 +61,29 @@ uci -q set network.wan.metric='10'
 uci -q set network.wan.defaultroute='1'
 uci -q set network.wan.peerdns='0'
 uci -q set network.wan.force_link='0'
+if ! uci -q get network.wan6 >/dev/null 2>&1; then
+	uci -q set network.wan6=interface
+fi
+uci -q set network.wan6.metric='10'
+uci -q set network.wan6.device='@wan'
+uci -q set network.wan6.proto='dhcpv6'
+
+# Keep both wired uplinks DHCP-capable at first boot. Whichever link is
+# actually present will come up automatically; if both are present, SFP
+# wins by metric and the RJ45 WAN stays as the fallback path.
+if uci -q get network.wan_sfp >/dev/null 2>&1; then
+	uci -q set network.wan_sfp.proto='dhcp'
+	uci -q set network.wan_sfp.metric='9'
+	uci -q set network.wan_sfp.defaultroute='1'
+	uci -q set network.wan_sfp.peerdns='0'
+	uci -q set network.wan_sfp.force_link='0'
+	if ! uci -q get network.wan_sfp6 >/dev/null 2>&1; then
+		uci -q set network.wan_sfp6=interface
+	fi
+	uci -q set network.wan_sfp6.metric='9'
+	uci -q set network.wan_sfp6.device='@wan_sfp'
+	uci -q set network.wan_sfp6.proto='dhcpv6'
+fi
 
 # Register dormant WWAN (4_1 / 4_1v6) proto=none stubs bound to wwan0.
 # Firmware defaults to wired WAN only: cellular has high metric, no
@@ -99,7 +123,7 @@ fi
 
 uci -q commit network
 
-# Keep dormant WWAN stubs listed in the wan firewall zone.
+# Keep dormant WWAN stubs and SFP WAN listed in the wan firewall zone.
 # qmodem's boot logic has been observed wiping firewall.<wan zone>.network
 # back to just 'wan' (it appears to rewrite the file when it (re)creates
 # its own network sections), which silently drops wwan0 out of the wan
@@ -123,6 +147,14 @@ find_wan_zone() {
 
 if wan_zone="$(find_wan_zone)"; then
         zone_networks=$(uci -q get "firewall.${wan_zone}.network")
+        case " $zone_networks " in
+                *" wan_sfp "*) ;;
+                *) uci -q add_list "firewall.${wan_zone}.network=wan_sfp" ;;
+        esac
+        case " $zone_networks " in
+                *" wan_sfp6 "*) ;;
+                *) uci -q add_list "firewall.${wan_zone}.network=wan_sfp6" ;;
+        esac
         case " $zone_networks " in
                 *" 4_1 "*) ;;
                 *) uci -q add_list "firewall.${wan_zone}.network=4_1" ;;

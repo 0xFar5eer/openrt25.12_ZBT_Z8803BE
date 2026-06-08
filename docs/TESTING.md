@@ -778,6 +778,32 @@ Expected:
 - **eth2 exists:** SFP/GMAC2 interface exists.
 - **SFP state sane:** module state is sane if a module is inserted.
 
+### 16.4 Dual uplink routing defaults
+
+After a clean first boot, verify generated network sections and metrics:
+
+```sh
+ssh root@3fl.lan 'uci -q show network.wan; uci -q show network.wan6; uci -q show network.wan_sfp; uci -q show network.wan_sfp6; uci -q show firewall | grep -E "wan_sfp|4_1"'
+```
+
+Expected:
+
+- **RJ45 WAN metrics:** `network.wan.metric='10'` and `network.wan6.metric='10'`.
+- **SFP WAN metrics:** `network.wan_sfp.metric='9'` and `network.wan_sfp6.metric='9'`.
+- **Firewall membership:** `wan_sfp`, `wan_sfp6`, `4_1`, and `4_1v6` are present in the `wan` zone.
+
+Optional live-link verification:
+
+```sh
+ssh root@3fl.lan 'ip -4 route show default; ip -6 route show default 2>/dev/null || true; ubus call network.interface.wan status; ubus call network.interface.wan_sfp status'
+```
+
+Expected:
+
+- **Single link works:** whichever wired uplink is physically linked can acquire default routes.
+- **SFP preferred when both are up:** if both wired uplinks are active, `wan_sfp` is preferred by metric.
+- **No active arbitration assumed:** preference is route-metric based, not internet health-checked failover.
+
 ## Phase 17: Fan / Thermal / PWM Cooling
 
 ### 17.1 Thermal zones

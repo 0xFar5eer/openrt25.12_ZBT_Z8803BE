@@ -155,18 +155,24 @@ Key values:
 | UCI path | Value |
 |----------|-------|
 | `network.wan.metric` | `10` |
+| `network.wan6.metric` | `10` |
 | `network.wan.defaultroute` | `1` |
 | `network.wan.peerdns` | `0` |
+| `network.wan_sfp.proto` | `dhcp` |
+| `network.wan_sfp.metric` | `9` |
+| `network.wan_sfp.defaultroute` | `1` |
+| `network.wan_sfp.peerdns` | `0` |
+| `network.wan_sfp6.metric` | `9` |
 | `network.4_1.proto` | `none` |
 | `network.4_1.device` | `wwan0` |
 | `network.4_1.ifname` | `wwan0` |
-| `network.4_1.metric` | `20` |
+| `network.4_1.metric` | `200` |
 | `network.4_1.peerdns` | `0` |
 | `network.4_1v6.proto` | `none` |
 | `network.4_1v6.device` | `wwan0` |
-| `network.4_1v6.metric` | `20` |
+| `network.4_1v6.metric` | `200` |
 
-The same script ensures `4_1` and `4_1v6` are present in the firewall `wan` zone network list.
+The same script ensures `wan_sfp`, `wan_sfp6`, `4_1`, and `4_1v6` are present in the firewall `wan` zone network list.
 
 ## DNS defaults
 
@@ -174,7 +180,7 @@ DNS defaults are split across multiple uci-default scripts:
 
 | File | Role |
 |------|------|
-| `32-zbt-z8803be-wan-failover` | Sets `peerdns=0` on wired and cellular interface stubs. |
+| `32-zbt-z8803be-wan-failover` | Sets `peerdns=0` on wired IPv4 WANs, seeds wired/cellular metrics, and keeps extra uplinks in the `wan` firewall zone. |
 | `40-zbt-qmodem-dns-suppress` | Suppresses QModem DNS injection. |
 | `80-zbt-z8803be-dns-cache` | Configures dnsmasq cache and fixed upstream resolvers. |
 

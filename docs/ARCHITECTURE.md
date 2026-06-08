@@ -86,7 +86,7 @@ Important defaults include:
 |------|---------|
 | `20-zbt-apk-feeds` | Seeds APK feed configuration. |
 | `28-zbt-qmodem-slots` | Seeds modem-slot defaults. |
-| `32-zbt-z8803be-wan-failover` | Sets WAN/WWAN metrics, binds `wwan0` to netifd stubs, and keeps cellular in the `wan` firewall zone. |
+| `32-zbt-z8803be-wan-failover` | Sets wired/WWAN metrics, keeps both wired uplinks dual-stack capable, binds `wwan0` to netifd stubs, and keeps auxiliary uplinks in the `wan` firewall zone. |
 | `40-zbt-qmodem-dns-suppress` | Suppresses QModem DNS injection. |
 | `44-zbt-qmodem-watchdog-disable` | Disables the ZBT QModem watchdog path by default. |
 | `48-zbt-qmodem-monitor-defaults` | Seeds hardened QModem monitor defaults while keeping monitoring disabled by default. |
@@ -115,12 +115,13 @@ The default wireless interfaces are WPA3-SAE with PMF required. MLO is intention
 
 ## Modem and failover architecture
 
-The firmware is designed around primary wired WAN with dormant cellular stubs on the `wwan0` data path.
+The firmware is designed around dual wired WAN uplinks plus dormant cellular stubs on the `wwan0` data path.
 
 Key pieces:
 
 - `.buildenv/zbt8803be.config` selects QMI, MBIM, NCM, MHI, USB serial, QModem Next, QModem monitor, and helper tools.
-- `32-zbt-z8803be-wan-failover` sets `network.wan.metric=10` and `network.4_1.metric=200` so wired WAN is the only default route at first boot.
+- `32-zbt-z8803be-wan-failover` sets `network.wan` / `network.wan6` to metric `10`, `network.wan_sfp` / `network.wan_sfp6` to metric `9`, and `network.4_1` / `network.4_1v6` to metric `200`, so either wired uplink works automatically while SFP is preferred when both are present.
+- Wired-uplink preference is route-metric based only; there is no active health-check arbitration between `eth1` and `eth2`.
 - `32-zbt-z8803be-wan-failover` creates dormant `4_1` and `4_1v6` netifd `proto=none` stubs bound to `wwan0` so firewall4 can bind cellular to the WAN masquerade zone if it is explicitly enabled later.
 - `48-zbt-qmodem-monitor-defaults` configures QModem monitor with a direct HTTP/204 probe at `http://142.250.23.94/generate_204`, interval `10`, threshold `6`, and monitor cooldown `300`, while leaving `monitor_enabled=0`.
 - `usr/sbin/zbt-modem-reboot-guard` gates monitor-triggered soft reboots with boot grace, lockout, AT-port resolution, and no-SIM checks.
@@ -130,7 +131,7 @@ Key pieces:
 
 DNS defaults are deterministic and avoid operator-pushed resolver races:
 
-- `32-zbt-z8803be-wan-failover` sets `peerdns=0` on wired and cellular interfaces.
+- `32-zbt-z8803be-wan-failover` sets `peerdns=0` on wired IPv4 WANs and cellular.
 - `40-zbt-qmodem-dns-suppress` prevents QModem from adding operator DNS.
 - `80-zbt-z8803be-dns-cache` sets dnsmasq `noresolv=1`, cache size `10000`, and fixed public forwarders as a deterministic fallback.
 - `86-zbt-adguardhome-defaults` installs the embedded AdGuardHome APKs from `/usr/share/zbt/apk/`, writes the default DoH/filter configuration, and rewires dnsmasq to forward LAN DNS through `127.0.0.1#5454`.
