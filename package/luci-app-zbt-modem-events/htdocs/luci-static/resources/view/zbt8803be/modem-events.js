@@ -141,8 +141,6 @@ function parseEvents(text) {
 			title: p[5] || '',
 			detail: p[6] || ''
 		};
-		if (!isInternetEvent(ev))
-			continue;
 		events.push(ev);
 	}
 
@@ -274,7 +272,7 @@ function renderEvents(events) {
 
 	if (!events.length) {
 		rows.push(E('tr', { 'class': 'tr placeholder' }, [
-			E('td', { 'class': 'td', 'colspan': 5, 'style': 'text-align:center;padding:1.5em' }, E('em', {}, _('No modem internet events recorded in the last 7 days.')))
+			E('td', { 'class': 'td', 'colspan': 5, 'style': 'text-align:center;padding:1.5em' }, E('em', {}, _('No modem events recorded in the last 7 days.')))
 		]));
 	} else {
 		events.forEach(function(ev) {
@@ -301,7 +299,7 @@ function renderEvents(events) {
 
 function renderContent(events) {
 	return E([], [
-		E('p', { 'class': 'cbi-section-descr' }, _('This page shows modem internet downtime, recovery, monitor action, and router restart events recorded in the last 7 days. Low-level USB, driver, and startup health noise is hidden from this view.')),
+		E('p', { 'class': 'cbi-section-descr' }, _('This page shows modem USB, interface, health, internet downtime, recovery, monitor action, and router restart events recorded in the last 7 days.')),
 		renderSummary(events),
 		renderEvents(events)
 	]);

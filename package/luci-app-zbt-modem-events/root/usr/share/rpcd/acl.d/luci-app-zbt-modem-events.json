@@ -5,7 +5,7 @@
 			"cgi-io": [ "exec" ],
 			"file": {
 				"/etc/zbt-modem-events/events.csv": [ "read" ],
-				"/usr/sbin/zbt-modem-events sample": [ "exec" ]
+				"/usr/sbin/zbt-modem-events": [ "exec" ]
 			}
 		},
 		"write": {}

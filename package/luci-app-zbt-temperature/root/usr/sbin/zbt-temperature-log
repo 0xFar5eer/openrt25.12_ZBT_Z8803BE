@@ -131,7 +131,11 @@ sample_modem() {
 		[ -e "$port" ] || continue
 		case " $tried " in *" $port "*) continue ;; esac
 		tried="$tried $port"
-		out=$(timeout 8 "$tool" -d "$port" at 'AT+QTEMP' 2>/dev/null || true)
+		if command -v timeout >/dev/null 2>&1; then
+			out=$(timeout 8 "$tool" -d "$port" at 'AT+QTEMP' 2>/dev/null || true)
+		else
+			out=$("$tool" -d "$port" at 'AT+QTEMP' 2>/dev/null || true)
+		fi
 		printf '%s\n' "$out" | grep -q '+QTEMP:' || continue
 		printf '%s\n' "$out" | while IFS= read -r line; do
 			case "$line" in *'+QTEMP:'*) ;; *) continue ;; esac

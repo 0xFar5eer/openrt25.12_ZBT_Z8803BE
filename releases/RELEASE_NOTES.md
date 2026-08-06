@@ -7,13 +7,16 @@ Release `v25.12.017` is a validated community firmware build for ZBTLink ZBT-Z88
 - Configures SFP WAN (metric `9`), RJ45 WAN (metric `10`), and ready-SIM cellular fallback (metric `200`).
 - Powers 5G1 at boot, enables automatic QModem discovery and dialing, and persistently enables the ZBT QModem watchdog to repair late modem state rewrites.
 - Includes Argon, QModem Next, modem events, SMS tooling, and the local ZBT About, Health, Temperature, and Modem Events LuCI applications.
+- Temperature Monitor now records Quectel `AT+QTEMP` sensor values on systems without the optional `timeout` command, excluding invalid `-273°C` sentinel values.
+- Modem Events now shows stored USB, interface, health, internet, watchdog, and restart records; its LuCI ACL correctly permits collector execution.
 - Uses deterministic DNS and excludes USB/iPhone tethering defaults.
 
 ## Validation
 - `make defconfig` and a full Docker firmware build completed successfully.
 - First-boot and watchdog scripts passed `sh -n`; source changes passed `git diff --check`.
 - A clean `sysupgrade -n` was tested on ZBT-Z8803BE with no corrective router commands.
-- After first boot, 5G1 was on, QModem slot `4_1` was enabled, the watchdog was enabled and running, WWAN received an IPv4 address, and `ping -I wwan0 1.1.1.1` completed with 0% packet loss.
+- The installed Temperature Monitor recorded valid Quectel modem temperatures without `-273°C` sentinels; Modem Events stored and exposed a collector write-test event through the corrected ACL.
+- After post-flash modem re-enumeration, 5G1 was on, QModem slot `4_1` was enabled, WWAN received an IPv4 address, and netifd reported the cellular interface up.
 
 ## Artifacts
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
