@@ -1,0 +1,48 @@
+#!/bin/sh
+# ZBT-Z8803BE late first-boot cellular contract.
+#
+# This runs after the qmodem package's own UCI defaults, which may create or
+# rewrite qmodem.4_1. It deliberately owns the persistent defaults required
+# for unattended clean flashes: 5G1 powered, QModem dialing enabled, and the
+# watchdog enabled for subsequent boots.
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+[ -e /etc/config/qmodem ] || exit 0
+
+# The DT exports 5G1 active-high. Reassert it after qmodem_init has finished
+# its initial slot scan, since that scan can power down a newly discovered
+# modem section when its state is still disabled.
+if [ -w /sys/class/gpio/5g1/value ]; then
+	printf '1' > /sys/class/gpio/5g1/value
+fi
+
+uci -q set qmodem.main.enable_dial='1'
+uci -q set qmodem.main.block_auto_probe='0'
+uci -q set qmodem.main.try_preset_usb='1'
+uci -q set qmodem.main.try_preset_pcie='0'
+uci -q set qmodem.main.enable_pcie_scan='0'
+
+if ! uci -q get qmodem.4_1 >/dev/null 2>&1; then
+	uci -q set qmodem.4_1=modem-device
+fi
+uci -q set qmodem.4_1.state='enabled'
+uci -q set qmodem.4_1.enable_dial='1'
+uci -q set qmodem.4_1.do_not_add_dns='1'
+uci -q set qmodem.4_1.donot_nat='1'
+uci -q set qmodem.4_1.monitor_enabled='0'
+uci -q set qmodem.4_1.metric='200'
+uci -q commit qmodem
+
+# /etc/init.d/*/enable creates the S99/K10 links in the writable overlay;
+# doing this here makes the watchdog survive the next reboot and lets it
+# repair any late qmodem_init rewrite without operator commands.
+if [ -x /etc/init.d/zbt_qmodem_watchdog ]; then
+	/etc/init.d/zbt_qmodem_watchdog enable
+	/etc/init.d/zbt_qmodem_watchdog start
+fi
+
+exit 0

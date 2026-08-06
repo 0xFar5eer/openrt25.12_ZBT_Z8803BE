@@ -29,24 +29,6 @@
 		reg = <0 0x40000000 0 0x40000000>;
 	};
 
-	reg_1p8v: regulator-1p8v {
-		compatible = "regulator-fixed";
-		regulator-name = "fixed-1.8V";
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
-		regulator-boot-on;
-		regulator-always-on;
-	};
-
-	reg_3p3v: regulator-3p3v {
-		compatible = "regulator-fixed";
-		regulator-name = "fixed-3.3V";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		regulator-boot-on;
-		regulator-always-on;
-	};
-
 	gpio-keys {
 		compatible = "gpio-keys";
 
@@ -95,13 +77,17 @@
 		 * interface) turns them solid on link and blinks on traffic.
 		 */
 		led-5g1 {
-			label = "5g1";
+			color = <LED_COLOR_ID_BLUE>;
+			function = LED_FUNCTION_MOBILE;
+			function-enumerator = <1>;
 			gpios = <&pio 61 GPIO_ACTIVE_LOW>;
 			default-state = "off";
 		};
 
 		led-5g2 {
-			label = "5g2";
+			color = <LED_COLOR_ID_BLUE>;
+			function = LED_FUNCTION_MOBILE;
+			function-enumerator = <2>;
 			gpios = <&pio 53 GPIO_ACTIVE_LOW>;
 			default-state = "off";
 		};
@@ -116,18 +102,19 @@
 		 * "5G2") get their Vbat from a board-side power-enable that the
 		 * SoC drives on GPIO17 / GPIO52. The pin is active-high; left at
 		 * 0 the slot is dead and any modem inserted into it never
-		 * enumerates on USB. Default both modem slots to powered-off for
-		 * the 3FL wired-WAN deployment. Pre-flash power state is irrelevant: u-boot
-		 * doesn't drive these pins.
+		 * enumerates on USB. Default 5G1 powered on so the primary modem
+		 * enumerates at cold boot; leave 5G2 powered off until manually
+		 * enabled. Pre-flash power state is irrelevant: u-boot doesn't
+		 * drive these pins.
 		 *
-		 * Names match the front-panel silk so `/sys/class/gpio/5g1`
-		 * and the matching `/sys/class/leds/5g1` trigger/netdev node
-		 * stay in lockstep for userspace tooling (qmodem modem-slot,
-		 * LuCI "Switches" panel, hotplug-driven LED wiring).
+		 * GPIO names match the front-panel silk so `/sys/class/gpio/5g1`
+		 * and the matching mobile LED nodes stay in lockstep for
+		 * userspace tooling (qmodem modem-slot, LuCI "Switches" panel,
+		 * hotplug-driven LED wiring).
 		 */
 		modem0 {
 			gpio-export,name = "5g1";
-			gpio-export,output = <0>;
+			gpio-export,output = <1>;
 			gpios = <&pio 17 GPIO_ACTIVE_HIGH>;
 		};
 		modem1 {
@@ -166,7 +153,7 @@
 	fan: pwm-fan {
 		compatible = "pwm-fan";
 		#cooling-cells = <2>;
-		cooling-levels = <0 80 112 144 176 216 255>;
+		cooling-levels = <0 60 80 112 144 176 216 255>;
 		pwms = <&pwm 0 10000 0>;
 		status = "okay";
 	};
@@ -413,7 +400,7 @@
 
 &gmac0 {
 	nvmem-cell-names = "mac-address";
-	nvmem-cells = <&gmac0_mac 0>;
+	nvmem-cells = <&gmac0_mac>;
 	status = "okay";
 };
 
@@ -422,7 +409,7 @@
 	phy-connection-type = "internal";
 	phy = <&int_2p5g_phy>;
 	nvmem-cell-names = "mac-address";
-	nvmem-cells = <&gmac1_mac 0>;
+	nvmem-cells = <&gmac1_mac>;
 	status = "okay";
 };
 
@@ -431,7 +418,7 @@
 	managed = "in-band-status";
 	phy-mode = "10gbase-r";
 	nvmem-cell-names = "mac-address";
-	nvmem-cells = <&gmac2_mac 0>;
+	nvmem-cells = <&gmac2_mac>;
 	status = "okay";
 };
 
@@ -592,25 +579,50 @@
 		};
 
 		cpu_trip_active_max: active-max {
-			temperature = <85000>;
+			/* level 7: PWM 255 = 100% */
+			temperature = <80000>;
+			hysteresis = <2000>;
+			type = "active";
+		};
+
+		cpu_trip_active_high2: active-high2 {
+			/* level 6: PWM 216 = 85% */
+			temperature = <76000>;
 			hysteresis = <2000>;
 			type = "active";
 		};
 
 		cpu_trip_active_high: active-high {
-			temperature = <75000>;
+			/* level 5: PWM 176 = 69% */
+			temperature = <72000>;
+			hysteresis = <2000>;
+			type = "active";
+		};
+
+		cpu_trip_active_mid: active-mid {
+			/* level 4: PWM 144 = 56% */
+			temperature = <66000>;
 			hysteresis = <2000>;
 			type = "active";
 		};
 
 		cpu_trip_active_low: active-low {
-			temperature = <55000>;
+			/* level 3: PWM 112 = 44% */
+			temperature = <60000>;
 			hysteresis = <2000>;
 			type = "active";
 		};
 
 		cpu_trip_active_silent: active-silent {
-			temperature = <45000>;
+			/* level 2: PWM 80 = 31% */
+			temperature = <42000>;
+			hysteresis = <2000>;
+			type = "active";
+		};
+
+		cpu_trip_active_whisper: active-whisper {
+			/* level 1: PWM 60 = 24% */
+			temperature = <36000>;
 			hysteresis = <2000>;
 			type = "active";
 		};
@@ -618,27 +630,45 @@
 
 	cooling-maps {
 		cpu-active-max {
-			cooling-device = <&fan 6 6>;
+			/* level 7: PWM 255 = 100% at 80°C */
+			cooling-device = <&fan 7 7>;
 			trip = <&cpu_trip_active_max>;
 		};
 
+		cpu-active-high2 {
+			/* level 6: PWM 216 = 85% at 76°C */
+			cooling-device = <&fan 6 6>;
+			trip = <&cpu_trip_active_high2>;
+		};
+
 		cpu-active-high {
-			/* active: set fan to cooling level 3 */
-			cooling-device = <&fan 3 3>;
+			/* level 5: PWM 176 = 69% at 72°C */
+			cooling-device = <&fan 5 5>;
 			trip = <&cpu_trip_active_high>;
 		};
 
+		cpu-active-mid {
+			/* level 4: PWM 144 = 56% at 66°C */
+			cooling-device = <&fan 4 4>;
+			trip = <&cpu_trip_active_mid>;
+		};
+
 		cpu-active-low {
-			/* active: set fan to cooling level 1 */
-			cooling-device = <&fan 1 1>;
+			/* level 3: PWM 112 = 44% at 60°C */
+			cooling-device = <&fan 3 3>;
 			trip = <&cpu_trip_active_low>;
 		};
 
 		cpu-active-silent {
-			/* active: set fan to cooling level 0 */
-			cooling-device = <&fan 0 0>;
+			/* level 2: PWM 80 = 31% at 42°C */
+			cooling-device = <&fan 2 2>;
 			trip = <&cpu_trip_active_silent>;
+		};
+
+		cpu-active-whisper {
+			/* level 1: PWM 60 = 24% at 36°C */
+			cooling-device = <&fan 1 1>;
+			trip = <&cpu_trip_active_whisper>;
 		};
 	};
 };
-

@@ -13,9 +13,15 @@
 const RELEASES_URL = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/releases';
 const REPO_URL     = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE';
 const ISSUES_URL   = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/issues';
-const CONTACT_URL  = 'https://t.me/Far5eer';
+const CONTACT_EMAIL = '0xfar5eer@gmail.com';
+const DONATION_ADDRESSES = [
+	[ 'ERC20 / BEP20 — USDT, USDC, ETH, BNB', '0xd1122130ad6e9ab948212087a90797e3129bfc1c' ],
+	[ 'TRC20 — TRX, USDT', 'TTcT5m4BriHKyNrB4KYyLMK4ZGn54Nk6z2' ],
+	[ 'BTC', '12N34ZYeiwxKEcM5FSnkgnHwxhW6pE3r4m' ],
+	[ 'LTC', 'LLNtEGeZ5C6QnSY6BU1MYAZjh8MJpF6zsK' ]
+];
 const BUILD_CHANNEL = 'ZBT-Z8803BE community build';
-const OPENWRT_BASE = 'OpenWrt 25.12 stable branch';
+const OPENWRT_BASE = 'OpenWrt 25.12 branch with MediaTek kernel 6.12';
 
 function loadCss(path) {
 	const head = document.head || document.getElementsByTagName('head')[0];
@@ -68,6 +74,15 @@ function card(title, items) {
 	]);
 }
 
+function donationCard() {
+	return E('div', { 'class': 'cbi-section', 'style': 'overflow-wrap:anywhere' }, [
+		E('h3', _('Donate')),
+		E('p', _('Optional donations help support maintenance and testing:'))
+	].concat(DONATION_ADDRESSES.map(function(item) {
+		return row(item[0], E('code', {}, item[1]));
+	})));
+}
+
 function creditGrid(items) {
 	const rows = [];
 	items.forEach(function(item) {
@@ -109,42 +124,41 @@ return view.extend({
 			[ release_lines['DISTRIB_ID'], release_lines['DISTRIB_RELEASE'], release_lines['DISTRIB_REVISION'] ]
 			.filter(Boolean).join(' ');
 
-		const branch = '25.12 stable';
+		const branch = 'OpenWrt 25.12';
 
 		const featureGroups = [
 			[ _('Platform / board support'), [
-				_('Mainline OpenWrt 25.12 base for ZBTLink ZBT-Z8803BE, target mediatek/filogic, kernel 6.12, no MediaTek vendor feed required.'),
+				_('OpenWrt 25.12 base for ZBTLink ZBT-Z8803BE, target mediatek/filogic, kernel 6.12, no MediaTek vendor feed required.'),
 				_('Board DTS/image profile, NAND sysupgrade support, LED/network/GPIO switch defaults, modem LED services, APK feed defaults, shell/banner defaults, and first-boot LuCI defaults.'),
 				_('WiFi 7 tri-band defaults: 2.4 GHz ch11/EHT20, 5 GHz ch149/EHT80, 6 GHz ch37/EHT160, country PH, no firmware-side txpower/channel clamps.')
 			] ],
 			[ _('LuCI / observability'), [
-				_('Top-level About page, Argon dark theme/config, HTTPS LuCI, package manager, curated Services menu ordering, and direct Services views for WiFi history and System Statistics.'),
-				_('Shared ZBT LuCI theme applied across custom firmware apps with consistent cards, tables, buttons, Traffic Statistics filters, and inset About credits.'),
-				_('ZBT Health page with overlay/storage/RAM/conntrack/uptime checks plus write-hotspot visibility for wrtbwmon and AdGuard Home data.'),
+				_('Top-level About page, HTTPS LuCI, package manager, and a focused Services menu for Health, Temperature, Modem Events, and QModem.'),
+				_('ZBT Health page with overlay/storage/RAM/conntrack/uptime checks and write-hotspot visibility for local ZBT data.'),
 				_('Temperature monitor with tmpfs history, max-temperature avoid-limit overlays, 7-level fan policy, and modem/WiFi/SoC sensor summaries.'),
 				_('Modem Events history with router restart boundaries, recovery counters, downtime estimates, qmodem monitor actions, and internet probe state.')
 			] ],
-			[ _('Traffic, DNS, and QoS'), [
-				_('wrtbwmon Traffic Statistics with daily SQLite schema, device traffic, live speed stats, per-device domain views, top domains, domain tracking defaults, and warning messages when monitoring/domain data is disabled or empty.'),
-				_('AdGuard Home integration with bounded memory query log/statistics settings and robust query-log parsing for current answer/value/client_info formats.'),
-				_('QoSmate replaces SQM as the primary QoS/tinkering UI and is placed in Services after Modem Events.')
+			[ _('DNS and routing'), [
+				_('Deterministic dnsmasq DNS with fixed public upstreams and wired/SFP WAN defaults; a ready cellular modem dials automatically as high-metric fallback.'),
+				_('WireGuard and USB mass-storage basics remain available; optional traffic accounting, DNS filtering, QoS, DDNS, NAS, and diagnostic bundles are not preinstalled.')
 			] ],
 			[ _('Modem and WAN resilience'), [
-				_('QModem Next JS UI with SMS, Monitor, AT Debug, watchdog defaults, no-SIM guard, startup/action cooldown, direct-IP HTTP/204 probe, and robust soft reboot helper.'),
-				_('QMI/MBIM/NCM/MHI/USB modem stack with sms_tool_q, tom_modem, quectel-CM-5G-M, modem event hooks, and WAN/WWAN failover defaults: WAN metric 10, WWAN/QModem metric 20.'),
+				_('QModem Next JS UI with SMS, Monitor, AT Debug, modem controls, automatic dialing, and cellular monitoring helpers.'),
+				_('QMI/MBIM/NCM/MHI/USB modem stack with sms_tool_q, tom_modem, quectel-CM-5G-M, modem event hooks, and a cold-boot slot policy: 5G1 powered for USB enumeration, 5G2 off until explicitly enabled.'),
 				_('On this exact Z8803BE-T variant SIM1 is wired to modem1 and SIM2 is wired to modem2, so SIM switching is intentionally disabled.')
 			] ],
 			[ _('Included package families'), [
-				_('Network services: WireGuard, DDNS, AdGuard Home, youtubeUnblock, Samba, Diskman, statistics, wifihistory, MLO tooling, diagnostics, and CLI utilities.'),
-				_('Developer/runtime convenience: git, git-http, and a BusyBox-compatible install shim for setup scripts and ad-hoc deployments.'),
-				_('Custom ZBT LuCI apps: About, Health, Temperature, Modem Events, WiFi Clients, and Traffic Statistics.'),
-				_('Build overlays: FUjr/QModem, selected ImmortalWrt packages/LuCI overlays, vendored autocore/cpufreq, and board-specific base-files customizations.')
+				_('Core services: HTTPS LuCI, package management, WireGuard, USB mass-storage basics, and Simplified Chinese LuCI translations.'),
+				_('Cellular: QModem Next and monitor, QMI/MBIM/NCM/MHI and USB serial drivers, sms_tool_q, tom_modem, qfirehose, and quectel-CM-5G-M.'),
+				_('Custom ZBT LuCI apps: About, Health, Temperature, and Modem Events.'),
+				_('Build overlays: FUjr/QModem, vendored autocore, and board-specific base-files customizations.')
 			] ],
 			[ _('Fixes and hardening vs stock/vendor firmware'), [
-				_('Moves away from old vendor 21.02-SNAPSHOT behavior and dead vendor feeds toward a current OpenWrt stable base.'),
+				_('Moves away from old vendor 21.02-SNAPSHOT behavior and dead vendor feeds toward current OpenWrt main.'),
 				_('Hardened modem monitoring to avoid no-SIM reset loops, early boot restart storms, and DNS-dependent false failures.'),
-				_('BusyBox-compatible deployments avoid GNU install assumptions; setup scripts copy files with cp/chmod and firmware includes an install compatibility shim.'),
-				_('Improved LuCI UX: no duplicate About alias under System, no recursive WiFi Clients iframe, clear Traffic Statistics warnings, and safer direct Services menu placement.')
+				_('BusyBox-compatible deployments avoid GNU install assumptions; setup scripts copy files with cp/chmod rather than relying on optional diagnostic utilities.'),
+				_('Improved LuCI UX: no duplicate About alias under System and safer direct Services menu placement.'),
+				_('Detailed crash flight recording is intentionally not built into the public firmware; private investigation tooling is installed only by setup scripts after flashing.')
 			] ]
 		];
 
@@ -193,6 +207,8 @@ return view.extend({
 				row(_('RAM (total)'), memTotalMiB ? memTotalMiB + ' MiB' : '?')
 			]),
 
+			donationCard(),
+
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', _('What is added vs stock OpenWrt')),
 				E('p', _('This page is the canonical in-firmware summary. Release notes use the same categories and add image checksums, flash instructions, and per-release validation.'))
@@ -218,12 +234,12 @@ return view.extend({
 				E('h3', _('Support / contact')),
 				E('p', _('PRs and issue reports are very welcome - this is a community build, so please file anything you spot:')),
 				row(_('Issues'),  link(ISSUES_URL)),
-				row(_('Telegram'), link(CONTACT_URL, '@Far5eer'))
+				row(_('Email'), E('a', { 'href': 'mailto:' + CONTACT_EMAIL }, CONTACT_EMAIL))
 			]),
 
 			E('div', { 'class': 'cbi-section', 'style': 'overflow-wrap:anywhere' }, [
 				E('h3', _('Credits')),
-				E('p', _('This build is a curated package list and small base-files overlay layered on top of mainline OpenWrt. Massive thanks to:')),
+				E('p', _('This build is a curated package list and small base-files overlay layered on top of OpenWrt 25.12. Massive thanks to:')),
 				creditGrid(credits),
 				E('p', { 'class': 'cbi-section-descr' },
 					_('Issues and pull requests welcome on the GitHub repository.'))

@@ -3206,9 +3206,9 @@ define Device/zbtlink_zbt-z8803be
   DEVICE_DTC_FLAGS := --pad 4096
   SUPPORTED_DEVICES += zbtlink,zbt-z8803be,mt7988a-nand
   KERNEL := kernel-bin | gzip | \
-	fit gzip $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
+        fit gzip $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
   KERNEL_INITRAMFS := kernel-bin | lzma | \
-	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
+        fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
   IMAGES := sysupgrade.bin
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef

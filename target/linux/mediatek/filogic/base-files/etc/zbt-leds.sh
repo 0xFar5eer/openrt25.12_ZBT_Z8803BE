@@ -61,18 +61,16 @@ LED_RED="/sys/class/leds/red:status"
 LED_GREEN="/sys/class/leds/green:wan"
 LED_BLUE="/sys/class/leds/blue:power"
 
-# Per-slot modem LEDs. The DTS in this firmware exposes the
-# front-panel cellular indicators as /sys/class/leds/5g1 and
-# /sys/class/leds/5g2 (one per M.2 Key-B modem slot, silk screen
-# matches "5G1" / "5G2").
+# Per-slot modem LEDs. The DTS exposes the front-panel cellular
+# indicators as /sys/class/leds/blue:mobile-1 and blue:mobile-2.
 zbt_slot_led_path() {
 	local slot="$1"
 	case "$slot" in
 		1)
-			[ -d /sys/class/leds/5g1 ] && { echo /sys/class/leds/5g1; return; }
+			echo /sys/class/leds/blue:mobile-1
 			;;
 		2)
-			[ -d /sys/class/leds/5g2 ] && { echo /sys/class/leds/5g2; return; }
+			echo /sys/class/leds/blue:mobile-2
 			;;
 	esac
 }
@@ -95,8 +93,9 @@ zbt_led_blink() {
 		i=$((i + 1))
 		# Tight retry loop; usleep avoids the full-second
 		# minimum of busybox sleep(1).
-		usleep 10000 2>/dev/null || sleep 1
+		usleep 10000 2>/dev/null || break
 	done
+	[ -e "$led/delay_on" ] || return 0
 	echo "$on_ms" > "$led/delay_on" 2>/dev/null
 	echo "$off_ms" > "$led/delay_off" 2>/dev/null
 }
@@ -163,7 +162,7 @@ case "$state" in
 		;;
 	slot)
 		# Per-modem-slot LED state machine for the front-panel
-		# 5g1 / 5g2 indicators. The user-facing spec is:
+		# blue:mobile-1 / blue:mobile-2 indicators. The user-facing spec is:
 		#
 		#   modem powered, no SIM / no tower    -> red solid
 		#   LTE network connected               -> orange blink
@@ -245,7 +244,7 @@ SYS LED states (apply to red:status / green:wan / blue:power):
   fault                 red solid (explicit fault)
   off                   all SYS LEDs off
 
-Per-slot modem LED states (apply to 5g1 / 5g2):
+Per-slot modem LED states (apply to blue:mobile-1 / blue:mobile-2):
   slot <1|2> off                     LED off (modem absent / unpowered)
   slot <1|2> no_signal               solid (modem present but not registered)
   slot <1|2> lte                     slow blink (LTE network connected)

@@ -1,80 +1,39 @@
-# ZBT-Z8803BE OpenWrt v25.12.2-7-zbt8803be speedtest maintenance release
+# ZBT-Z8803BE OpenWrt 25.12.2 / Linux 6.12.74
 
-[English](RELEASE_NOTES.md) | [中文](RELEASE_NOTES.zh-CN.md)
+Release `v25.12.017` is a validated community firmware build for ZBTLink ZBT-Z8803BE.
 
-> **Community build.** Maintained by a single contributor; expect rough edges. Bug reports and pull requests are welcome.
-
-Custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
-
-- **Release tag:** `v25.12.2-7-zbt8803be`
-- **OpenWrt base:** official `v25.12.2` / `r32802-f505120278`
-- **Kernel:** `6.12.74`
-- **Target:** `mediatek/filogic`
-- **Default login:** `root` / `admin`
-
-## What's new since `v25.12.2-6-zbt8803be`
-
-### Speedtest LuCI app
-
-- **Speedtest.net-only backend.** The Speedtest page no longer exposes backend selection and now uses the Speedtest.net backend exclusively.
-- **Pinned international presets.** Added curated Speedtest.net server presets for PH, KH, SG, MY, US, DE, NL, FR, and TH, including fixed server IDs and legacy alias handling.
-- **More reliable preset execution.** Pinned presets skip location-biased XML discovery, validate configured HTTP/HTTPS URLs before test traffic, and normalize saved country codes.
-- **Persistent app config.** The LuCI page loads `/etc/config/zbt-speedtest` through `/usr/sbin/zbt-speedtest-json --config` and saves selected country, preset, transfer sizes, and connection count after a run.
-- **Persistent result history.** Completed tests are stored in `/etc/zbt-speedtest/history.json` with timestamp, country, preset, server, download/upload Mbps, ping, byte counts, and duration. History is capped at 100 entries and uses a file lock to avoid lost concurrent appends.
-- **History UI in LuCI.** The Speedtest page now renders previous tests in a table and refreshes it after each run.
-- **LuCI compatibility fixes.** Removed JavaScript `.format()` calls and fixed nested table-row rendering that could show `[object HTMLTableRowElement]`.
-- **ACL and backup coverage.** rpcd ACLs allow the app to read/write the history DB, and app-history backup/restore preserves `/etc/zbt-speedtest/history.json`.
+## Highlights
+- Uses OpenWrt `25.12.2` (`r32858-16347e93b6`) and Linux `6.12.74`.
+- Configures SFP WAN (metric `9`), RJ45 WAN (metric `10`), and ready-SIM cellular fallback (metric `200`).
+- Powers 5G1 at boot, enables automatic QModem discovery and dialing, and persistently enables the ZBT QModem watchdog to repair late modem state rewrites.
+- Includes Argon, QModem Next, modem events, SMS tooling, and the local ZBT About, Health, Temperature, and Modem Events LuCI applications.
+- Uses deterministic DNS and excludes USB/iPhone tethering defaults.
 
 ## Validation
+- `make defconfig` and a full Docker firmware build completed successfully.
+- First-boot and watchdog scripts passed `sh -n`; source changes passed `git diff --check`.
+- A clean `sysupgrade -n` was tested on ZBT-Z8803BE with no corrective router commands.
+- After first boot, 5G1 was on, QModem slot `4_1` was enabled, the watchdog was enabled and running, WWAN received an IPv4 address, and `ping -I wwan0 1.1.1.1` completed with 0% packet loss.
 
-- Firmware rebuilt from commit `58a983ad76` and extracted to `output/mediatek/filogic`.
-- Corrected build config with `CONFIG_PACKAGE_luci-app-zbt-speedtest=y`; final manifest includes `luci-app-zbt-speedtest - 26.133.41786~58a983a`.
-- Staged release assets passed `sha256sum -c sha256sums --ignore-missing`.
-- `zbt-speedtest-json` passed Python syntax validation.
-- Speedtest LuCI JavaScript passed `node --check`.
-- Speedtest rpcd ACL passed JSON validation.
-- Engineering code review workflow passed; fixes included locked history appends and active-config preset labels in history entries.
-- Local and router temp-file history checks passed for append, custom preset label resolution, and clear-history behavior.
-- Live router hotfix was deployed to `3fl.lan`, LuCI caches were cleared, `rpcd`/`uhttpd` restarted, and `/usr/sbin/zbt-speedtest-json --history` returned the persisted SG Singtel history entry.
+## Artifacts
+- `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
+- `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
+- `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
+- `sha256sums`, `config.buildinfo`, `feeds.buildinfo`, and `version.buildinfo`
 
-## Checksums
+## Upgrade
+To preserve configuration:
 
-```text
-a3c35330d09649e56e4ad29b9d6dcbabe3ac3983989e35e54a7d6f3fb3889d7a  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-4f9c90aebc44ddd9aa6c2594a4d55ad2fa7855492c2381946902dc4f126e6c90  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-c755428ec8874006d1572f2b0a457ae61092d1907119ac01ea5e9c46ad443e4d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-22cd03fcfd73f645c0be48165b4449e5768fef147908db51dcb8a25db88b98a5  sha256sums
-43a7d0d006229a8c60a42915e59c7220623778508f18387be37dc8d79ea15777  config.buildinfo
-ae37cfd49e2d7a9287a4efc424822e56abecfd427ce380655489a9614227f12e  feeds.buildinfo
-05f6cea7ac9e5c3d2d73225400b4dc3cf51eb8002f54cf6d05e5934c1805c60c  version.buildinfo
-```
+    sysupgrade -v openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
 
-## Assets
+For a clean configuration:
 
-Upload exactly these files:
+    sysupgrade -n openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
 
-```text
-openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-sha256sums
-config.buildinfo
-feeds.buildinfo
-version.buildinfo
-RELEASE_NOTES.md
-RELEASE_NOTES.zh-CN.md
-```
+## Donate
+Optional donations help support maintenance and testing:
 
-## Flash
-
-Existing OpenWrt, preserving settings:
-
-```sh
-sysupgrade openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-```
-
-Clean reset:
-
-```sh
-sysupgrade -n openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-```
+- **ERC20 / BEP20 — USDT, USDC, ETH, BNB:** `0xd1122130ad6e9ab948212087a90797e3129bfc1c`
+- **TRC20 — TRX, USDT:** `TTcT5m4BriHKyNrB4KYyLMK4ZGn54Nk6z2`
+- **BTC:** `12N34ZYeiwxKEcM5FSnkgnHwxhW6pE3r4m`
+- **LTC:** `LLNtEGeZ5C6QnSY6BU1MYAZjh8MJpF6zsK`

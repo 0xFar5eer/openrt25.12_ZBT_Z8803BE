@@ -8,6 +8,7 @@ SAMPLE_DELAY=${SAMPLE_DELAY:-5}
 AT_TIMEOUT=${AT_TIMEOUT:-8}
 DOWN_BYTES=${DOWN_BYTES:-25000000}
 UP_MIB=${UP_MIB:-5}
+INCLUDE_PRIVATE=${INCLUDE_PRIVATE:-0}
 DOWN_URL=${DOWN_URL:-https://speed.cloudflare.com/__down?bytes=${DOWN_BYTES}}
 UP_URL=${UP_URL:-https://speed.cloudflare.com/__up}
 OUT_DIR=${OUT_DIR:-/etc/zbt-modem-baseline}
@@ -102,7 +103,11 @@ main() {
 	ip -4 route get 8.8.8.8 oif "$IFACE" 2>/dev/null || true
 	printf '\n[sim_operator]\n'
 	at_cmd 'AT+CPIN?'
-	at_cmd 'AT+CIMI'
+	if [ "$INCLUDE_PRIVATE" = "1" ]; then
+		at_cmd 'AT+CIMI'
+	else
+		printf 'AT+CIMI: redacted (set INCLUDE_PRIVATE=1 to include IMSI)\n'
+	fi
 	at_cmd 'AT+COPS?'
 	printf '\n[signal_samples]\n'
 	i=1

@@ -28,16 +28,16 @@ cp .buildenv/zbt8803be.config .config
 ## External package sources
 
 No git submodules. Everything comes from either (a) our own code
-in-tree (`package/luci-app-mlo/`, `package/emortal/`) or (b) pinned
-feeds in `feeds.conf.default`:
+in-tree (`package/emortal/autocore/`) or (b) pinned feeds in
+`feeds.conf.default`:
 
 | feed                   | source                                    | used for                          |
 |------------------------|-------------------------------------------|-----------------------------------|
 | `packages`             | git.openwrt.org/feed/packages             | upstream OpenWrt stock packages   |
 | `luci`                 | git.openwrt.org/project/luci              | upstream LuCI + core LuCI apps    |
 | `routing` / `telephony`/`video` | openwrt stock                    | rarely-used upstream feeds        |
-| `iwrt_packages`        | github.com/immortalwrt/packages (SHA-pinned) | AGH + a few utilities not upstream|
-| `iwrt_luci`            | github.com/immortalwrt/luci (SHA-pinned)  | luci-theme-argon, luci-app-wifihistory, luci-app-diskman, luci-app-autoreboot, luci-app-adguardhome (post-flash) |
+| `iwrt_packages`        | github.com/immortalwrt/packages (SHA-pinned) | selected overlay dependencies and utilities |
+| `iwrt_luci`            | github.com/immortalwrt/luci (SHA-pinned)  | selected optional LuCI overlays |
 | `qmodem`               | github.com/FUjr/QModem (SHA-pinned)       | Quectel/Fibocom/SimCom modem management LuCI UI + drivers |
 
 Vendored in-tree (copied, not submodules, GPL-2.0-only):
@@ -45,8 +45,6 @@ Vendored in-tree (copied, not submodules, GPL-2.0-only):
 - `package/emortal/autocore/` - live CPU / memory / temperature
   widgets on the LuCI Status -> Overview page. Source: ImmortalWrt
   master @ 2026-04-24.
-- `package/emortal/cpufreq/` - CPU governor switcher + UCI init.
-  Source: ImmortalWrt master @ 2026-04-24.
 
 Bumping a feed to a newer SHA: edit `feeds.conf.default`, replace
 the `^<sha>` suffix after the repo URL, commit. Next `build.sh feeds`

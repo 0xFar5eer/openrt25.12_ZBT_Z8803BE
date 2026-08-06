@@ -2,6 +2,11 @@
 # Ships in /etc/profile.d/ so it runs for every interactive shell
 # (SSH login, console login, `su -`, etc.).
 
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) return 0 ;;
+esac
+
 # Colorful prompt: root@hostname ~/path $
 # \e[1;31m red (user) \e[1;33m yellow (@ and cwd) \e[1;36m cyan (host)
 # \e[1;35m magenta (prompt char) \e[0m reset

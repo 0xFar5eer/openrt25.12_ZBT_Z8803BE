@@ -1,0 +1,120 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Factory-reset the cellular modem on first detection after a fresh
+# firmware flash. Triggered by the marker file
+# /etc/zbt-modem-factory-reset-pending which is created by
+# /etc/uci-defaults/24-zbt-modem-factory-reset-flag (a uci-default,
+# so it runs once after sysupgrade and is then deleted).
+#
+# WHY:
+#   Modems carry persistent NV state independent of router firmware:
+#   AT-level user-defined settings (`AT&W`), PDP context definitions
+#   (`AT+CGDCONT`), Quectel platform tweaks (`AT+QCFG=...`), etc. A
+#   fresh router firmware install should give the user a known-good
+#   modem baseline rather than inheriting whatever the previous
+#   deployment left behind. In particular, observed Smart Communications
+#   PH SIMs failing PDP setup with QMUXError 0xe / call_end_reason 231
+#   when the modem held a stale `+CGDCONT: 1,"IP","",...` definition
+#   (empty APN, IPv4-only) - factory reset clears this and lets APN
+#   come from SIM/network auto-discovery on next attach.
+#
+# RUN ORDER:
+#   This file is `20-` so it runs BEFORE `40-zbt-qmodem-autoenable`.
+#   Hotplug scripts in /etc/hotplug.d/usb/ execute in alphabetical
+#   order. We need to reset the modem before autoenable kicks off
+#   the dialer (otherwise the dialer would start, fail, and mask our
+#   reset attempts behind quectel-CM-M's QMI client lock).
+#
+# IDEMPOTENCE:
+#   Marker file is removed after the AT commands succeed. If a
+#   subsequent USB re-enumeration fires this hotplug again (e.g. after
+#   AT+CFUN=1,1 reboots the modem), the marker is gone and we no-op.
+
+[ "$ACTION" = "add" ] || exit 0
+[ -n "$DEVICENAME" ] || exit 0
+
+# Board guard: only this hardware has the qmodem cellular slot.
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+# Match Quectel vendor only.
+[ -e "/sys/$DEVPATH/idVendor" ] || exit 0
+[ "$(cat "/sys/$DEVPATH/idVendor" 2>/dev/null)" = "2c7c" ] || exit 0
+
+# No marker -> nothing to do (already reset, or this is not a fresh flash).
+[ -f /etc/zbt-modem-factory-reset-pending ] || exit 0
+
+(
+	# Wait for the AT command port to settle. modem_scan.sh probes the
+	# ttyUSB ports during the same hotplug burst, so racing them costs
+	# us nothing - sms_tool_q just retries with a 2s delay between AT
+	# commands. 20 x 1s ceiling because USB enumeration on a cold boot
+	# can stretch to ~18s when the modem firmware does an NR5G NSA scan
+	# before exposing the AT serial endpoint.
+	AT_PORT=''
+	for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+		if [ -e /dev/ttyUSB3 ]; then
+			AT_PORT=/dev/ttyUSB3
+			break
+		fi
+		# Some SKUs expose ttyUSB2 as the AT port instead of ttyUSB3.
+		if [ -e /dev/ttyUSB2 ]; then
+			AT_PORT=/dev/ttyUSB2
+			break
+		fi
+		sleep 1
+	done
+	if [ -z "$AT_PORT" ]; then
+		logger -t zbt-modem-reset "no AT port (ttyUSB2/3) appeared within 20s; aborting reset (marker preserved for next attempt)"
+		[ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record factory_reset reboot_failed danger 4_1 "Factory reset skipped" "AT port did not appear within 20s" >/dev/null 2>&1 || true
+		exit 0
+	fi
+
+	logger -t zbt-modem-reset "factory-resetting modem via ${AT_PORT} (post-flash one-shot)"
+	[ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record factory_reset factory_reset warning 4_1 "Factory-resetting modem" "post-flash one-shot port=${AT_PORT}" >/dev/null 2>&1 || true
+
+	# Default PDP context 1 to network-default (empty APN, dual-stack
+	# IPV4V6) so attach picks up the operator's per-PLMN auto APN.
+	# This matches the user's "APN should be auto" preference. We
+	# intentionally skip AT&F because the AT-level user-defined
+	# settings it resets (ATE, AT&C, AT&D, ATQ, ...) are not used by
+	# this firmware - what we actually need is to flush the NV PDP
+	# definition that survives soft resets, which the next two
+	# commands do.
+	command -v sms_tool_q >/dev/null 2>&1 || {
+		logger -t zbt-modem-reset "sms_tool_q missing; aborting reset (marker preserved for next attempt)"
+		[ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record factory_reset reboot_failed danger 4_1 "Factory reset skipped" "sms_tool_q missing" >/dev/null 2>&1 || true
+		exit 0
+	}
+
+	if ! timeout 10 sms_tool_q -d "$AT_PORT" at "AT+CGDCONT=1,\"IPV4V6\",\"\"" >/dev/null 2>&1; then
+		logger -t zbt-modem-reset "failed to reset PDP context via ${AT_PORT}; marker preserved for next attempt"
+		[ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record factory_reset reboot_failed danger 4_1 "Factory reset failed" "command=AT+CGDCONT port=${AT_PORT}" >/dev/null 2>&1 || true
+		exit 0
+	fi
+
+	# Persist the new PDP definition to NV before the CFUN reset.
+	if ! timeout 10 sms_tool_q -d "$AT_PORT" at "AT&W" >/dev/null 2>&1; then
+		logger -t zbt-modem-reset "failed to persist modem config via ${AT_PORT}; marker preserved for next attempt"
+		[ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record factory_reset reboot_failed danger 4_1 "Factory reset failed" "command=AT&W port=${AT_PORT}" >/dev/null 2>&1 || true
+		exit 0
+	fi
+
+	# Reboot the modem so the factory state takes effect cleanly. The
+	# subsequent USB re-enumeration will fire this hotplug again, but
+	# the marker is gone by then so we no-op (see IDEMPOTENCE above).
+	if ! timeout 10 sms_tool_q -d "$AT_PORT" at "AT+CFUN=1,1" >/dev/null 2>&1; then
+		logger -t zbt-modem-reset "failed to reboot modem via ${AT_PORT}; marker preserved for next attempt"
+		[ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record factory_reset reboot_failed danger 4_1 "Factory reset failed" "command=AT+CFUN=1,1 port=${AT_PORT}" >/dev/null 2>&1 || true
+		exit 0
+	fi
+
+	rm -f /etc/zbt-modem-factory-reset-pending
+	logger -t zbt-modem-reset "factory reset complete; modem rebooting (CFUN=1,1)"
+	[ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record factory_reset factory_reset warning 4_1 "Factory reset complete; modem rebooting" "port=${AT_PORT} command=AT+CFUN=1,1" >/dev/null 2>&1 || true
+) &
+
+exit 0

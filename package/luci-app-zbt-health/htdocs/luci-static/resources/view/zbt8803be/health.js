@@ -135,12 +135,6 @@ function renderHealth(h) {
 		]),
 		table(_('Overlay write hotspots'), [
 			row(_('/var/log'), fmtKiB(hotspots.var_log_kb)),
-			row(_('AdGuardHome work directory'), fmtKiB(hotspots.adguard_work_kb)),
-			row(_('AdGuardHome statistics database'), fmtKiB(hotspots.adguard_stats_kb)),
-			row(_('AdGuardHome disk query log'), fmtKiB(hotspots.adguard_querylog_kb)),
-			row(_('AdGuardHome log files'), fmtKiB(hotspots.adguard_log_kb)),
-			row(_('Traffic Statistics database'), fmtKiB(hotspots.wrtbwmon_db_kb)),
-			row(_('Traffic Statistics directory'), fmtKiB(hotspots.wrtbwmon_dir_kb)),
 			row(_('Modem Events store'), fmtKiB(hotspots.modem_events_kb)),
 			row(_('Temperature store'), fmtKiB(hotspots.temperature_kb))
 		])

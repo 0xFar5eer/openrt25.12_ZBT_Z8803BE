@@ -4,7 +4,7 @@
 # Background:
 #   FUjr/QModem's modem_scan.sh and qmodem_init have a race during boot:
 #   /etc/config/qmodem and /etc/config/network get rewritten a few
-#   seconds after our 30-zbt-qmodem-autoenable hotplug sets things up,
+#   seconds after our 40-zbt-qmodem-autoenable hotplug sets things up,
 #   flipping qmodem.4_1.state back to 'disabled', wiping the
 #   network.4_1 / 4_1v6 stubs, and dropping '4_1' / '4_1v6' off the
 #   firewall wan-zone network list. Net effect: LAN clients see "no

@@ -20,6 +20,7 @@
 /.buildenv/out/
 tmp.config
 tmp.config.old
+/version
 /version.date
 
 # Firmware release staging - only track README + .gitkeep, never binaries.
@@ -59,3 +60,7 @@ git-src
 
 # Private deployment-specific notes kept locally only.
 docs/multi-ap-roaming.md
+/.buildenv/local.env
+/AGENTS.md
+
+/wrt/

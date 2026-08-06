@@ -1,0 +1,124 @@
+#!/bin/sh
+set -e
+
+# Roll back any leftover compat patches from earlier zbt-z8803be releases.
+#
+# Background: a transient bug report from a single user surfaced as
+# "_(...).format is not a function" inside LuCI view modules. Several
+# defensive patches were added to LuCI assets and templates trying to
+# work around it. The actual root cause was a browser extension
+# (TronLink) injecting lodash into every page and shadowing LuCI's
+# global `_` gettext function. The right fix is to disable the
+# extension on the router host. None of the firmware patches were
+# necessary, and they make stock LuCI artifacts harder to reason about.
+#
+# This script removes every patch the earlier scripts installed so the
+# device returns to a stock LuCI baseline. It is safe on fresh installs
+# (every step is a no-op when the marker is absent) and only runs once
+# (uci-defaults moves it to /etc/uci-defaults/.disabled afterwards).
+
+board="$(cat /tmp/sysinfo/board_name 2>/dev/null || true)"
+case "$board" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+LUCI_JS=/www/luci-static/resources/luci.js
+UI_JS=/www/luci-static/resources/ui.js
+VERSION_UC=/usr/share/ucode/luci/version.uc
+WRTBWMON_JS=/www/luci-static/resources/view/wrtbwmon/details.js
+FORMAT_COMPAT=/www/luci-static/resources/zbt-format-compat.js
+
+dirty=0
+
+# 1. Strip the inline <script> override and any leftover external
+#    <script src="zbt-format-compat.js"> tag from every header.ut.
+for HEADER in /usr/share/ucode/luci/template/header.ut /usr/share/ucode/luci/template/themes/*/header.ut; do
+	[ -f "$HEADER" ] || continue
+	if grep -q 'zbt-format-compat-v' "$HEADER" || grep -q 'zbt-format-compat\.js' "$HEADER"; then
+		sed -i -e '/<!-- zbt-format-compat-v[0-9]* BEGIN -->/,/<!-- zbt-format-compat-v[0-9]* END -->/d' \
+		       -e '/<script[^>]*src=[^>]*zbt-format-compat\.js/d' "$HEADER"
+		dirty=1
+	fi
+done
+
+# 2. Drop every prepended compat IIFE from luci.js (older releases
+#    stacked more than one).
+if [ -f "$LUCI_JS" ] && head -c 4096 "$LUCI_JS" | grep -q "zbt_luci_format_compat"; then
+	if [ -x /usr/bin/python3 ]; then
+		/usr/bin/python3 - "$LUCI_JS" <<'PY'
+import re, sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+s = p.read_text()
+orig_len = len(s)
+pat = re.compile(r"\(function\(\)\{var z='zbt_luci_format_compat[^']*';.*?\}\)\(\);\s*", re.DOTALL)
+while True:
+	m = pat.match(s)
+	if not m:
+		break
+	s = s[m.end():]
+if len(s) != orig_len:
+	p.write_text(s)
+PY
+		dirty=1
+	fi
+fi
+
+# 3. Restore ui.js tab handling to the upstream `.format()` style.
+if [ -f "$UI_JS" ] && grep -q "Array.prototype.find.call(menu.querySelectorAll(.\\[data-tab\\]." "$UI_JS"; then
+	if [ -x /usr/bin/python3 ]; then
+		/usr/bin/python3 - "$UI_JS" <<'PY'
+import sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+s = p.read_text()
+old = "Array.prototype.find.call(menu.querySelectorAll('[data-tab]'), function(tab) { return tab.getAttribute('data-tab') === pane.getAttribute('data-tab'); })"
+new = "menu.querySelector('[data-tab=\"%s\"]'.format(pane.getAttribute('data-tab')))"
+if old in s and new not in s:
+	p.write_text(s.replace(old, new))
+PY
+		dirty=1
+	fi
+fi
+
+# 4. Strip the -zbt_luci_compat[N] suffix from version.uc.
+if [ -f "$VERSION_UC" ] && grep -q "zbt_luci_compat" "$VERSION_UC"; then
+	sed -i "s/-zbt_luci_compat[0-9][A-Za-z0-9_.-]*//g" "$VERSION_UC"
+	dirty=1
+fi
+
+# 5. Strip the prepended `ensureStringFormat()` block from wrtbwmon/details.js.
+if [ -f "$WRTBWMON_JS" ] && grep -q "ensureStringFormat" "$WRTBWMON_JS"; then
+	if [ -x /usr/bin/python3 ]; then
+		/usr/bin/python3 - "$WRTBWMON_JS" <<'PY'
+import re, sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+s = p.read_text()
+s2 = re.sub(r"function ensureStringFormat\(\)\s*\{.*?\}\s*ensureStringFormat\(\);\s*", "", s, count=1, flags=re.DOTALL)
+if s2 != s:
+	p.write_text(s2)
+PY
+		dirty=1
+	fi
+fi
+
+# 6. Remove the (no longer shipped) standalone compat file.
+if [ -f "$FORMAT_COMPAT" ]; then
+	rm -f "$FORMAT_COMPAT"
+	dirty=1
+fi
+
+# 7. If any cleanup happened, flush LuCI caches and bounce uhttpd so the
+#    new artifacts are served immediately.
+if [ "$dirty" = "1" ]; then
+	rm -f /tmp/luci-indexcache*.json /tmp/luci-modulecache/* 2>/dev/null || true
+	/etc/init.d/rpcd reload >/dev/null 2>&1 || true
+	/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
+fi
+
+exit 0

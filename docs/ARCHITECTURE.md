@@ -15,7 +15,7 @@ This repository is an OpenWrt 25.12.2 firmware tree customized for the ZBTLink Z
 | `package/luci-app-zbt-about/` | Local LuCI page for build/about information. |
 | `package/luci-app-zbt-temperature/` | Local LuCI temperature, modem sensor, and fan telemetry app. |
 | `package/luci-app-zbt-modem-events/` | Local LuCI modem event history and health sampling app. |
-| `package/luci-app-mlo/` | Local LuCI page for WiFi 7 Multi-Link Operation configuration. |
+| `package/luci-app-zbt-health/` | Local LuCI router health and resource app. |
 | `feeds.conf.default` | Pinned package feeds used by the build. |
 | `releases/` | Markdown release notes and release-staging metadata. Firmware binaries in this directory are intentionally gitignored. |
 
@@ -84,21 +84,19 @@ Important defaults include:
 
 | File | Purpose |
 |------|---------|
-| `10-zbt-apk-feeds` | Seeds APK feed configuration. |
-| `20-zbt-qmodem-slots` | Seeds modem-slot defaults. |
-| `30-zbt-z8803be-wan-failover` | Sets WAN/WWAN metrics, binds `wwan0` to netifd stubs, and keeps cellular in the `wan` firewall zone. |
-| `35-zbt-qmodem-dns-suppress` | Suppresses QModem DNS injection. |
-| `40-zbt-qmodem-watchdog-enable` | Enables the ZBT QModem watchdog path. |
-| `45-zbt-qmodem-monitor-enable` | Enables hardened QModem monitor defaults. |
-| `70-zbt-z8803be-wifi` | Seeds WiFi SSIDs, WPA3 defaults, PH country code, and channel plan. |
-| `80-zbt-z8803be-admin-password` | Seeds the default admin password. |
-| `90-zbt-z8803be-dns-cache` | Pins dnsmasq to deterministic public DNS and larger cache. |
-| `99-zbt-z8803be-services` | Enables board services. |
-| `zz-zbt-z8803be-luci-defaults` | Seeds LuCI defaults. |
+| `20-zbt-apk-feeds` | Seeds APK feed configuration. |
+| `28-zbt-qmodem-slots` | Seeds modem-slot defaults. |
+| `32-zbt-z8803be-wan-failover` | Sets wired/WWAN metrics, keeps both wired uplinks dual-stack capable, binds `wwan0` to netifd stubs, and keeps auxiliary uplinks in the `wan` firewall zone. |
+| `40-zbt-qmodem-dns-suppress` | Suppresses QModem DNS injection. |
+| `44-zbt-qmodem-watchdog-disable` | Disables the ZBT QModem watchdog path by default. |
+| `48-zbt-qmodem-monitor-defaults` | Seeds hardened QModem monitor defaults while keeping monitoring disabled by default. |
+| `72-zbt-z8803be-wifi` | Seeds WiFi SSIDs, WPA3 defaults, PH country code, and channel plan. |
+| `76-zbt-z8803be-admin-password` | Seeds the default admin password. |
+| `80-zbt-z8803be-dns-cache` | Pins dnsmasq to deterministic public DNS and larger cache. |
 
 ## WiFi architecture
 
-The firmware uses the stock OpenWrt wireless stack plus board-specific defaults in `70-zbt-z8803be-wifi`.
+The firmware uses the stock OpenWrt wireless stack plus board-specific defaults in `72-zbt-z8803be-wifi`.
 
 Factory defaults:
 
@@ -110,18 +108,19 @@ Factory defaults:
 
 All radios are pinned to country `PH`, set `cell_density=0`, and clear firmware-side `txpower`, `min_tx_power`, `channels`, and `scan_list` clamps so the kernel regulatory database and driver define the usable channel/power set.
 
-The default wireless interfaces are WPA3-SAE with PMF required. MLO is intentionally off at factory defaults; the `luci-app-mlo` package lets users opt into MLO from LuCI.
+The default wireless interfaces are WPA3-SAE with PMF required. MLO remains available through upstream wireless capabilities but is not configured by a bundled LuCI app.
 
 ## Modem and failover architecture
 
-The firmware is designed around a primary wired WAN plus cellular failover on the `wwan0` data path.
+The firmware is designed around automatic dual wired WAN uplinks with cellular fallback on the `wwan0` data path.
 
 Key pieces:
 
 - `.buildenv/zbt8803be.config` selects QMI, MBIM, NCM, MHI, USB serial, QModem Next, QModem monitor, and helper tools.
-- `30-zbt-z8803be-wan-failover` sets `network.wan.metric=10` and `network.4_1.metric=20` so wired WAN remains preferred while cellular is available as backup.
-- `30-zbt-z8803be-wan-failover` creates `4_1` and `4_1v6` netifd `proto=none` stubs bound to `wwan0` so firewall4 includes cellular in the WAN masquerade zone.
-- `45-zbt-qmodem-monitor-enable` configures QModem monitor with a direct HTTP/204 probe at `http://142.250.23.94/generate_204`, interval `30`, threshold `10`, and monitor cooldown `300`.
+- `32-zbt-z8803be-wan-failover` sets `network.wan` / `network.wan6` to metric `10`, `network.wan_sfp` / `network.wan_sfp6` to metric `9`, and `network.4_1` / `network.4_1v6` to metric `200`, so either wired uplink works automatically while SFP is preferred when both are present.
+- Wired-uplink preference is route-metric based only; there is no active health-check arbitration between `eth1` and `eth2`.
+- `32-zbt-z8803be-wan-failover` creates `4_1` and `4_1v6` netifd `proto=none` stubs bound to `wwan0`, enabling QModem to attach a ready SIM automatically and firewall4 to bind cellular to the WAN masquerade zone.
+- `48-zbt-qmodem-monitor-defaults` configures QModem monitor with a direct HTTP/204 probe at `http://142.250.23.94/generate_204`, interval `10`, threshold `6`, and monitor cooldown `300`, while leaving `monitor_enabled=0`.
 - `usr/sbin/zbt-modem-reboot-guard` gates monitor-triggered soft reboots with boot grace, lockout, AT-port resolution, and no-SIM checks.
 - `usr/sbin/zbt-modem-soft-reboot` centralizes modem soft-reboot execution for QModem, monitor, and manual paths.
 
@@ -129,11 +128,11 @@ Key pieces:
 
 DNS defaults are deterministic and avoid operator-pushed resolver races:
 
-- `30-zbt-z8803be-wan-failover` sets `peerdns=0` on wired and cellular interfaces.
-- `35-zbt-qmodem-dns-suppress` prevents QModem from adding operator DNS.
-- `90-zbt-z8803be-dns-cache` sets dnsmasq `noresolv=1`, cache size `10000`, and fixed forwarders `1.1.1.1`, `1.0.0.1`, `8.8.8.8`, and `8.8.4.4`.
+- `32-zbt-z8803be-wan-failover` sets `peerdns=0` on wired IPv4 WANs and cellular.
+- `40-zbt-qmodem-dns-suppress` prevents QModem from adding operator DNS.
+- `80-zbt-z8803be-dns-cache` sets dnsmasq `noresolv=1`, cache size `10000`, and fixed public forwarders as a deterministic fallback.
 
-Post-flash setup scripts or local deployments can replace the dnsmasq server list later; the firmware default is the deterministic public-DNS contract.
+Post-flash configuration can replace the dnsmasq server list later if needed.
 
 ## Local LuCI apps
 
@@ -144,13 +143,13 @@ Local packages extend LuCI without changing the core OpenWrt web stack:
 | `luci-app-zbt-about` | Displays build and project information. |
 | `luci-app-zbt-temperature` | Logs and charts system, WiFi, modem, and fan telemetry from tmpfs. |
 | `luci-app-zbt-modem-events` | Records modem health transitions, USB/netifd events, monitor state, and explicit internet probe results. |
-| `luci-app-mlo` | Provides WiFi 7 MLO configuration controls. |
+| `luci-app-zbt-health` | Displays router health, storage, memory, conntrack, and uptime information. |
 
 The temperature and modem-events apps use tmpfs-backed history under `/var/log` to avoid flash wear.
 
 ## Feed architecture
 
-`feeds.conf.default` pins upstream OpenWrt package, LuCI, routing, telephony, and video feeds. It also adds selected ImmortalWrt overlay feeds, FUjr/QModem, and Waujito/youtubeUnblock.
+`feeds.conf.default` pins upstream OpenWrt package, LuCI, routing, telephony, and video feeds. It also adds selected ImmortalWrt overlay feeds and FUjr/QModem.
 
 OpenWrt 25.12.2 feeds stay first and take precedence. The overlay feeds supply packages that are not available in the upstream base or are intentionally vendored for this build.
 

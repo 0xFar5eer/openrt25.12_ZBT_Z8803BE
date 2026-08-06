@@ -4,7 +4,7 @@
 # (red+green blinking) the moment procd brings userspace up, so the
 # user gets visual feedback that the router is alive *before*
 # networks come up. Once /etc/init.d/network finishes and the first
-# wan/wwan ifup hotplug fires, hotplug.d/iface/30-zbt-status-led
+# wan/wwan ifup hotplug fires, hotplug.d/iface/40-zbt-status-led
 # takes over and switches us to green (online) or blue (offline).
 #
 # START priority is 10 — after rcS basics (filesystem, sysctl,

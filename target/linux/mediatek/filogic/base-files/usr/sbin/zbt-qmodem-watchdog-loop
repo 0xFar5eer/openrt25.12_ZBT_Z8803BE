@@ -1,5 +1,5 @@
 #!/bin/sh
-# zbt-qmodem-watchdog-loop - opt-in cellular failover state reassertion.
+# zbt-qmodem-watchdog-loop - cellular failover state reassertion.
 #
 # Lives in its own file (instead of inline in the init.d via
 # `procd_set_param command sh -c '...'`) for two reasons:
@@ -8,13 +8,10 @@
 #   2. Lets you test the loop body from CLI without restarting procd:
 #        $ POLL_INTERVAL_FAST=1 POLL_INTERVAL_SLOW=2 /usr/sbin/zbt-qmodem-watchdog-loop
 #
-# WAN-only is the firmware default. The init.d service is disabled by
-# default, and this loop exits immediately when qmodem auto-probe is
-# blocked or cellular dial is not explicitly enabled. If a deployment
-# opts into cellular failover, this loop preserves the historical behavior:
-# keep qmodem.4_1 enabled, keep network.4_1 / 4_1v6 declared, and keep
-# those stubs present in the wan firewall zone so masquerade applies to
-# cellular egress.
+# Cellular fallback is enabled by the board's first-boot UCI default. This
+# loop preserves that firmware contract: it keeps 5G1 powered, qmodem.4_1
+# enabled, network.4_1 / 4_1v6 declared, and those stubs in the WAN firewall
+# zone so masquerade applies to cellular egress.
 #
 # Cadence: fast (5 s) for the first 60 s after start, slow (30 s)
 # afterwards. Reactivity matters most during boot and right after
@@ -53,6 +50,14 @@ find_wan_zone() {
         return 1
 }
 
+reassert_5g1_power() {
+	[ -w /sys/class/gpio/5g1/value ] || return 1
+	[ "$(cat /sys/class/gpio/5g1/value 2>/dev/null)" = "1" ] && return 1
+	printf '1' > /sys/class/gpio/5g1/value
+	logger -t "$NAME" "re-enabled 5G1 power"
+	return 0
+}
+
 reassert_qmodem_state() {
         if [ "$(uci -q get "${QMODEM_SECTION}.state")" = "disabled" ]; then
                 uci -q set "${QMODEM_SECTION}.state=enabled"
@@ -63,6 +68,23 @@ reassert_qmodem_state() {
                 return 0
         fi
         return 1
+}
+
+reassert_qmodem_path() {
+	local device_path modem_path
+
+	device_path="$(readlink -f /sys/class/net/wwan0/device 2>/dev/null)"
+	[ -n "$device_path" ] || return 1
+	modem_path="$(dirname "$device_path")"
+	[ -d "$modem_path" ] || return 1
+	[ "$(uci -q get "${QMODEM_SECTION}.path")" = "$modem_path" ] && return 1
+
+	uci -q set "${QMODEM_SECTION}.path=$modem_path"
+	uci -q commit qmodem
+	/etc/init.d/qmodem_network restart >/dev/null 2>&1
+	logger -t "$NAME" "recovered ${QMODEM_SECTION}.path=$modem_path and restarted qmodem_network"
+	[ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record watchdog recovered ok 4_1 "Recovered QModem USB path" "QModem path was absent or stale; recovered $modem_path" >/dev/null 2>&1 || true
+	return 0
 }
 
 reassert_network_stubs() {
@@ -174,7 +196,9 @@ start_ts=$(awk '{print int($1)}' /proc/uptime)
 while :; do
         reload_fw=1   # 1 = no, 0 = yes (shell convention for return codes)
 
-        reassert_qmodem_state && reload_fw=0
+		reassert_5g1_power && reload_fw=0
+		reassert_qmodem_state && reload_fw=0
+        reassert_qmodem_path && reload_fw=0
 
         reassert_network_stubs && reload_fw=0
 

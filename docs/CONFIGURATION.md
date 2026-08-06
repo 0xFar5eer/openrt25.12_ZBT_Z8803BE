@@ -32,19 +32,14 @@ It also selects the local and feed packages that define the feature set.
 |------|--------------------------------|
 | LuCI | `luci`, `luci-ssl`, `luci-app-package-manager` |
 | WiFi security | `wpad-openssl`; `wpad-basic-mbedtls` disabled |
-| Storage | `kmod-usb3`, `kmod-usb-storage`, ext4/vfat/exfat/ntfs3 support, `block-mount` |
-| Diagnostics | `nano`, `curl`, `ip-full`, `htop`, `tcpdump-mini`, `ethtool`, `bind-dig`, `bind-host`, `lsof`, `strace`, `screen`, `socat`, `iputils-arping` |
-| File sharing | `samba4-server`, `wsdd2`, `luci-app-samba4`, `openssh-sftp-server` |
-| VPN and traffic shaping | WireGuard packages and SQM/CAKE packages |
-| Monitoring | `luci-app-zbt-health`, `autocore`, `cpufreq`, `luci-app-statistics`, collectd modules, RRDTool |
-| UI theme | `luci-theme-argon`, `luci-app-argon-config` |
-| MLO | `luci-app-mlo` |
+| Storage | `kmod-usb3`, `kmod-usb-storage`, ext4/vfat/exfat support, `block-mount`, `openssh-sftp-server` |
+| VPN | WireGuard packages |
+| Monitoring | `luci-app-zbt-health`, `autocore`, `luci-app-zbt-temperature`, `luci-app-zbt-modem-events` |
 | ZBT LuCI apps | `luci-app-zbt-about`, `luci-app-zbt-health`, `luci-app-zbt-modem-events`, `luci-app-zbt-temperature` |
-| Cellular modem | QMI, MBIM, NCM, MHI, USB serial, QModem Next, QModem monitor, `sms-tool_q`, `tom_modem`, `qfirehose`, `quectel-CM-5G-M` |
-| DPI bypass tooling | `youtubeUnblock`, `luci-app-youtubeUnblock`, NFQUEUE kernel modules |
+| Cellular modem | QMI, MBIM, NCM, MHI, USB serial, QModem Next, QModem monitor, `sms-tool_q`, `tom_modem`, `qfirehose`, `quectel-CM-5G-M`, `jq`, and the required coreutils utilities |
 | Translation | `CONFIG_LUCI_LANG_zh_Hans=y` |
 
-The seed keeps the official OpenWrt 25.12.2 stable kernel by leaving `CONFIG_TESTING_KERNEL` unset.
+The seed follows OpenWrt main's MediaTek 6.12 kernel series. This customized tree pins Linux 6.12.101 in `target/linux/generic/kernel-6.12`.
 
 ## Packages intentionally not selected
 
@@ -52,7 +47,6 @@ The seed config intentionally excludes some packages:
 
 | Package or group | Reason recorded in config |
 |------------------|---------------------------|
-| `adguardhome`, `luci-app-adguardhome` | Not baked into the image; installed post-flash from OpenWrt APK repositories when needed. |
 | `luci-app-attendedsysupgrade` | This firmware is released from GitHub, not OpenWrt buildbot. |
 | `modemmanager`, `luci-proto-modemmanager` | QModem owns modem management; ModemManager can race QModem for modem devices. |
 | `luci-proto-3g` | Legacy AT/PPP path is not the intended path for this M.2 QMI/MBIM board. |
@@ -76,7 +70,6 @@ The file includes:
 - OpenWrt video feed.
 - ImmortalWrt package and LuCI overlay feeds.
 - FUjr/QModem feed.
-- Waujito/youtubeUnblock feed.
 
 The build wrapper installs feeds with:
 
@@ -147,7 +140,7 @@ WAN: eth1 eth2
 WAN and cellular failover defaults are applied by:
 
 ```text
-target/linux/mediatek/filogic/base-files/etc/uci-defaults/30-zbt-z8803be-wan-failover
+target/linux/mediatek/filogic/base-files/etc/uci-defaults/32-zbt-z8803be-wan-failover
 ```
 
 Key values:
@@ -155,18 +148,24 @@ Key values:
 | UCI path | Value |
 |----------|-------|
 | `network.wan.metric` | `10` |
+| `network.wan6.metric` | `10` |
 | `network.wan.defaultroute` | `1` |
 | `network.wan.peerdns` | `0` |
+| `network.wan_sfp.proto` | `dhcp` |
+| `network.wan_sfp.metric` | `9` |
+| `network.wan_sfp.defaultroute` | `1` |
+| `network.wan_sfp.peerdns` | `0` |
+| `network.wan_sfp6.metric` | `9` |
 | `network.4_1.proto` | `none` |
 | `network.4_1.device` | `wwan0` |
 | `network.4_1.ifname` | `wwan0` |
-| `network.4_1.metric` | `20` |
+| `network.4_1.metric` | `200` |
 | `network.4_1.peerdns` | `0` |
 | `network.4_1v6.proto` | `none` |
 | `network.4_1v6.device` | `wwan0` |
-| `network.4_1v6.metric` | `20` |
+| `network.4_1v6.metric` | `200` |
 
-The same script ensures `4_1` and `4_1v6` are present in the firewall `wan` zone network list.
+The same script ensures `wan_sfp`, `wan_sfp6`, `4_1`, and `4_1v6` are present in the firewall `wan` zone network list.
 
 ## DNS defaults
 
@@ -174,11 +173,11 @@ DNS defaults are split across multiple uci-default scripts:
 
 | File | Role |
 |------|------|
-| `30-zbt-z8803be-wan-failover` | Sets `peerdns=0` on wired and cellular interface stubs. |
-| `35-zbt-qmodem-dns-suppress` | Suppresses QModem DNS injection. |
-| `90-zbt-z8803be-dns-cache` | Configures dnsmasq cache and fixed upstream resolvers. |
+| `32-zbt-z8803be-wan-failover` | Sets `peerdns=0` on wired IPv4 WANs, seeds wired/cellular metrics, and keeps extra uplinks in the `wan` firewall zone. |
+| `40-zbt-qmodem-dns-suppress` | Suppresses QModem DNS injection. |
+| `80-zbt-z8803be-dns-cache` | Configures dnsmasq cache and fixed upstream resolvers. |
 
-`90-zbt-z8803be-dns-cache` configures dnsmasq with:
+`80-zbt-z8803be-dns-cache` configures dnsmasq with:
 
 | Option | Value |
 |--------|-------|
@@ -186,14 +185,14 @@ DNS defaults are split across multiple uci-default scripts:
 | `dhcp.@dnsmasq[0].noresolv` | `1` |
 | `dhcp.@dnsmasq[0].server` | `1.1.1.1`, `1.0.0.1`, `8.8.8.8`, `8.8.4.4` |
 
-Deployment scripts can replace the resolver list after first boot if a local DNS proxy or AdGuardHome instance should take over.
+The DNS list is intentionally deterministic; post-flash configuration can replace it if the deployment requires different resolvers.
 
 ## WiFi defaults
 
 WiFi defaults are configured by:
 
 ```text
-target/linux/mediatek/filogic/base-files/etc/uci-defaults/70-zbt-z8803be-wifi
+target/linux/mediatek/filogic/base-files/etc/uci-defaults/72-zbt-z8803be-wifi
 ```
 
 Device-level defaults:
@@ -225,7 +224,7 @@ Band defaults:
 QModem monitor defaults are applied by:
 
 ```text
-target/linux/mediatek/filogic/base-files/etc/uci-defaults/45-zbt-qmodem-monitor-enable
+target/linux/mediatek/filogic/base-files/etc/uci-defaults/48-zbt-qmodem-monitor-defaults
 ```
 
 The monitor contract is:

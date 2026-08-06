@@ -82,7 +82,7 @@ Change the password immediately after first login.
 
 ## Factory WiFi defaults
 
-On first boot, `70-zbt-z8803be-wifi` creates per-band WPA3-SAE networks using a MAC suffix in the SSID.
+On first boot, `72-zbt-z8803be-wifi` creates per-band WPA3-SAE networks using a MAC suffix in the SSID.
 
 | Band | SSID pattern | Channel | Width |
 |------|--------------|---------|-------|
@@ -108,7 +108,15 @@ Board defaults configure:
 | WAN | `eth1 eth2` |
 | Cellular failover | `wwan0` bound through `network.4_1` and `network.4_1v6` stubs |
 
-The firmware seeds wired WAN with metric `10` and cellular WWAN with metric `20`, so wired WAN remains preferred when available.
+The firmware seeds wired WAN with these defaults:
+
+- `wan` / `wan6` on `eth1` use metric `10`
+- `wan_sfp` / `wan_sfp6` on `eth2` use metric `9`
+- `4_1` / `4_1v6` on `wwan0` use metric `200`
+
+So either wired uplink works automatically on first boot, and SFP is preferred only when both wired uplinks are live.
+
+This preference is route-metric based. It does not actively probe internet health between the two wired uplinks.
 
 ## Build locally
 
@@ -150,6 +158,9 @@ Recommended checks after a clean flash:
 ubus call system board
 uci show wireless
 uci show network.wan
+uci show network.wan6
+uci show network.wan_sfp
+uci show network.wan_sfp6
 uci show network.4_1
 uci show qmodem.4_1
 ```

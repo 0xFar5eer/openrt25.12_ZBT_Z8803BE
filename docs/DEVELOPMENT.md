@@ -60,11 +60,11 @@ The wrapper exists because macOS APFS is commonly case-insensitive, while OpenWr
 | Feed pins | `feeds.conf.default` |
 | Board DTS/hardware modeling | `target/linux/mediatek/dts/mt7988a-zbtlink-zbt-z8803be.dts` |
 | Image profile | `target/linux/mediatek/image/filogic.mk` |
-| Network defaults | `target/linux/mediatek/filogic/base-files/etc/board.d/02_network` and `etc/uci-defaults/30-zbt-z8803be-wan-failover` |
+| Network defaults | `target/linux/mediatek/filogic/base-files/etc/board.d/02_network` and `etc/uci-defaults/32-zbt-z8803be-wan-failover` |
 | GPIO switches | `target/linux/mediatek/filogic/base-files/etc/board.d/03_gpio_switches` |
-| WiFi defaults | `target/linux/mediatek/filogic/base-files/etc/uci-defaults/70-zbt-z8803be-wifi` |
-| DNS defaults | `target/linux/mediatek/filogic/base-files/etc/uci-defaults/90-zbt-z8803be-dns-cache` |
-| QModem monitor defaults | `target/linux/mediatek/filogic/base-files/etc/uci-defaults/45-zbt-qmodem-monitor-enable` |
+| WiFi defaults | `target/linux/mediatek/filogic/base-files/etc/uci-defaults/72-zbt-z8803be-wifi` |
+| DNS defaults | `target/linux/mediatek/filogic/base-files/etc/uci-defaults/80-zbt-z8803be-dns-cache` |
+| QModem monitor defaults | `target/linux/mediatek/filogic/base-files/etc/uci-defaults/48-zbt-qmodem-monitor-defaults` |
 | Modem helper scripts | `target/linux/mediatek/filogic/base-files/usr/sbin/` and `usr/lib/zbt/` |
 | Local LuCI apps | `package/luci-app-zbt-*` and `package/luci-app-mlo` |
 | Release notes | `releases/RELEASE_NOTES*.md` |

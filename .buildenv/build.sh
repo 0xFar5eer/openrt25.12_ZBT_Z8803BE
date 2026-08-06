@@ -18,8 +18,25 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJ="$(dirname "$HERE")"
-IMAGE="openwrt-zbt8803be:ubuntu-24.04"
-VOL="openwrt-zbt8803be-buildvol"
+
+# A replay'd worktree (.buildenv/replay-customizations.sh seeds this)
+# may drop a per-tree env file with a different VOL. Auto-source it
+# first so user env still wins.
+[ -f "$HERE/local.env" ] && . "$HERE/local.env"
+
+# Image and Docker volume names. Both can be overridden via env so a
+# replay'd checkout (e.g. the zbt8803be-upstream-latest worktree) can
+# point at its own build state without touching this file:
+#   IMAGE=openwrt-zbt8803be:ubuntu-24.04 \
+#   VOL=openwrt-zbt8803be-upstream-buildvol \
+#       ./.buildenv/build.sh build
+# The defaults match the original snapshot tree.
+IMAGE="${IMAGE:-openwrt-zbt8803be:ubuntu-24.04}"
+VOL="${VOL:-openwrt-zbt8803be-buildvol}"
+# Optional per-worktree resolver for Docker Desktop environments whose
+# embedded DNS proxy cannot reach the active LAN resolver. Leave empty to
+# retain Docker's normal DNS behavior; `.buildenv/local.env` may set it.
+DOCKER_DNS="${DOCKER_DNS:-}"
 CONTAINER_SRC="/workdir"
 VOL_MOUNT="/volume"
 
@@ -68,13 +85,31 @@ link_build_dirs() {
 
 run_in_container() {
     local tty_flag=""
+    local dns_flag=""
     [ -t 0 ] && [ -t 1 ] && tty_flag="-it"
-    docker run --rm $tty_flag \
+    [ -n "$DOCKER_DNS" ] && dns_flag="--dns $DOCKER_DNS"
+    docker run --rm $tty_flag $dns_flag \
         -v "$PROJ":$CONTAINER_SRC \
         -v "$VOL":$VOL_MOUNT \
         -w $CONTAINER_SRC \
         -e TERM="${TERM:-xterm}" \
         "$IMAGE" "$@"
+}
+
+ensure_version_file() {
+    [ -s "$PROJ/version" ] && return 0
+
+    local rev=""
+    if git -C "$PROJ" rev-parse --git-dir >/dev/null 2>&1; then
+        local reboot="ee53a240ac902dc83209008a2671e7fdcf55957a"
+        local count hash
+        count="$(git -C "$PROJ" rev-list "${reboot}..HEAD" 2>/dev/null | wc -l | awk '{print $1}')"
+        hash="$(git -C "$PROJ" rev-parse --short HEAD 2>/dev/null || true)"
+        [ -n "$count" ] && [ -n "$hash" ] && rev="r${count}-${hash}"
+    fi
+    [ -n "$rev" ] || rev="r0-tarball"
+    printf '%s\n' "$rev" > "$PROJ/version"
+    echo "ok: seeded ./version ($rev)"
 }
 
 case "$cmd" in
@@ -88,33 +123,41 @@ case "$cmd" in
         run_in_container bash
         ;;
     feeds)
-        run_in_container bash -c './scripts/feeds update -a && ./scripts/feeds install -a && rm -rf package/feeds/iwrt_luci/luci-app-homeproxy package/feeds/iwrt_luci/luci-app-passwall package/feeds/iwrt_luci/luci-app-ipsec-vpnd'
+        run_in_container bash -c '
+            export GIT_CONFIG_COUNT=3 GIT_CONFIG_KEY_0=http.version GIT_CONFIG_VALUE_0=HTTP/1.1 GIT_CONFIG_KEY_1=http.lowSpeedLimit GIT_CONFIG_VALUE_1=1024 GIT_CONFIG_KEY_2=http.lowSpeedTime GIT_CONFIG_VALUE_2=120
+            ./scripts/feeds update -a
+            rm -rf \
+                feeds/packages/utils/clixon package/feeds/packages/clixon \
+                feeds/iwrt_packages/utils/clixon package/feeds/iwrt_packages/clixon \
+                feeds/packages/net/openvswitch feeds/packages/net/ovn \
+                package/feeds/packages/openvswitch package/feeds/packages/ovn \
+                feeds/iwrt_packages/net/openvswitch feeds/iwrt_packages/net/ovn \
+                package/feeds/iwrt_packages/openvswitch package/feeds/iwrt_packages/ovn \
+                package/feeds/packages/jool \
+                feeds/iwrt_luci/applications/luci-app-homeproxy \
+                feeds/iwrt_luci/applications/luci-app-passwall \
+                feeds/iwrt_luci/applications/luci-app-ipsec-vpnd \
+                package/feeds/iwrt_luci/luci-app-homeproxy \
+                package/feeds/iwrt_luci/luci-app-passwall \
+                package/feeds/iwrt_luci/luci-app-ipsec-vpnd \
+                feeds/packages.tmp \
+                feeds/iwrt_packages.tmp \
+                feeds/iwrt_luci.tmp \
+                feeds/qmodem.tmp
+            ./scripts/feeds update -a
+            ./scripts/feeds install -a
+        '
         ;;
     config)
-        # Idempotently merge the seed file into .config so additions
-        # to .buildenv/zbt8803be.config are picked up on every run,
-        # then expand with `make defconfig`. Lines in the seed
-        # overwrite any previous setting with the same CONFIG key.
+        ensure_version_file
+        # Rebuild .config from the seed file on every run, then expand
+        # with `make defconfig`. This avoids stale entries accumulating
+        # across upstream rebases or repeated config passes.
         run_in_container bash -c '
-            touch .config
             if [ -s .buildenv/zbt8803be.config ]; then
-                while IFS= read -r line; do
-                    case "$line" in
-                    "# CONFIG_"*" is not set")
-                        key="${line#"# "}"
-                        key="${key%" is not set"}"
-                        sed -i "/^${key}=\|^# ${key} is not set/d" .config
-                        printf "%s\n" "$line" >> .config
-                        ;;
-                    "#"*|"") printf "%s\n" "$line" >> .config ;;
-                    CONFIG_*)
-                        key="${line%%=*}"
-                        sed -i "/^${key}=\|^# ${key} is not set/d" .config
-                        printf "%s\n" "$line" >> .config
-                        ;;
-                    *) printf "%s\n" "$line" >> .config ;;
-                    esac
-                done < .buildenv/zbt8803be.config
+                cp .buildenv/zbt8803be.config .config
+            else
+                : > .config
             fi
             make defconfig
         '
@@ -123,9 +166,11 @@ case "$cmd" in
         run_in_container bash -c 'make menuconfig'
         ;;
     download)
+        ensure_version_file
         run_in_container bash -c "make -j$(ncpu) download V=s"
         ;;
     build)
+        ensure_version_file
         if [ "$#" -eq 0 ]; then
             run_in_container make "-j$(ncpu)"
         else

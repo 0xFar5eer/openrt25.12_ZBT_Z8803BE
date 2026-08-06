@@ -1,0 +1,34 @@
+#!/bin/sh
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+changed=0
+
+install_if_changed() {
+	local src=$1
+	local dst=$2
+	local mode=$3
+
+	[ -r "$src" ] || return 0
+	[ -d "$(dirname "$dst")" ] || return 0
+
+	if [ ! -e "$dst" ] || ! cmp -s "$src" "$dst"; then
+		cp -f "$src" "$dst"
+		chmod "$mode" "$dst" 2>/dev/null || true
+		changed=1
+	fi
+}
+
+[ -x /usr/sbin/zbt-modem-soft-reboot ] || chmod +x /usr/sbin/zbt-modem-soft-reboot 2>/dev/null || true
+install_if_changed /usr/lib/zbt/qmodem-generic.sh /usr/share/qmodem/generic.sh 0755
+install_if_changed /usr/lib/zbt/qmodem-rpcd /usr/libexec/rpcd/qmodem 0755
+install_if_changed /usr/lib/zbt/qmodem_reboot /etc/init.d/qmodem_reboot 0755
+
+if [ "$changed" = "1" ]; then
+	/etc/init.d/rpcd restart >/dev/null 2>&1 || true
+fi
+
+exit 0

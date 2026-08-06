@@ -3,7 +3,16 @@
 #   - device port: pttuan/openwrt @ zbt8803_25.12 commit fce4731b5c,
 #                  cherry-picked on top of main (see this repo's README).
 # Native aarch64 Ubuntu 24.04 - cross-compiles to target SoC MT7988A.
-FROM ubuntu:24.04
+#
+# Base image is pinned by manifest-list digest for reproducibility.
+# The digest below is the multi-arch manifest list (linux/amd64 +
+# linux/arm64), so the same line works on both Apple Silicon and x86_64
+# build hosts. Refreshing the pin (and rebuilding the layer cache) is a
+# deliberate step:
+#   docker buildx imagetools inspect ubuntu:24.04
+# pick the new manifest-list digest, update the line, run
+#   ./.buildenv/build.sh init
+FROM ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG BUILDER_UID=1000
