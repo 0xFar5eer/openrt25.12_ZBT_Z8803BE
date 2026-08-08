@@ -1,27 +1,29 @@
 # ZBT-Z8803BE OpenWrt 25.12.2 / Linux 6.12.74
 
-发行版 `v25.12.017` 是为 ZBTLink ZBT-Z8803BE 验证过的社区固件。
+发行版 `v25.12.018` 是面向 ZBTLink ZBT-Z8803BE 的社区固件构建。
 
 ## 主要变更
 - 基于 OpenWrt `25.12.2`（`r32858-16347e93b6`）和 Linux `6.12.74`。
-- 配置 SFP WAN（metric `9`）、RJ45 WAN（metric `10`）和就绪 SIM 卡的蜂窝回退（metric `200`）。
-- 开机为 5G1 插槽供电，自动启动 QModem 发现和拨号，并持久启用 ZBT QModem 看门狗以修复调制解调器的延迟状态重写。
-- 包含 Argon、QModem Next、Modem Events、短信工具，以及本地 ZBT About、Health、Temperature 和 Modem Events LuCI 应用。
-- Temperature Monitor 现在可在未安装可选 `timeout` 命令的系统上记录 Quectel `AT+QTEMP` 传感器数据，并过滤无效的 `-273°C` 占位值。
-- Modem Events 现在显示已存储的 USB、接口、健康状态、网络、看门狗和重启记录；LuCI ACL 已正确允许执行采集器。
-- 使用确定性 DNS，不包含 USB/iPhone 网络共享默认配置。
+- 修复首次启动 Wi-Fi：在 UCI 默认配置写入后重新加载无线配置，干净刷机后无需手动执行 `wifi up`。
+- 新增 Quectel USB/RNDIS 支持：RNDIS 模式使用独立的 DHCP 蜂窝上行，metric 为 `200`，并加入 WAN 防火墙区域。
+- RNDIS 与 QModem 的 QMI/MBIM 生命周期分离，避免正常工作的 `usb0` DHCP 调制解调器被当作不受支持的 QMI 设备。
+- SFP WAN（metric `9`）和 RJ45 WAN（metric `10`）仍优先于蜂窝回退。
+- 5G1 默认上电；QMI/MBIM 调制解调器继续由 QModem 管理。
 
 ## 验证
 - `make defconfig` 和完整 Docker 固件构建均已成功完成。
-- 首次启动和看门狗脚本已通过 `sh -n`；源码变更已通过 `git diff --check`。
-- 已在 ZBT-Z8803BE 上执行干净的 `sysupgrade -n`，无需任何手动修正命令。
-- 已安装的 Temperature Monitor 可记录有效的 Quectel 调制解调器温度且不包含 `-273°C` 占位值；Modem Events 通过已修正的 ACL 成功保存并读取采集器写入测试事件。
-- 刷机后调制解调器重新枚举完成，5G1 已上电，QModem `4_1` 插槽已启用，WWAN 获得 IPv4 地址，netifd 报告蜂窝接口已启动。
+- 修改过的 shell 脚本已通过 `sh -n`；源码变更已通过 `git diff --check`。
+- 生成镜像已通过 `sha256sum -c sha256sums --ignore-missing` 校验。
+- 镜像 manifest 包含 `kmod-usb-net-rndis`、`qmodem`、`qmodem_monitor` 和 `wpad-openssl`。
+- 安装后的首次启动 Wi-Fi 和 RNDIS 行为仍需要硬件实机验证。
 
 ## 构建产物
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
+  - SHA-256: `64e791598268bbf5b29141bc0a7bac17479b7b189a2d6dc565992f6a0db2d0de`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
+  - SHA-256: `070e89ab5415ae67c319c8b245b2c9f69d2894615f1e3e0fce67201e77725c31`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
+  - SHA-256: `6875eae6712978d9487f8dfcfc6b978854d1e618e7eebc4412ea554f6fc8e63c`
 - `sha256sums`、`config.buildinfo`、`feeds.buildinfo` 和 `version.buildinfo`
 
 ## 刷机

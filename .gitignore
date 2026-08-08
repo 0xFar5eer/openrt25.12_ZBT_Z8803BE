@@ -62,5 +62,7 @@ git-src
 docs/multi-ap-roaming.md
 /.buildenv/local.env
 /AGENTS.md
+/agents.md
+/response.md
 
 /wrt/

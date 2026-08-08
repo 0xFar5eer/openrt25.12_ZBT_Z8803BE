@@ -27,6 +27,20 @@ esac
 [ -e "/sys/$DEVPATH/idVendor" ] || exit 0
 [ "$(cat "/sys/$DEVPATH/idVendor" 2>/dev/null)" = "2c7c" ] || exit 0
 
+# QModem owns QMI/MBIM-style compositions. Do not restart its wwan0 service
+# for an RNDIS modem: RNDIS exposes an ordinary Ethernet interface and is
+# provisioned by the board's DHCP hotplug handler instead.
+is_rndis_composition() {
+	local net_path driver
+	for net_path in $(find "/sys/$DEVPATH" -type d -name net 2>/dev/null); do
+		driver="$(basename "$(readlink -f "$net_path"/../driver 2>/dev/null)")"
+		[ "$driver" = "rndis_host" ] && return 0
+	done
+	return 1
+}
+
+is_rndis_composition && exit 0
+
 # Defer to /etc/hotplug.d/usb/20-zbt-modem-factory-reset when a one-shot
 # post-flash modem reset is in flight. Both hotplugs fire on the same
 # USB ADD event (procd runs hotplug.d/usb/* in alphabetical order, but

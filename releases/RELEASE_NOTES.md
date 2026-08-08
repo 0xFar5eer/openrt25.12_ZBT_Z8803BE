@@ -1,27 +1,29 @@
 # ZBT-Z8803BE OpenWrt 25.12.2 / Linux 6.12.74
 
-Release `v25.12.017` is a validated community firmware build for ZBTLink ZBT-Z8803BE.
+Release `v25.12.018` is a community firmware build for ZBTLink ZBT-Z8803BE.
 
 ## Highlights
 - Uses OpenWrt `25.12.2` (`r32858-16347e93b6`) and Linux `6.12.74`.
-- Configures SFP WAN (metric `9`), RJ45 WAN (metric `10`), and ready-SIM cellular fallback (metric `200`).
-- Powers 5G1 at boot, enables automatic QModem discovery and dialing, and persistently enables the ZBT QModem watchdog to repair late modem state rewrites.
-- Includes Argon, QModem Next, modem events, SMS tooling, and the local ZBT About, Health, Temperature, and Modem Events LuCI applications.
-- Temperature Monitor now records Quectel `AT+QTEMP` sensor values on systems without the optional `timeout` command, excluding invalid `-273°C` sentinel values.
-- Modem Events now shows stored USB, interface, health, internet, watchdog, and restart records; its LuCI ACL correctly permits collector execution.
-- Uses deterministic DNS and excludes USB/iPhone tethering defaults.
+- Fixes first-boot Wi-Fi activation: the enabled factory wireless configuration is reloaded after UCI defaults, so users no longer need to run `wifi up` manually after a clean flash.
+- Adds Quectel USB/RNDIS support: RNDIS compositions receive a dedicated DHCP cellular uplink with metric `200` and WAN firewall membership.
+- Keeps RNDIS separate from QModem's QMI/MBIM lifecycle, preventing a valid `usb0` DHCP modem from being treated as an unsupported QMI device.
+- Keeps SFP WAN (metric `9`) and RJ45 WAN (metric `10`) preferred over cellular fallback.
+- Powers 5G1 at boot and retains QModem management for QMI/MBIM modem compositions.
 
 ## Validation
 - `make defconfig` and a full Docker firmware build completed successfully.
-- First-boot and watchdog scripts passed `sh -n`; source changes passed `git diff --check`.
-- A clean `sysupgrade -n` was tested on ZBT-Z8803BE with no corrective router commands.
-- The installed Temperature Monitor recorded valid Quectel modem temperatures without `-273°C` sentinels; Modem Events stored and exposed a collector write-test event through the corrected ACL.
-- After post-flash modem re-enumeration, 5G1 was on, QModem slot `4_1` was enabled, WWAN received an IPv4 address, and netifd reported the cellular interface up.
+- Modified shell scripts passed `sh -n`; source changes passed `git diff --check`.
+- Generated image checksums passed `sha256sum -c sha256sums --ignore-missing`.
+- The image manifest contains `kmod-usb-net-rndis`, `qmodem`, `qmodem_monitor`, and `wpad-openssl`.
+- Hardware smoke testing after installation remains required for first-boot Wi-Fi and RNDIS modem behavior.
 
 ## Artifacts
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
+  - SHA-256: `64e791598268bbf5b29141bc0a7bac17479b7b189a2d6dc565992f6a0db2d0de`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
+  - SHA-256: `070e89ab5415ae67c319c8b245b2c9f69d2894615f1e3e0fce67201e77725c31`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
+  - SHA-256: `6875eae6712978d9487f8dfcfc6b978854d1e618e7eebc4412ea554f6fc8e63c`
 - `sha256sums`, `config.buildinfo`, `feeds.buildinfo`, and `version.buildinfo`
 
 ## Upgrade

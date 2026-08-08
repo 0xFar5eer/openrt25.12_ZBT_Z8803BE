@@ -1,6 +1,6 @@
 ![OpenWrt logo](include/logo.png)
 
-# ZBTLink ZBT-Z8803BE OpenWrt main 固件
+# ZBTLink ZBT-Z8803BE OpenWrt 固件
 
 [English](README.md) | [中文](README.zh-CN.md)
 
@@ -16,11 +16,11 @@
 - **BTC：** `12N34ZYeiwxKEcM5FSnkgnHwxhW6pE3r4m`
 - **LTC：** `LLNtEGeZ5C6QnSY6BU1MYAZjh8MJpF6zsK`
 
-- **OpenWrt 基线:** 当前 OpenWrt `main`
-- **内核:** MediaTek target `6.12.101`
+- **OpenWrt 基线:** OpenWrt `25.12.2` / `r32858-16347e93b6`
+- **内核:** Linux `6.12.74`
 - **目标平台:** `mediatek/filogic`
 - **设备:** MediaTek MT7988A / Filogic 880 + MT7996 系列三频 WiFi 7
-- **发布标签:** 等待 main/6.12.101 测试构建
+- **发布标签:** `v25.12.018`
 
 ## 下载
 
@@ -38,11 +38,15 @@
 
 ## 校验值
 
-等待重构建。执行 `./.buildenv/build.sh extract` 后从 `releases/sha256sums` 刷新本节。
+```text
+64e791598268bbf5b29141bc0a7bac17479b7b189a2d6dc565992f6a0db2d0de  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+070e89ab5415ae67c319c8b245b2c9f69d2894615f1e3e0fce67201e77725c31  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+6875eae6712978d9487f8dfcfc6b978854d1e618e7eebc4412ea554f6fc8e63c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+```
 
 ## 已包含功能
 
-- **主线 OpenWrt main:** 不依赖 MediaTek vendor feed。
+- **OpenWrt 25.12.2 基线:** 不依赖 MediaTek vendor feed。
 - **WiFi 7 三频:** 2.4 GHz、5 GHz、6 GHz、EHT320、WPA3、支持 MLO。
 - **PH WiFi 默认值:** 国家码 `PH`，启用 PH 允许的完整信道集合，固件不额外限制 txpower/channel，并由驱动按法规自动选择最大发射功率。
 - **LuCI:** HTTPS、中文翻译、软件包管理器，以及聚焦于 Health、Temperature、Modem Events 和 QModem 的 Services/服务菜单。
@@ -108,7 +112,7 @@ output/mediatek/filogic/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sy
 ## 说明
 
 - SFP+ 已包含，但此处未做实体硬件验证。
-- 当前分支基于 OpenWrt main 和 MediaTek 6.12.101 LTS kernel。
+- 当前分支基于 OpenWrt `25.12.2` 和 Linux `6.12.74`。
 - PH WiFi 默认值遵循 `wireless-regdb`；修改国家码、信道或天线增益前请自行确认当地合规性。
 
 ## 反馈与联系

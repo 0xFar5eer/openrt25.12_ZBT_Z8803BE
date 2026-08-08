@@ -120,4 +120,14 @@ for radio in $(uci -q show wireless | sed -nE 's/^wireless\.([^.]+)=wifi-device$
 done
 
 uci -q commit wireless
+
+# `wifi config` runs before uci-defaults during boot. The enabled settings
+# above therefore need one deferred reload on a clean flash; otherwise all
+# radios remain down until the user manually runs `wifi up`. Keep it in the
+# background so first-boot defaults never delay procd's boot sequence.
+(
+	sleep 5
+	/sbin/wifi reload >/dev/null 2>&1
+) &
+
 exit 0

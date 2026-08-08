@@ -1,0 +1,71 @@
+#!/bin/sh
+# Configure Quectel USB/RNDIS modem compositions as ordinary DHCP WAN links.
+#
+# QModem's connection manager applies only to QMI/MBIM-style wwan devices.
+# Some Quectel firmware exposes RNDIS instead; the kernel then creates an
+# Ethernet netdev (for example usb0) driven by rndis_host. This handler waits
+# for that netdev and owns only the corresponding DHCP interface.
+
+[ "$ACTION" = "add" ] || exit 0
+[ -n "$DEVICENAME" ] || exit 0
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+[ -e "/sys/$DEVPATH/idVendor" ] || exit 0
+[ "$(cat "/sys/$DEVPATH/idVendor" 2>/dev/null)" = "2c7c" ] || exit 0
+
+find_rndis_netdev() {
+	local net_path driver netdev
+	for net_path in $(find "/sys/$DEVPATH" -type d -name net 2>/dev/null); do
+		driver="$(basename "$(readlink -f "$net_path"/../driver 2>/dev/null)")"
+		[ "$driver" = "rndis_host" ] || continue
+		netdev="$(basename "$(find "$net_path" -mindepth 1 -maxdepth 1 -type d -print -quit 2>/dev/null)")"
+		[ -n "$netdev" ] && printf '%s\n' "$netdev" && return 0
+	done
+	return 1
+}
+
+find_wan_zone() {
+	local sec
+	for sec in $(uci -q show firewall 2>/dev/null | sed -nE 's/^firewall\.(@zone\[[0-9]+\])=zone$/\1/p'); do
+		[ "$(uci -q get "firewall.${sec}.name")" = "wan" ] && printf '%s\n' "$sec" && return 0
+	done
+	return 1
+}
+
+(
+	# RNDIS function interfaces can appear after the USB-device add event.
+	for _ in 1 2 3 4 5 6 7 8 9 10; do
+		netdev="$(find_rndis_netdev)" && break
+		sleep 1
+	done
+	[ -n "$netdev" ] || exit 0
+
+	# A named section keeps this board-managed DHCP link separate from QModem's
+	# 4_1 QMI profile. Metric 200 preserves wired WAN/SFP precedence.
+	uci -q set network.cellular_rndis=interface
+	uci -q set network.cellular_rndis.proto='dhcp'
+	uci -q set network.cellular_rndis.device="$netdev"
+	uci -q set network.cellular_rndis.metric='200'
+	uci -q set network.cellular_rndis.peerdns='1'
+	uci -q set network.cellular_rndis.defaultroute='1'
+	uci -q commit network
+
+	if wan_zone="$(find_wan_zone)"; then
+		zone_networks="$(uci -q get "firewall.${wan_zone}.network")"
+		case " $zone_networks " in
+			*" cellular_rndis "*) ;;
+			*) uci -q add_list "firewall.${wan_zone}.network=cellular_rndis" ;;
+		esac
+		uci -q commit firewall
+	fi
+
+	/etc/init.d/network reload >/dev/null 2>&1
+	fw4 reload >/dev/null 2>&1
+	logger -t zbt-rndis-auto "configured cellular_rndis DHCP on $netdev"
+) &
+
+exit 0
