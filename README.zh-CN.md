@@ -39,8 +39,8 @@
 ## 校验值
 
 ```text
-64e791598268bbf5b29141bc0a7bac17479b7b189a2d6dc565992f6a0db2d0de  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-070e89ab5415ae67c319c8b245b2c9f69d2894615f1e3e0fce67201e77725c31  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+49b5e74fb7e46d23641dcf7386bc8b2a134b591a3e07d2b58edd04d051e0726b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+1d53ebdcbca8e8cacdaee518277d1a9ce1d45632c06c8bfc2c65393427be4c19  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
 6875eae6712978d9487f8dfcfc6b978854d1e618e7eebc4412ea554f6fc8e63c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ```
 

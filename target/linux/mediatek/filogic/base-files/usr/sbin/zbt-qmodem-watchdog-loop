@@ -29,7 +29,23 @@ SETTLE_DELAY="${SETTLE_DELAY:-15}"
 NAME=zbt-qmodem-watchdog
 QMODEM_SECTION="qmodem.4_1"
 
-if [ "$(uci -q get qmodem.main.block_auto_probe 2>/dev/null)" = "1" ] || \
+is_active_rndis() {
+        local netdev sysdev usbdev driver
+        for netdev in /sys/class/net/*; do
+                [ -e "$netdev" ] || continue
+                driver="$(basename "$(readlink -f "$netdev/device/driver" 2>/dev/null)")"
+                [ "$driver" = "rndis_host" ] || continue
+                sysdev="$(readlink -f "$netdev/device" 2>/dev/null)"
+                usbdev="$sysdev"
+                while [ -n "$usbdev" ] && [ "$usbdev" != "/" ]; do
+                        [ "$(cat "$usbdev/idVendor" 2>/dev/null)" = "2c7c" ] && return 0
+                        usbdev="$(dirname "$usbdev")"
+                done
+        done
+        return 1
+}
+
+if is_active_rndis || [ "$(uci -q get qmodem.main.block_auto_probe 2>/dev/null)" = "1" ] || \
         [ "$(uci -q get qmodem.main.enable_dial 2>/dev/null)" != "1" ]; then
         exit 0
 fi
@@ -194,6 +210,13 @@ sleep "$SETTLE_DELAY"
 start_ts=$(awk '{print int($1)}' /proc/uptime)
 
 while :; do
+        # RNDIS is a DHCP Ethernet composition, not a QModem one. Do not
+        # resurrect qmodem.4_1 or its absent wwan0 stubs while it exists.
+        if is_active_rndis; then
+                sleep "$POLL_INTERVAL_SLOW"
+                continue
+        fi
+
         reload_fw=1   # 1 = no, 0 = yes (shell convention for return codes)
 
 		reassert_5g1_power && reload_fw=0

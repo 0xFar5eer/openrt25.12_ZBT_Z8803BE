@@ -27,19 +27,26 @@ esac
 [ -e "/sys/$DEVPATH/idVendor" ] || exit 0
 [ "$(cat "/sys/$DEVPATH/idVendor" 2>/dev/null)" = "2c7c" ] || exit 0
 
-# QModem owns QMI/MBIM-style compositions. Do not restart its wwan0 service
-# for an RNDIS modem: RNDIS exposes an ordinary Ethernet interface and is
-# provisioned by the board's DHCP hotplug handler instead.
-is_rndis_composition() {
-	local net_path driver
-	for net_path in $(find "/sys/$DEVPATH" -type d -name net 2>/dev/null); do
-		driver="$(basename "$(readlink -f "$net_path"/../driver 2>/dev/null)")"
-		[ "$driver" = "rndis_host" ] && return 0
+# QModem owns QMI/MBIM-style compositions. RNDIS devices are detected from
+# /sys/class/net instead of the USB ADD event because usb0 can appear only
+# after that event. The net handler provisions RNDIS with DHCP.
+is_active_rndis() {
+	local netdev sysdev usbdev driver
+	for netdev in /sys/class/net/*; do
+		[ -e "$netdev" ] || continue
+		driver="$(basename "$(readlink -f "$netdev/device/driver" 2>/dev/null)")"
+		[ "$driver" = "rndis_host" ] || continue
+		sysdev="$(readlink -f "$netdev/device" 2>/dev/null)"
+		usbdev="$sysdev"
+		while [ -n "$usbdev" ] && [ "$usbdev" != "/" ]; do
+			[ "$(cat "$usbdev/idVendor" 2>/dev/null)" = "2c7c" ] && return 0
+			usbdev="$(dirname "$usbdev")"
+		done
 	done
 	return 1
 }
 
-is_rndis_composition && exit 0
+is_active_rndis && exit 0
 
 # Defer to /etc/hotplug.d/usb/20-zbt-modem-factory-reset when a one-shot
 # post-flash modem reset is in flight. Both hotplugs fire on the same
@@ -75,6 +82,11 @@ qmodem_path_from_wwan() {
 		sleep 2
 		uci -q get qmodem.4_1 >/dev/null 2>&1 && break
 	done
+
+	# RNDIS can appear after the original USB add event. Never enable the
+	# QMI profile or restart qmodem_network when the real modem data device
+	# is now a Quectel RNDIS Ethernet netdev.
+	is_active_rndis && exit 0
 
 	# qmodem section now exists (or never will - bail).
 	uci -q get qmodem.4_1 >/dev/null 2>&1 || exit 0

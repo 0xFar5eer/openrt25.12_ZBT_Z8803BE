@@ -1,0 +1,68 @@
+#!/bin/sh
+# Configure Quectel USB/RNDIS modem compositions as DHCP WAN links.
+#
+# A USB-device add event precedes the rndis_host netdev, so this runs from
+# net hotplug after the real device (for example usb0) exists. QModem's
+# wwan0/QMI lifecycle is disabled only for this detected RNDIS composition.
+
+[ "$ACTION" = "add" ] || exit 0
+[ -n "$DEVICENAME" ] || exit 0
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+SYS="/sys/class/net/$DEVICENAME"
+[ -d "$SYS" ] || exit 0
+[ "$(basename "$(readlink -f "$SYS/device/driver" 2>/dev/null)")" = "rndis_host" ] || exit 0
+
+# Verify that the RNDIS function belongs to a Quectel USB device, rather than
+# treating unrelated USB Ethernet adapters as cellular uplinks.
+usbdev="$(readlink -f "$SYS/device" 2>/dev/null)"
+while [ -n "$usbdev" ] && [ "$usbdev" != "/" ]; do
+	[ "$(cat "$usbdev/idVendor" 2>/dev/null)" = "2c7c" ] && break
+	usbdev="$(dirname "$usbdev")"
+done
+[ -n "$usbdev" ] && [ "$usbdev" != "/" ] || exit 0
+
+find_wan_zone() {
+	local sec
+	for sec in $(uci -q show firewall 2>/dev/null | sed -nE 's/^firewall\.(@zone\[[0-9]+\])=zone$/\1/p'); do
+		[ "$(uci -q get "firewall.${sec}.name")" = "wan" ] && printf '%s\n' "$sec" && return 0
+	done
+	return 1
+}
+
+# Stop only the board-managed QMI slot. The global QModem package stays
+# installed for QMI/MBIM modem compositions on later hardware changes.
+if uci -q get qmodem.4_1 >/dev/null 2>&1 && [ "$(uci -q get qmodem.4_1.state)" != "disabled" ]; then
+	uci -q set qmodem.4_1.state='disabled'
+	uci -q commit qmodem
+	[ -x /etc/init.d/qmodem_network ] && /etc/init.d/qmodem_network restart >/dev/null 2>&1
+	logger -t zbt-rndis-auto "disabled qmodem.4_1 for Quectel RNDIS on $DEVICENAME"
+fi
+
+# A named DHCP interface keeps this board-managed RNDIS link distinct from
+# QModem's QMI profile. Metric 200 preserves wired WAN/SFP precedence.
+uci -q set network.cellular_rndis=interface
+uci -q set network.cellular_rndis.proto='dhcp'
+uci -q set network.cellular_rndis.device="$DEVICENAME"
+uci -q set network.cellular_rndis.metric='200'
+uci -q set network.cellular_rndis.peerdns='1'
+uci -q set network.cellular_rndis.defaultroute='1'
+uci -q commit network
+
+if wan_zone="$(find_wan_zone)"; then
+	zone_networks="$(uci -q get "firewall.${wan_zone}.network")"
+	case " $zone_networks " in
+		*" cellular_rndis "*) ;;
+		*) uci -q add_list "firewall.${wan_zone}.network=cellular_rndis"; uci -q commit firewall ;;
+	esac
+fi
+
+/etc/init.d/network reload >/dev/null 2>&1
+fw4 reload >/dev/null 2>&1
+logger -t zbt-rndis-auto "configured cellular_rndis DHCP on $DEVICENAME"
+
+exit 0
