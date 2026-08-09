@@ -17,7 +17,10 @@ _zbt_mt="$(awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}END{if(t)printf "%d / %d MiB
 printf ' Linux %s  -  up %s  -  load %s  -  ram %s\n' \
     "${_zbt_k:-?}" "${_zbt_up:-?}" "${_zbt_ld:-?}" "${_zbt_mt:-?}"
 printf ' Credits: pttuan, sjanulonoks (fan/testing), FUjr/QModem, OneB1t\n'
-printf ' Donate : https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE#donate\n'
+printf ' Donate : ERC20/BEP20 (USDT, USDC, ETH, BNB) 0xd1122130ad6e9ab948212087a90797e3129bfc1c\n'
+printf '          TRC20 (TRX, USDT)              TTcT5m4BriHKyNrB4KYyLMK4ZGn54Nk6z2\n'
+printf '          BTC                            12N34ZYeiwxKEcM5FSnkgnHwxhW6pE3r4m\n'
+printf '          LTC                            LLNtEGeZ5C6QnSY6BU1MYAZjh8MJpF6zsK\n'
 printf ' -----------------------------------------------------\n'
 
 unset _zbt_k _zbt_up _zbt_ld _zbt_mt
