@@ -34,13 +34,22 @@ find_wan_zone() {
 	return 1
 }
 
-# Stop only the board-managed QMI slot. The global QModem package stays
-# installed for QMI/MBIM modem compositions on later hardware changes.
-if uci -q get qmodem.4_1 >/dev/null 2>&1 && [ "$(uci -q get qmodem.4_1.state)" != "disabled" ]; then
-	uci -q set qmodem.4_1.state='disabled'
+# Stop only the QModem profile that belongs to this RNDIS device. The global
+# QModem package stays installed for QMI/MBIM modem compositions.
+rndis_slot=""
+rndis_dev="$(readlink -f "$SYS/device" 2>/dev/null)"
+while [ -n "$rndis_dev" ] && [ "$rndis_dev" != "/" ]; do
+	case "$(basename "$rndis_dev")" in
+		4-1) rndis_slot=4_1; break ;;
+		4-2) rndis_slot=4_2; break ;;
+	esac
+	rndis_dev="$(dirname "$rndis_dev")"
+done
+if [ -n "$rndis_slot" ] && uci -q get "qmodem.$rndis_slot" >/dev/null 2>&1 && [ "$(uci -q get "qmodem.$rndis_slot.state")" != "disabled" ]; then
+	uci -q set "qmodem.$rndis_slot.state=disabled"
 	uci -q commit qmodem
 	[ -x /etc/init.d/qmodem_network ] && /etc/init.d/qmodem_network restart >/dev/null 2>&1
-	logger -t zbt-rndis-auto "disabled qmodem.4_1 for Quectel RNDIS on $DEVICENAME"
+	logger -t zbt-rndis-auto "disabled qmodem.$rndis_slot for Quectel RNDIS on $DEVICENAME"
 fi
 
 # A named DHCP interface keeps this board-managed RNDIS link distinct from

@@ -81,10 +81,9 @@ esac
 # Skip cleanly on builds without qmodem.
 [ -e /etc/config/qmodem ] || exit 0
 
-# Power 5G1 before QModem's initial scan. The DT exports this active-high GPIO,
-# but qmodem can turn it off when a new modem-device section starts disabled.
-# Keeping the physical power and UCI profile enabled makes clean first boot and
-# later modem re-enumeration converge on the same cellular-fallback behavior.
+# Power only 5G1 before QModem's initial scan. 5G2 is intentionally left
+# off until selected through the board GPIO switch; its profile receives this
+# same contract after it enumerates.
 if [ -w /sys/class/gpio/5g1/value ]; then
 	printf '1' > /sys/class/gpio/5g1/value
 fi
@@ -116,14 +115,9 @@ for sec in $(uci -q show qmodem 2>/dev/null \
         contract_changed=1
 done
 
-# Pre-seed the conventional 4_1 entry too. On a freshly-flashed router
-# the modem section won't exist yet (qmodem creates it on first detect),
-# so the loop above is a no-op. Force-create the section with the
-# correct type (`modem-device`, NOT `modem`) so qmodem's first-detect
-# path takes the IF branch in modem_scan.sh:473 (which preserves both
-# our type and our flags) and downstream consumers that iterate
-# `config_foreach modem-device` (LuCI dial config, etc.) still find
-# this section.
+# Pre-seed only the default 5G1 profile. QModem creates `4_2` after a
+# user-selected 5G2 modem enumerates; the generic loop above then applies the
+# identical dial/DNS contract without powering or enabling 5G1.
 if ! uci -q get qmodem.4_1 >/dev/null 2>&1; then
         uci -q set qmodem.4_1=modem-device
         uci -q set qmodem.4_1.do_not_add_dns='1'

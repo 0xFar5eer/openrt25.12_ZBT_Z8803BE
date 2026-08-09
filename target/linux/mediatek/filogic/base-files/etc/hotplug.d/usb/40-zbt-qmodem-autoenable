@@ -1,19 +1,12 @@
 #!/bin/sh
-# Auto-enable the default 5G1 QModem cellular fallback.
-#
-# The firmware brings up cellular automatically whenever a ready modem/SIM is
-# present. Wired WAN and SFP remain preferred through their lower route metrics.
-# This hotplug waits for modem_scan.sh to create qmodem.4_1, repairs its path,
-# then reasserts the enabled profile and network stubs after USB re-enumeration.
-#
-# Trigger: USB add events for Quectel modems (Vendor 2c7c).
-# Debounce: 6s wait for qmodem to create the section.
-# Idempotent: only flips state if section exists and state != 'enabled'.
+# Auto-enable the QModem profile for the physical Quectel modem that emitted
+# this USB event. 5G1 is powered by default, while 5G2 remains opt-in through
+# its GPIO switch; when 5G2 is powered and enumerates, it must receive the
+# same QModem and firewall integration without modifying the 5G1 profile.
 
 [ "$ACTION" = "add" ] || exit 0
 [ -n "$DEVICENAME" ] || exit 0
 
-# Board guard.
 case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
 	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
 	*) exit 0 ;;
@@ -22,14 +15,38 @@ esac
 [ -e /etc/config/qmodem ] || exit 0
 [ "$(uci -q get qmodem.main.block_auto_probe 2>/dev/null)" = "1" ] && exit 0
 [ "$(uci -q get qmodem.main.enable_dial 2>/dev/null)" = "1" ] || exit 0
-
-# Match Quectel modems only (idVendor 2c7c covers RM-series 5G/LTE modules).
 [ -e "/sys/$DEVPATH/idVendor" ] || exit 0
 [ "$(cat "/sys/$DEVPATH/idVendor" 2>/dev/null)" = "2c7c" ] || exit 0
 
-# QModem owns QMI/MBIM-style compositions. RNDIS devices are detected from
-# /sys/class/net instead of the USB ADD event because usb0 can appear only
-# after that event. The net handler provisions RNDIS with DHCP.
+# Do not start a dialer while the one-shot post-flash modem reset runs.
+[ -f /etc/zbt-modem-factory-reset-pending ] && exit 0
+
+usb_slot() {
+	local dev
+	dev="/sys/$DEVPATH"
+	while [ -n "$dev" ] && [ "$dev" != "/sys" ] && [ "$dev" != "/" ]; do
+		case "$(basename "$dev")" in
+			*-1|*-2) printf '%s\n' "$(basename "$dev")"; return 0 ;;
+		esac
+		dev="$(dirname "$dev")"
+	done
+	return 1
+}
+
+slot="$(usb_slot)"
+case "$slot" in
+	4-1) section=4_1; power=5g1 ;;
+	4-2) section=4_2; power=5g2 ;;
+	*) logger -t zbt-qmodem-autoenable "ignoring Quectel modem at unsupported USB path: $slot"; exit 0 ;;
+esac
+
+usb_path="/sys/$DEVPATH"
+while [ -n "$usb_path" ] && [ "$usb_path" != "/" ]; do
+	[ "$(basename "$usb_path")" = "$slot" ] && break
+	usb_path="$(dirname "$usb_path")"
+done
+[ -d "$usb_path" ] || exit 0
+
 is_active_rndis() {
 	local netdev sysdev usbdev driver
 	for netdev in /sys/class/net/*; do
@@ -39,101 +56,69 @@ is_active_rndis() {
 		sysdev="$(readlink -f "$netdev/device" 2>/dev/null)"
 		usbdev="$sysdev"
 		while [ -n "$usbdev" ] && [ "$usbdev" != "/" ]; do
-			[ "$(cat "$usbdev/idVendor" 2>/dev/null)" = "2c7c" ] && return 0
+			[ "$(basename "$usbdev")" = "$slot" ] && return 0
 			usbdev="$(dirname "$usbdev")"
 		done
 	done
 	return 1
 }
 
+# QModem owns QMI/MBIM compositions only; RNDIS is provisioned by net hotplug.
 is_active_rndis && exit 0
 
-# Defer to /etc/hotplug.d/usb/20-zbt-modem-factory-reset when a one-shot
-# post-flash modem reset is in flight. Both hotplugs fire on the same
-# USB ADD event (procd runs hotplug.d/usb/* in alphabetical order, but
-# 29- backgrounds its work, so without this guard we would start
-# quectel-CM-M here just as 29- is about to AT+CFUN=1,1 the modem -
-# the dialer would be torn down mid-setup. After CFUN finishes and
-# the modem re-enumerates, the marker file is gone and we get a fresh
-# ADD event on which this hotplug runs normally.
-if [ -f /etc/zbt-modem-factory-reset-pending ]; then
-	logger -t zbt-qmodem-autoenable "factory reset pending; deferring autoenable until post-CFUN re-enum"
-	exit 0
-fi
-
-# Restore QModem's USB-device path when modem_scan created an incomplete
-# section. modem_dial.sh resolves wwan0 with `find $path -name net`; without
-# path it accepts a ready SIM but never launches quectel-CM-M. Derive the USB
-# parent from the enumerated QMI device instead of hard-coding a USB bus.
-qmodem_path_from_wwan() {
-	local device_path usb_path
-	device_path="$(readlink -f /sys/class/net/wwan0/device 2>/dev/null)"
-	[ -n "$device_path" ] || return 1
-	usb_path="$(dirname "$device_path")"
-	[ -d "$usb_path" ] || return 1
-	printf '%s\n' "$usb_path"
-}
-
-# Wait for qmodem's own hotplug to create the qmodem.4_1 section. The
-# modem enumeration + ttyUSB scan + AT-port-probe takes ~5s on this SoC.
-# Run this in the background so we don't block the USB hotplug pipeline.
 (
+	# QModem's scan/AT probe normally needs about 12 seconds.
 	for _ in 1 2 3 4 5 6; do
 		sleep 2
-		uci -q get qmodem.4_1 >/dev/null 2>&1 && break
+		uci -q get "qmodem.$section" >/dev/null 2>&1 && break
 	done
-
-	# RNDIS can appear after the original USB add event. Never enable the
-	# QMI profile or restart qmodem_network when the real modem data device
-	# is now a Quectel RNDIS Ethernet netdev.
+	uci -q get "qmodem.$section" >/dev/null 2>&1 || exit 0
 	is_active_rndis && exit 0
 
-	# qmodem section now exists (or never will - bail).
-	uci -q get qmodem.4_1 >/dev/null 2>&1 || exit 0
+	# The selected slot is already powered when it enumerates. Never change
+	# the other slot's GPIO; this preserves one-modem operation.
+	[ -w "/sys/class/gpio/$power/value" ] && printf '1' > "/sys/class/gpio/$power/value"
+	uci -q set "qmodem.$section.state=enabled"
+	uci -q set "qmodem.$section.path=$usb_path"
+	uci -q set "qmodem.$section.enable_dial=1"
+	uci -q set "qmodem.$section.do_not_add_dns=1"
+	uci -q set "qmodem.$section.donot_nat=1"
+	uci -q set "qmodem.$section.metric=200"
+	uci -q commit qmodem
 
-	modem_path="$(uci -q get qmodem.4_1.path)"
-	if [ -z "$modem_path" ] || [ ! -d "$modem_path" ]; then
-		modem_path="$(qmodem_path_from_wwan)"
-		if [ -n "$modem_path" ]; then
-			uci -q set "qmodem.4_1.path=$modem_path"
-			logger -t zbt-qmodem-autoenable "recovered qmodem.4_1.path=$modem_path"
-		else
-			logger -t zbt-qmodem-autoenable "wwan0 USB parent unavailable; leaving qmodem.4_1.path unchanged"
-		fi
-	fi
-
-	current_state="$(uci -q get qmodem.4_1.state)"
-	if [ "$current_state" != "enabled" ]; then
-		logger -t zbt-qmodem-autoenable "flipping qmodem.4_1.state -> enabled"
-		uci -q set qmodem.4_1.state='enabled'
-		uci -q commit qmodem
-	fi
-
-	# Re-assert network.4_1 / 4_1v6 stubs (qmodem_init may have wiped them).
-	if ! uci -q get network.4_1 >/dev/null 2>&1; then
-		uci -q set network.4_1=interface
-		uci -q set network.4_1.proto='none'
-		uci -q set network.4_1.device='wwan0'
-		uci -q set network.4_1.metric='200'
-		uci -q set network.4_1.defaultroute='0'
-		uci -q set network.4_1.peerdns='0'
-	fi
-	if ! uci -q get network.4_1v6 >/dev/null 2>&1; then
-		uci -q set network.4_1v6=interface
-		uci -q set network.4_1v6.proto='none'
-		uci -q set network.4_1v6.device='wwan0'
-		uci -q set network.4_1v6.metric='200'
-		uci -q set network.4_1v6.disabled='1'
-	fi
+	# QModem supplies the runtime data device. With a single active modem this
+	# is normally wwan0 for either physical slot; retain any device it created.
+	device="$(uci -q get "network.$section.device")"
+	[ -n "$device" ] || device=wwan0
+	uci -q set "network.$section=interface"
+	uci -q set "network.$section.proto=none"
+	uci -q set "network.$section.device=$device"
+	uci -q set "network.$section.ifname=$device"
+	uci -q set "network.$section.metric=200"
+	uci -q set "network.$section.defaultroute=1"
+	uci -q set "network.$section.peerdns=0"
+	uci -q set "network.${section}v6=interface"
+	uci -q set "network.${section}v6.proto=none"
+	uci -q set "network.${section}v6.device=$device"
+	uci -q set "network.${section}v6.metric=200"
+	uci -q set "network.${section}v6.disabled=1"
 	uci -q commit network
 
-	# Reload firewall + nudge qmodem_network so dial actually starts.
+	wan_zone="$(uci -q show firewall | sed -nE 's/^firewall\.(@zone\[[0-9]+\])=zone$/\1/p' | while read -r sec; do [ "$(uci -q get "firewall.$sec.name")" = wan ] && printf '%s\n' "$sec" && break; done)"
+	if [ -n "$wan_zone" ]; then
+		for iface in "$section" "${section}v6"; do
+			case " $(uci -q get "firewall.$wan_zone.network") " in
+				*" $iface "*) ;;
+				*) uci -q add_list "firewall.$wan_zone.network=$iface" ;;
+			esac
+		done
+		uci -q commit firewall
+	fi
+
 	/etc/init.d/network reload >/dev/null 2>&1
 	fw4 reload >/dev/null 2>&1
-	[ -x /etc/init.d/qmodem_network ] && \
-		/etc/init.d/qmodem_network restart >/dev/null 2>&1
-
-	logger -t zbt-qmodem-autoenable "qmodem.4_1 enabled, network stubs re-asserted, qmodem_network restarted"
+	[ -x /etc/init.d/qmodem_network ] && /etc/init.d/qmodem_network restart >/dev/null 2>&1
+	logger -t zbt-qmodem-autoenable "enabled qmodem.$section for $slot ($power)"
 ) &
 
 exit 0

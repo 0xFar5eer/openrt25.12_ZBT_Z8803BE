@@ -190,9 +190,9 @@ for sec in $(uci -q show qmodem 2>/dev/null \
         fi
 done
 
-# Force-create the canonical 4_1 section if qmodem hasn't detected the
-# modem yet (firmware contract — same pattern as
-# 40-zbt-qmodem-dns-suppress).
+# Force-create only the canonical 4_1 profile for the default-powered 5G1
+# slot. When an operator powers 5G2, QModem creates 4_2 and the generic loop
+# above applies this same monitor contract without altering 4_1.
 if ! uci -q get qmodem.4_1 >/dev/null 2>&1; then
         uci -q set qmodem.4_1=modem-device
         contract_changed=1

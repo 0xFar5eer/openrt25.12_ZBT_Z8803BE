@@ -1,29 +1,31 @@
 # ZBT-Z8803BE OpenWrt 25.12.2 / Linux 6.12.74
 
-Release `v25.12.018` is a community firmware build for ZBTLink ZBT-Z8803BE.
+Release `v25.12.019` is a community firmware build for ZBTLink ZBT-Z8803BE.
 
 ## Highlights
 - Uses OpenWrt `25.12.2` (`r32858-16347e93b6`) and Linux `6.12.74`.
-- Fixes first-boot Wi-Fi activation: the enabled factory wireless configuration is reloaded after UCI defaults, so users no longer need to run `wifi up` manually after a clean flash.
-- Corrects Quectel USB/RNDIS management: the DHCP cellular uplink is now configured from the net-device event after `usb0` exists, rather than from an earlier USB event.
-- Suppresses QModem’s `wwan0`/QMI recovery lifecycle only while a Quectel `rndis_host` device is active, preventing it from repeatedly restarting the absent `wwan0` profile.
-- Keeps RNDIS separate from QModem's QMI/MBIM lifecycle and preserves metric `200` for cellular; SFP WAN (metric `9`) and RJ45 WAN (metric `10`) remain preferred.
-- Powers 5G1 at boot and retains QModem management for QMI/MBIM modem compositions.
+- Adds **Network → WiFi 7 MLO** in LuCI. MLO remains opt-in: factory wireless defaults stay as separate band-specific SSIDs until configured through the page.
+- Includes GNU `timeout` at `/usr/bin/timeout` for bounded shell commands.
+- Makes board-managed QModem recovery slot-aware: a Quectel modem detected at USB `4-1` uses 5G1 / `4_1`, while a modem detected at USB `4-2` uses 5G2 / `4_2`. The matching QModem profile, network interfaces, and WAN firewall membership are maintained without altering the peer slot.
+- Keeps 5G1 as the default-powered slot and 5G2 opt-in through its GPIO switch. Wired WAN and SFP routes remain preferred over cellular through lower metrics.
+- Preserves the prior Quectel RNDIS separation: only the QModem profile belonging to an RNDIS modem is disabled.
 
 ## Validation
-- `make defconfig` and a full Docker firmware build completed successfully.
-- Modified shell scripts passed `sh -n`; source changes passed `git diff --check`.
+- `make defconfig` retained `luci-app-mlo`, `wpad-openssl`, and `coreutils-timeout`.
+- Full Docker firmware build completed successfully.
+- Modified shell scripts passed `sh -n`; `tests/check-zbt-firmware.sh` and `git diff --check` passed.
 - Generated image checksums passed `sha256sum -c sha256sums --ignore-missing`.
-- The image manifest contains `kmod-usb-net-rndis`, `qmodem`, `qmodem_monitor`, and `wpad-openssl`.
-- Hardware smoke testing after installation remains required for the first-boot Wi-Fi correction and, specifically, the Quectel RNDIS/QModem suppression behavior. This corrected build has not been tested on the maintainer’s router.
+- The image manifest contains `luci-app-mlo`, `wpad-openssl`, and `coreutils-timeout`.
+- Extracted SquashFS contains `/usr/bin/timeout`, the MLO LuCI menu, ACL, and `mlo/main.js` view.
+- Hardware MLO association/multi-link traffic and physical 5G2/modem 2/SIM2 connectivity have **not** been tested by the maintainer. Do not treat build or static validation as hardware confirmation.
 
 ## Artifacts
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
-  - SHA-256: `49b5e74fb7e46d23641dcf7386bc8b2a134b591a3e07d2b58edd04d051e0726b`
+  - SHA-256: `296339130bcfd945567e38018f9ea7557595e4b04a705dc0a760865ba8f2ce43`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
-  - SHA-256: `1d53ebdcbca8e8cacdaee518277d1a9ce1d45632c06c8bfc2c65393427be4c19`
+  - SHA-256: `3f9bc4acfdb50e2f1a2b4695ab1710e7df5756040830decbc1707b3b8993a242`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
-  - SHA-256: `6875eae6712978d9487f8dfcfc6b978854d1e618e7eebc4412ea554f6fc8e63c`
+  - SHA-256: `e8001906fb4fa60cc71636e2bd6d3c1f01a29bec0e5afa5773cd1b18b7c616a7`
 - `sha256sums`, `config.buildinfo`, `feeds.buildinfo`, and `version.buildinfo`
 
 ## Upgrade

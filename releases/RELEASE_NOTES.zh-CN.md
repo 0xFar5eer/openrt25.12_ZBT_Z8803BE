@@ -1,29 +1,31 @@
 # ZBT-Z8803BE OpenWrt 25.12.2 / Linux 6.12.74
 
-发行版 `v25.12.018` 是面向 ZBTLink ZBT-Z8803BE 的社区固件构建。
+发行版 `v25.12.019` 是面向 ZBTLink ZBT-Z8803BE 的社区固件构建。
 
 ## 主要变更
 - 基于 OpenWrt `25.12.2`（`r32858-16347e93b6`）和 Linux `6.12.74`。
-- 修复首次启动 Wi-Fi：在 UCI 默认配置写入后重新加载无线配置，干净刷机后无需手动执行 `wifi up`。
-- 修正 Quectel USB/RNDIS 管理：在 `usb0` 等实际网卡创建后的 net hotplug 事件中配置 DHCP 蜂窝上行，而不再依赖更早发生的 USB 事件。
-- 仅在检测到 Quectel `rndis_host` 设备时抑制 QModem 的 `wwan0`/QMI 恢复流程，避免反复重启不存在的 `wwan0` 配置。
-- RNDIS 与 QModem 的 QMI/MBIM 生命周期保持分离，蜂窝 metric 保持 `200`；SFP WAN（metric `9`）和 RJ45 WAN（metric `10`）仍优先。
-- 5G1 默认上电；QMI/MBIM 调制解调器继续由 QModem 管理。
+- 新增 LuCI **网络 → WiFi 7 MLO** 页面。MLO 保持按需启用；出厂无线默认配置仍是独立的各频段 SSID。
+- 包含 GNU `timeout` 命令，路径为 `/usr/bin/timeout`。
+- QModem 恢复逻辑现已识别物理插槽：USB `4-1` 对应 5G1 / `4_1`，USB `4-2` 对应 5G2 / `4_2`。固件维护对应的 QModem、网络和 WAN 防火墙配置，不会修改另一个插槽。
+- 5G1 保持默认供电；5G2 仍需要通过 GPIO 开关手动启用。有线 WAN 与 SFP 的 metric 更低，优先于蜂窝网络。
+- 保留此前的 Quectel RNDIS 分离行为：只有属于该 RNDIS 调制解调器的 QModem 配置会被禁用。
 
 ## 验证
-- `make defconfig` 和完整 Docker 固件构建均已成功完成。
-- 修改过的 shell 脚本已通过 `sh -n`；源码变更已通过 `git diff --check`。
-- 生成镜像已通过 `sha256sum -c sha256sums --ignore-missing` 校验。
-- 镜像 manifest 包含 `kmod-usb-net-rndis`、`qmodem`、`qmodem_monitor` 和 `wpad-openssl`。
-- 安装后的首次启动 Wi-Fi 和 Quectel RNDIS/QModem 抑制行为仍需要实机验证；此修正构建尚未在维护者自己的路由器上测试。
+- `make defconfig` 保留了 `luci-app-mlo`、`wpad-openssl` 和 `coreutils-timeout`。
+- 完整 Docker 固件构建成功完成。
+- 修改的 shell 脚本通过 `sh -n`；`tests/check-zbt-firmware.sh` 与 `git diff --check` 通过。
+- 生成镜像通过 `sha256sum -c sha256sums --ignore-missing` 校验。
+- 镜像 manifest 包含 `luci-app-mlo`、`wpad-openssl` 和 `coreutils-timeout`。
+- 解开的 SquashFS 包含 `/usr/bin/timeout`、MLO LuCI 菜单、ACL 与 `mlo/main.js` 视图。
+- 维护者**尚未**实机测试 MLO 关联/多链路流量，以及 5G2/modem 2/SIM2 的连接行为。构建和静态验证不代表硬件已验证。
 
 ## 构建产物
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
-  - SHA-256: `49b5e74fb7e46d23641dcf7386bc8b2a134b591a3e07d2b58edd04d051e0726b`
+  - SHA-256: `296339130bcfd945567e38018f9ea7557595e4b04a705dc0a760865ba8f2ce43`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
-  - SHA-256: `1d53ebdcbca8e8cacdaee518277d1a9ce1d45632c06c8bfc2c65393427be4c19`
+  - SHA-256: `3f9bc4acfdb50e2f1a2b4695ab1710e7df5756040830decbc1707b3b8993a242`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
-  - SHA-256: `6875eae6712978d9487f8dfcfc6b978854d1e618e7eebc4412ea554f6fc8e63c`
+  - SHA-256: `e8001906fb4fa60cc71636e2bd6d3c1f01a29bec0e5afa5773cd1b18b7c616a7`
 - `sha256sums`、`config.buildinfo`、`feeds.buildinfo` 和 `version.buildinfo`
 
 ## 刷机

@@ -1,255 +1,128 @@
 #!/bin/sh
-# zbt-qmodem-watchdog-loop - cellular failover state reassertion.
-#
-# Lives in its own file (instead of inline in the init.d via
-# `procd_set_param command sh -c '...'`) for two reasons:
-#   1. Avoids the shell-quoting bomb that arises when interpolating
-#      env vars into a single-quoted procd command argument.
-#   2. Lets you test the loop body from CLI without restarting procd:
-#        $ POLL_INTERVAL_FAST=1 POLL_INTERVAL_SLOW=2 /usr/sbin/zbt-qmodem-watchdog-loop
-#
-# Cellular fallback is enabled by the board's first-boot UCI default. This
-# loop preserves that firmware contract: it keeps 5G1 powered, qmodem.4_1
-# enabled, network.4_1 / 4_1v6 declared, and those stubs in the WAN firewall
-# zone so masquerade applies to cellular egress.
-#
-# Cadence: fast (5 s) for the first 60 s after start, slow (30 s)
-# afterwards. Reactivity matters most during boot and right after
-# qmodem (re)scans; once state has stabilised we don't need to busy-poll.
-#
-# Triggered restart: when /etc/config/{firewall,network,qmodem} changes,
-# procd will SIGTERM us and respawn (see procd_add_reload_trigger in the
-# init.d). That gives sub-second reaction to LuCI / uci edits.
+# Keep the QModem profile for a physically enumerated Z8803BE modem aligned
+# with its network and firewall state. The board has two independent M.2 power
+# GPIOs: 4-1/5G1 is the default slot and 4-2/5G2 is operator-selected. Never
+# infer an active slot from a pre-seeded UCI section; act only on a live USB
+# path so a selected 5G2 modem cannot cause 5G1 to be re-powered or redialed.
 
 POLL_INTERVAL_FAST="${POLL_INTERVAL_FAST:-5}"
 POLL_INTERVAL_SLOW="${POLL_INTERVAL_SLOW:-30}"
 FAST_PHASE_SECS="${FAST_PHASE_SECS:-60}"
 SETTLE_DELAY="${SETTLE_DELAY:-15}"
-
 NAME=zbt-qmodem-watchdog
-QMODEM_SECTION="qmodem.4_1"
 
 is_active_rndis() {
-        local netdev sysdev usbdev driver
-        for netdev in /sys/class/net/*; do
-                [ -e "$netdev" ] || continue
-                driver="$(basename "$(readlink -f "$netdev/device/driver" 2>/dev/null)")"
-                [ "$driver" = "rndis_host" ] || continue
-                sysdev="$(readlink -f "$netdev/device" 2>/dev/null)"
-                usbdev="$sysdev"
-                while [ -n "$usbdev" ] && [ "$usbdev" != "/" ]; do
-                        [ "$(cat "$usbdev/idVendor" 2>/dev/null)" = "2c7c" ] && return 0
-                        usbdev="$(dirname "$usbdev")"
-                done
-        done
-        return 1
+	local netdev driver dev
+	for netdev in /sys/class/net/*; do
+		[ -e "$netdev" ] || continue
+		driver="$(basename "$(readlink -f "$netdev/device/driver" 2>/dev/null)")"
+		[ "$driver" = rndis_host ] && return 0
+	done
+	return 1
 }
 
-if is_active_rndis || [ "$(uci -q get qmodem.main.block_auto_probe 2>/dev/null)" = "1" ] || \
-        [ "$(uci -q get qmodem.main.enable_dial 2>/dev/null)" != "1" ]; then
-        exit 0
-fi
-
-# Resolve the wan firewall zone by NAME (instead of fragile @zone[1]
-# index, which breaks if the user adds a guest zone before wan via LuCI).
-# Echoes the canonical UCI section reference, e.g. '@zone[1]', or
-# returns 1 if no zone named 'wan' exists.
 find_wan_zone() {
-        local sec
-        for sec in $(uci -q show firewall 2>/dev/null \
-                | sed -nE 's/^firewall\.(@zone\[[0-9]+\])=zone$/\1/p'); do
-                if [ "$(uci -q get "firewall.${sec}.name")" = "wan" ]; then
-                        echo "$sec"
-                        return 0
-                fi
-        done
-        return 1
+	local sec
+	for sec in $(uci -q show firewall | sed -nE 's/^firewall\.(@zone\[[0-9]+\])=zone$/\1/p'); do
+		[ "$(uci -q get "firewall.$sec.name")" = wan ] && printf '%s\n' "$sec" && return 0
+	done
+	return 1
 }
 
-reassert_5g1_power() {
-	[ -w /sys/class/gpio/5g1/value ] || return 1
-	[ "$(cat /sys/class/gpio/5g1/value 2>/dev/null)" = "1" ] && return 1
-	printf '1' > /sys/class/gpio/5g1/value
-	logger -t "$NAME" "re-enabled 5G1 power"
-	return 0
+slot_power() {
+	case "$1" in
+		4_1) printf '%s\n' 5g1 ;;
+		4_2) printf '%s\n' 5g2 ;;
+	esac
 }
 
-reassert_qmodem_state() {
-        if [ "$(uci -q get "${QMODEM_SECTION}.state")" = "disabled" ]; then
-                uci -q set "${QMODEM_SECTION}.state=enabled"
-                uci -q commit qmodem
-                /etc/init.d/qmodem_network restart >/dev/null 2>&1
-                logger -t "$NAME" "re-enabled ${QMODEM_SECTION}.state (was disabled)"
-                [ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record watchdog issue warning 4_1 "QModem state was disabled" "watchdog re-enabled ${QMODEM_SECTION}.state and restarted qmodem_network" >/dev/null 2>&1 || true
-                return 0
-        fi
-        return 1
+section_device() {
+	local path net
+	path="$(uci -q get "qmodem.$1.path")"
+	[ -d "$path" ] || return 1
+	for net in "$path"/*/net/* "$path"/*/*/net/*; do
+		[ -e "$net" ] && basename "$net" && return 0
+	done
+	return 1
 }
 
-reassert_qmodem_path() {
-	local device_path modem_path
-
-	device_path="$(readlink -f /sys/class/net/wwan0/device 2>/dev/null)"
-	[ -n "$device_path" ] || return 1
-	modem_path="$(dirname "$device_path")"
-	[ -d "$modem_path" ] || return 1
-	[ "$(uci -q get "${QMODEM_SECTION}.path")" = "$modem_path" ] && return 1
-
-	uci -q set "${QMODEM_SECTION}.path=$modem_path"
-	uci -q commit qmodem
-	/etc/init.d/qmodem_network restart >/dev/null 2>&1
-	logger -t "$NAME" "recovered ${QMODEM_SECTION}.path=$modem_path and restarted qmodem_network"
-	[ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record watchdog recovered ok 4_1 "Recovered QModem USB path" "QModem path was absent or stale; recovered $modem_path" >/dev/null 2>&1 || true
-	return 0
+active_sections() {
+	local sec path slot
+	for sec in $(uci -q show qmodem | sed -nE 's/^qmodem\.([^.=]+)=modem-device$/\1/p'); do
+		case "$sec" in 4_1|4_2) ;; *) continue ;; esac
+		path="$(uci -q get "qmodem.$sec.path")"
+		slot="${sec/_/-}"
+		[ -d "$path" ] && [ "$(basename "$path")" = "$slot" ] && printf '%s\n' "$sec"
+	done
 }
 
-reassert_network_stubs() {
-        local changed=1   # 1 means "no change" (shell convention)
-        if ! uci -q get network.4_1 >/dev/null 2>&1; then
-                uci -q set network.4_1=interface
-                uci -q set network.4_1.proto='none'
-                uci -q set network.4_1.device='wwan0'
-                uci -q set network.4_1.metric='200'
-                uci -q set network.4_1.defaultroute='0'
-                uci -q set network.4_1.peerdns='0'
-                changed=0
-        fi
-        if ! uci -q get network.4_1v6 >/dev/null 2>&1; then
-                uci -q set network.4_1v6=interface
-                uci -q set network.4_1v6.proto='none'
-                uci -q set network.4_1v6.device='wwan0'
-                uci -q set network.4_1v6.metric='200'
-                uci -q set network.4_1v6.disabled='1'
-                changed=0
-        fi
-        if [ $changed -eq 0 ]; then
-                uci -q commit network
-                logger -t "$NAME" "re-asserted network.4_1 / 4_1v6 stubs"
-                [ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record watchdog issue warning 4_1 "Network stubs were missing" "watchdog re-asserted network.4_1 / 4_1v6" >/dev/null 2>&1 || true
-        fi
-        return $changed
+reassert_section() {
+	local sec="$1" power device zone changed=1
+	power="$(slot_power "$sec")"
+	device="$(section_device "$sec")" || return 1
+
+	# The physically enumerated slot alone may be held on. Do not touch its peer.
+	if [ -w "/sys/class/gpio/$power/value" ] && [ "$(cat "/sys/class/gpio/$power/value" 2>/dev/null)" != 1 ]; then
+		printf 1 > "/sys/class/gpio/$power/value"
+		changed=0
+	fi
+	if [ "$(uci -q get "qmodem.$sec.state")" = disabled ]; then
+		uci -q set "qmodem.$sec.state=enabled"
+		uci -q commit qmodem
+		changed=0
+	fi
+
+	network_changed=0
+	for spec in \
+		"$sec=interface" "${sec}.proto=none" "${sec}.device=$device" \
+		"${sec}.ifname=$device" "${sec}.metric=200" \
+		"${sec}.defaultroute=1" "${sec}.peerdns=0" \
+		"${sec}v6=interface" "${sec}v6.proto=none" \
+		"${sec}v6.device=$device" "${sec}v6.metric=200" \
+		"${sec}v6.disabled=1"
+	do
+		key=${spec%%=*}
+		value=${spec#*=}
+		if [ "$(uci -q get "network.$key")" != "$value" ]; then
+			uci -q set "network.$key=$value"
+			network_changed=1
+		fi
+	done
+	if [ "$network_changed" = 1 ]; then
+		uci -q commit network
+		changed=0
+	fi
+
+	if zone="$(find_wan_zone)"; then
+		firewall_changed=0
+		for iface in "$sec" "${sec}v6"; do
+			case " $(uci -q get "firewall.$zone.network") " in
+				*" $iface "*) ;;
+				*) uci -q add_list "firewall.$zone.network=$iface"; firewall_changed=1 ;;
+			esac
+		done
+		if [ "$firewall_changed" = 1 ]; then
+			uci -q commit firewall
+			changed=0
+		fi
+	fi
+
+	ip -4 addr show "$device" 2>/dev/null | grep -q 'inet ' || return "$changed"
+	if ! ubus call "network.interface.$sec" status 2>/dev/null | grep -q '"up": true'; then
+		ifup "$sec" >/dev/null 2>&1 || /etc/init.d/network reload >/dev/null 2>&1
+		changed=0
+	fi
+	return "$changed"
 }
 
-reassert_firewall_zone() {
-        local zone="$1"
-        local nets
-        local changed=1
-        nets=$(uci -q get "firewall.${zone}.network")
-        case " $nets " in
-                *" 4_1 "*) ;;
-                *) uci -q add_list "firewall.${zone}.network=4_1"; changed=0 ;;
-        esac
-        case " $nets " in
-                *" 4_1v6 "*) ;;
-                *) uci -q add_list "firewall.${zone}.network=4_1v6"; changed=0 ;;
-        esac
-        if [ $changed -eq 0 ]; then
-                uci -q commit firewall
-                logger -t "$NAME" "re-added 4_1/4_1v6 to firewall ${zone} (wan)"
-                [ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record watchdog issue warning 4_1 "Firewall WAN zone missed modem interfaces" "watchdog re-added 4_1/4_1v6 to firewall ${zone}" >/dev/null 2>&1 || true
-        fi
-        return $changed
-}
-
-# proto=none netifd interfaces don't auto-bring-up when their device
-# (wwan0) becomes ready - quectel-CM-M owns wwan0's IP/route via raw
-# `ip addr add` and netifd never sees a state transition. Without an
-# explicit `ifup 4_1`, fw4 keeps the wan zone's oifname set as
-# { "br-wan" } only - srcnat_wan never matches wwan0 egress, masquerade
-# is skipped on the cellular path, and LAN clients silently fail to
-# reach internet (the router itself can ping out because its packets
-# already source from wwan0). Re-assert by running `ifup 4_1` whenever
-# wwan0 has an IP but ubus reports the 4_1 interface as not up.
-reassert_iface_up() {
-        local ifup_out
-
-        # wwan0 has IPv4 -> modem dialed successfully
-        ip -4 addr show wwan0 2>/dev/null | grep -q 'inet ' || return 1
-        # netifd already considers 4_1 up -> nothing to do
-        if ubus call network.interface.4_1 status 2>/dev/null \
-                | grep -q '"up": true'; then
-                return 1
-        fi
-        # qmodem_network restart often de-syncs netifd's runtime state
-        # from UCI - ifup then errors with "Interface 4_1 not found"
-        # even though the section is in /etc/config/network. If we hit
-        # that, reload network to re-register sections and retry. The
-        # first ifup call is also our cheap probe: when netifd state is
-        # already in sync, this brings 4_1 up and we skip the reload.
-        ifup_out=$(ifup 4_1 2>&1)
-        if printf '%s' "$ifup_out" | grep -q 'not found'; then
-                /etc/init.d/network reload >/dev/null 2>&1
-                # netifd needs ~1s to re-register interfaces after reload.
-                sleep 2
-                ifup_out=$(ifup 4_1 2>&1)
-                if printf '%s' "$ifup_out" | grep -q 'not found'; then
-                        logger -t "$NAME" \
-                                "ifup 4_1 still 'not found' after network reload; UCI section may be missing"
-                        [ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record watchdog issue warning 4_1 "ifup 4_1 failed after network reload" "netifd could not find interface 4_1" >/dev/null 2>&1 || true
-                        return 0   # 0 = reload firewall on next pass anyway
-                fi
-        fi
-        # 4_1v6 has no v6 LL on wwan0 typically (Smart PH IPv4-only PDP),
-        # but bring it up too if its UCI section exists and netifd
-        # doesn't already have it up. Quietly suppress noise when 4_1v6
-        # isn't present at all (e.g. on operators with v4-only PDP).
-        if uci -q get network.4_1v6 >/dev/null 2>&1; then
-                if ! ubus call network.interface.4_1v6 status 2>/dev/null \
-                        | grep -q '"up": true'; then
-                        ifup 4_1v6 >/dev/null 2>&1
-                fi
-        fi
-        logger -t "$NAME" "brought up netifd interface 4_1 (wwan0 had IP, netifd was idle)"
-        [ -x /usr/sbin/zbt-modem-events ] && /usr/sbin/zbt-modem-events record watchdog recovered ok 4_1 "Brought modem interface up" "wwan0 had IPv4 while netifd 4_1 was idle" >/dev/null 2>&1 || true
-        return 0
-}
-
-# Initial settle delay so we do not fight modem_scan during the boot storm.
 sleep "$SETTLE_DELAY"
-
 start_ts=$(awk '{print int($1)}' /proc/uptime)
-
 while :; do
-        # RNDIS is a DHCP Ethernet composition, not a QModem one. Do not
-        # resurrect qmodem.4_1 or its absent wwan0 stubs while it exists.
-        if is_active_rndis; then
-                sleep "$POLL_INTERVAL_SLOW"
-                continue
-        fi
-
-        reload_fw=1   # 1 = no, 0 = yes (shell convention for return codes)
-
-		reassert_5g1_power && reload_fw=0
-		reassert_qmodem_state && reload_fw=0
-        reassert_qmodem_path && reload_fw=0
-
-        reassert_network_stubs && reload_fw=0
-
-        # Resolve wan zone every cycle - a user could add/reorder zones
-        # in LuCI between cycles, so caching the index would be wrong.
-        if wan_zone="$(find_wan_zone)"; then
-                reassert_firewall_zone "$wan_zone" && reload_fw=0
-        else
-                logger -t "$NAME" "no firewall zone named 'wan' found, skipping zone re-assert"
-        fi
-
-        # Bring 4_1 / 4_1v6 up via netifd once wwan0 has an IP. This is
-        # what tells fw4 to add wwan0 to the wan zone's oifname set so
-        # masquerade applies to cellular egress for LAN clients.
-        # `ifup` triggers fw4 reload on its own, so we don't add to
-        # reload_fw here.
-        reassert_iface_up || true
-
-        if [ $reload_fw -eq 0 ]; then
-                fw4 reload >/dev/null 2>&1
-        fi
-
-        # Cadence: fast during the first FAST_PHASE_SECS after start,
-        # slow afterwards. Saves CPU once the state has stabilised.
-        now_ts=$(awk '{print int($1)}' /proc/uptime)
-        if [ $((now_ts - start_ts)) -lt "$FAST_PHASE_SECS" ]; then
-                sleep "$POLL_INTERVAL_FAST"
-        else
-                sleep "$POLL_INTERVAL_SLOW"
-        fi
+	if ! is_active_rndis && [ "$(uci -q get qmodem.main.block_auto_probe)" != 1 ] && [ "$(uci -q get qmodem.main.enable_dial)" = 1 ]; then
+		changed=1
+		for sec in $(active_sections); do reassert_section "$sec" && changed=0; done
+		[ "$changed" = 0 ] && fw4 reload >/dev/null 2>&1
+	fi
+	now_ts=$(awk '{print int($1)}' /proc/uptime)
+	if [ $((now_ts - start_ts)) -lt "$FAST_PHASE_SECS" ]; then sleep "$POLL_INTERVAL_FAST"; else sleep "$POLL_INTERVAL_SLOW"; fi
 done

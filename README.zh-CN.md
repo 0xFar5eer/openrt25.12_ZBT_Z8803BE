@@ -20,7 +20,7 @@
 - **内核:** Linux `6.12.74`
 - **目标平台:** `mediatek/filogic`
 - **设备:** MediaTek MT7988A / Filogic 880 + MT7996 系列三频 WiFi 7
-- **发布标签:** `v25.12.018`
+- **发布标签:** `v25.12.019`
 
 ## 下载
 
@@ -39,15 +39,16 @@
 ## 校验值
 
 ```text
-49b5e74fb7e46d23641dcf7386bc8b2a134b591a3e07d2b58edd04d051e0726b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-1d53ebdcbca8e8cacdaee518277d1a9ce1d45632c06c8bfc2c65393427be4c19  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-6875eae6712978d9487f8dfcfc6b978854d1e618e7eebc4412ea554f6fc8e63c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+296339130bcfd945567e38018f9ea7557595e4b04a705dc0a760865ba8f2ce43  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+3f9bc4acfdb50e2f1a2b4695ab1710e7df5756040830decbc1707b3b8993a242  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+e8001906fb4fa60cc71636e2bd6d3c1f01a29bec0e5afa5773cd1b18b7c616a7  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ```
 
 ## 已包含功能
 
 - **OpenWrt 25.12.2 基线:** 不依赖 MediaTek vendor feed。
-- **WiFi 7 三频:** 2.4 GHz、5 GHz、6 GHz、EHT320、WPA3、支持 MLO。
+- **WiFi 7 三频:** 2.4 GHz、5 GHz、6 GHz、EHT320、WPA3、支持 MLO；LuCI 的 **网络 → WiFi 7 MLO** 提供按需启用的 MLO 配置。
+- **Shell timeout:** 已包含 GNU `timeout`，路径为 `/usr/bin/timeout`。
 - **PH WiFi 默认值:** 国家码 `PH`，启用 PH 允许的完整信道集合，固件不额外限制 txpower/channel，并由驱动按法规自动选择最大发射功率。
 - **LuCI:** HTTPS、中文翻译、软件包管理器，以及聚焦于 Health、Temperature、Modem Events 和 QModem 的 Services/服务菜单。
 - **自定义 LuCI 应用:** About、Health、Temperature 和 Modem Events。
@@ -55,7 +56,7 @@
 - **QModem Next:** 现代 JS 调制解调器界面，内置短信、监控、AT 调试和调制解调器控制。
 - **调制解调器栈:** QMI、MBIM、NCM、MHI、USB serial、QModem、`sms_tool_q`。
 - **Z8803BE-T SIM 接线说明:** 此精确型号/版本中，SIM1 固定连接 modem1，SIM2 固定连接 modem2；单个模块不能控制两张 SIM 卡，因此不支持 SIM 切换。
-- **公开固件默认值:** 5G1 在冷启动时供电以枚举 USB 调制解调器；5G2 默认关闭直到手动启用。有线 WAN/SFP 优先，cellular 默认休眠并使用 metric `200` 且不作为默认路由。
+- **公开固件默认值:** 5G1 在冷启动时供电以枚举 USB 调制解调器；5G2 默认关闭直到手动启用。手动启用 5G2 后，固件按 USB 路径选择对应的 QModem 配置和 WAN 集成，不修改 5G1 的配置。
 - **存储:** USB 3.0、ext4、vfat、exfat 和 SFTP。
 - **监控:** 路由器健康状态、autocore、温度历史和 modem 事件历史。
 - **Shell 默认项:** banner、彩色提示符和常用别名；额外诊断工具按需通过软件包管理器安装。

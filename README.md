@@ -12,7 +12,7 @@ Current custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - **Kernel:** Linux `6.12.74`
 - **Target:** `mediatek/filogic`
 - **Device:** MediaTek MT7988A / Filogic 880 + MT7996-family tri-band WiFi 7
-- **Release tag:** `v25.12.018`
+- **Release tag:** `v25.12.019`
 
 ## Download
 
@@ -31,22 +31,23 @@ Use the latest GitHub release assets:
 ## Checksums
 
 ```text
-49b5e74fb7e46d23641dcf7386bc8b2a134b591a3e07d2b58edd04d051e0726b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-1d53ebdcbca8e8cacdaee518277d1a9ce1d45632c06c8bfc2c65393427be4c19  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-6875eae6712978d9487f8dfcfc6b978854d1e618e7eebc4412ea554f6fc8e63c  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+296339130bcfd945567e38018f9ea7557595e4b04a705dc0a760865ba8f2ce43  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+3f9bc4acfdb50e2f1a2b4695ab1710e7df5756040830decbc1707b3b8993a242  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+e8001906fb4fa60cc71636e2bd6d3c1f01a29bec0e5afa5773cd1b18b7c616a7  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ```
 
 ## Included features
 
 - **Mainline OpenWrt 25.12.2 base:** no MediaTek vendor feed required.
-- **WiFi 7 tri-band:** 2.4 GHz, 5 GHz, 6 GHz, EHT320, WPA3, MLO-capable.
+- **WiFi 7 tri-band:** 2.4 GHz, 5 GHz, 6 GHz, EHT320, WPA3, MLO-capable; **Network → WiFi 7 MLO** provides opt-in MLO configuration in LuCI.
+- **Shell timeout:** GNU `timeout` is included at `/usr/bin/timeout`.
 - **PH WiFi defaults:** country `PH`, full PH-allowed channel set, no firmware txpower/channel clamps, and automatic regulatory max power.
 - **LuCI:** HTTPS, Argon dark theme, Chinese translations, package manager, curated Services menu ordering, and shared ZBT styling across custom firmware apps.
 - **QModem Next:** modern JS modem UI with built-in SMS, Monitor, AT Debug, and modem controls.
 - **Modem stack:** QMI, MBIM, NCM, MHI, USB serial, QModem, `sms_tool_q`.
 - **Z8803BE-T SIM wiring note:** on this exact model/variant, SIM1 is wired to modem1 and SIM2 is wired to modem2; one module cannot control both SIM cards, so SIM switching is not supported. Supplier notes that another Z8803BE-T version does support one module controlling two SIM cards.
 - **Modem LEDs:** firmware-enabled LED services and state poller.
-- **Default modem power:** slot 1 on (`5g1=1`), slot 2 off (`5g2=0`).
+- **Default modem power:** slot 1 on (`5g1=1`), slot 2 off (`5g2=0`). When slot 2 is manually powered, its QModem profile and WAN integration are selected by USB path without modifying slot 1.
 - **Networking:** WireGuard, SQM/CAKE, DDNS, firewall4/nftables.
 - **WAN failover defaults:** first boot seeds WAN metric `10` and WWAN/QModem metric `20` for carrier-driven cable-unplug failover.
 - **Storage:** USB 3.0, ext4, vfat, exfat, ntfs3, Samba 4, SFTP.
