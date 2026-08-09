@@ -126,7 +126,7 @@ output/mediatek/filogic/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sy
 ## Support / contact
 
 - **Issues / PRs:** https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/issues
-- **Telegram:** https://t.me/Far5eer
+- **Email:** [0xfar5eer@gmail.com](mailto:0xfar5eer@gmail.com)
 
 PRs and issue reports are very welcome — this is a community build, so please file anything you spot. The same info is also surfaced on the router itself in the SSH banner and at **LuCI -> System -> About this build**.
 
