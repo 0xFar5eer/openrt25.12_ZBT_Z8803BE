@@ -20,7 +20,7 @@
 - **内核:** Linux `6.12.74`
 - **目标平台:** `mediatek/filogic`
 - **设备:** MediaTek MT7988A / Filogic 880 + MT7996 系列三频 WiFi 7
-- **发布标签:** `v25.12.020`
+- **发布标签:** `v25.12.021`
 
 ## 下载
 
@@ -33,15 +33,17 @@
 - `config.buildinfo`
 - `feeds.buildinfo`
 - `version.buildinfo`
+- `packages-aarch64_cortex-a53.tar.gz`
 - `RELEASE_NOTES.md`
 - `RELEASE_NOTES.zh-CN.md`
 
 ## 校验值
 
 ```text
-b79322f99dc47c41432523ce89bf875d3a482f39831c4965ffa4e5d5dfe4dfbd  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-2095f444768ef7e3da12275d2bd9292ce1c2c58e56ece5d3e2a3b5cbf0067e6d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-072b12265a71173feaf1e5f8d2003973f77c4dfa6ecfb508c84674ff75aea843  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+0b4c093807e7ab6fb34c23f0b766689c12d7f2ca212655643681468b66dab9cd  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+6254dffe2a51a7d86efde993528466142187598645ecf660f9463b7d89c85b64  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+4a4cf6dbc0688f858a092ea0a0d7a79e3d27ce5cb840888df927bbea37e52a5f  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+ad0a299a4249c5ed426979b0b0d070be0ef7f7bb738067895c60893e37938172  packages-aarch64_cortex-a53.tar.gz
 ```
 
 ## 已包含功能
@@ -54,7 +56,7 @@ b79322f99dc47c41432523ce89bf875d3a482f39831c4965ffa4e5d5dfe4dfbd  openwrt-mediat
 - **自定义 LuCI 应用:** About、Health、Temperature 和 Modem Events。
 - **已移除的可选套件:** 流量统计、QoS、DDNS、NAS、DNS 过滤和广泛诊断工具不预装；可按需通过软件包管理器安装。
 - **QModem Next:** 现代 JS 调制解调器界面，内置短信、监控、AT 调试和调制解调器控制。
-- **运营商 TTL 修复（默认关闭）:** LuCI 的 **调制解调器 → QModem → TTL** 可改写转发流量的 IPv4 TTL / IPv6 hop limit，用于应对会在会话建立数秒后主动断开的运营商。预置为 `64` 且默认**关闭**，因为启用后同时会关闭硬件 flow offloading。仅当调制解调器自身仍在做 NAT（常见于分配 `192.168.225.x` 的 RNDIS 组合模式）时才需要改为 `65`；在固件 `donot_nat=1` 约定下模块是透明管道，`64` 即为正确值。在 GUI 中关闭 TTL 不会自动恢复 flow offloading，需手动执行 `uci set firewall.@defaults[0].flow_offloading='1' && uci commit firewall && /etc/init.d/firewall restart`。
+- **运营商 TTL 修复（默认关闭）:** LuCI 的 **调制解调器 → QModem → TTL** 可改写转发流量的 IPv4 TTL / IPv6 hop limit，用于应对会在会话建立数秒后主动断开的运营商（issue #9）。预置为 `64` 且默认**关闭**，因为启用后同时会关闭硬件 flow offloading。QMI 模式下固件的 `donot_nat=1` 请求根本不会送达 modem（只有 NCM/ECM 拨号路径会发它），因此以 QMI 拨号的 Quectel 仍在做 NAT，运营商看到的是 63——此时应使用 `65`。后台探针（`zbt-modem-nat-probe`，在蜂窝 ifup 时触发）会根据拨号器获得的地址识别出 modem-NAT 场景并自动把值提到 `65`；它不会替你启用插件，如果你手动改过该值它也会永久停用。在 GUI 中关闭 TTL 不会自动恢复 flow offloading，需手动执行 `uci set firewall.@defaults[0].flow_offloading='1' && uci commit firewall && /etc/init.d/firewall restart`。
 - **调制解调器栈:** QMI、MBIM、NCM、MHI、USB serial、QModem、`sms_tool_q`。
 - **Z8803BE-T SIM 接线说明:** 此精确型号/版本中，SIM1 固定连接 modem1，SIM2 固定连接 modem2；单个模块不能控制两张 SIM 卡，因此不支持 SIM 切换。
 - **公开固件默认值:** 5G1 在冷启动时供电以枚举 USB 调制解调器；5G2 默认关闭直到手动启用。手动启用 5G2 后，固件按 USB 路径选择对应的 QModem 配置和 WAN 集成，不修改 5G1 的配置。

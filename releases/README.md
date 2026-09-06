@@ -1,7 +1,7 @@
 # Release staging
 Local staging folder for validated **ZBTLink ZBT-Z8803BE** firmware builds.
 
-- **Current tag:** `v25.12.020`
+- **Current tag:** `v25.12.021`
 - **OpenWrt revision:** `r32858-16347e93b6`
 - **OpenWrt release / kernel:** `25.12.2` / `6.12.74`
 - **Target:** `mediatek/filogic`
