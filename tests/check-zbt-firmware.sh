@@ -7,6 +7,7 @@ seed="$root/.buildenv/zbt8803be.config"
 auto="$root/target/linux/mediatek/filogic/base-files/etc/hotplug.d/usb/40-zbt-qmodem-autoenable"
 watchdog="$root/target/linux/mediatek/filogic/base-files/usr/sbin/zbt-qmodem-watchdog-loop"
 rndis="$root/target/linux/mediatek/filogic/base-files/etc/hotplug.d/net/15-zbt-rndis-auto"
+ttl="$root/target/linux/mediatek/filogic/base-files/etc/uci-defaults/54-zbt-qmodem-ttl-defaults"
 
 require() {
 	grep -Fq "$2" "$1" || {
@@ -25,8 +26,12 @@ require "$watchdog" 'slot="${sec/_/-}"'
 require "$watchdog" 'power="$(slot_power "$sec")"'
 require "$rndis" '4-1) rndis_slot=4_1'
 require "$rndis" '4-2) rndis_slot=4_2'
+require "$seed" 'CONFIG_PACKAGE_luci-app-qmodem-ttlfw4=y'
+require "$ttl" "qmodem_ttl.main.ttl='64'"
+require "$ttl" "qmodem_ttl.main.enable='0'"
+require "$ttl" '/etc/init.d/qmodem_ttl disable'
 
-for file in "$auto" "$watchdog" "$rndis"; do
+for file in "$auto" "$watchdog" "$rndis" "$ttl"; do
 	sh -n "$file"
 done
 

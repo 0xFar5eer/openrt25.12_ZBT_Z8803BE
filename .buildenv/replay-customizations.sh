@@ -24,7 +24,6 @@ echo "Replaying customizations: $SRC -> $DST"
 # 1. Whole directories that we own end-to-end.
 DIRS=(
     .buildenv
-    docs
     package/emortal/autocore
     package/luci-app-zbt-about
     package/luci-app-zbt-health

@@ -12,7 +12,7 @@ Current custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - **Kernel:** Linux `6.12.74`
 - **Target:** `mediatek/filogic`
 - **Device:** MediaTek MT7988A / Filogic 880 + MT7996-family tri-band WiFi 7
-- **Release tag:** `v25.12.019`
+- **Release tag:** `v25.12.020`
 
 ## Download
 
@@ -31,9 +31,9 @@ Use the latest GitHub release assets:
 ## Checksums
 
 ```text
-296339130bcfd945567e38018f9ea7557595e4b04a705dc0a760865ba8f2ce43  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-3f9bc4acfdb50e2f1a2b4695ab1710e7df5756040830decbc1707b3b8993a242  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-e8001906fb4fa60cc71636e2bd6d3c1f01a29bec0e5afa5773cd1b18b7c616a7  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+b79322f99dc47c41432523ce89bf875d3a482f39831c4965ffa4e5d5dfe4dfbd  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+2095f444768ef7e3da12275d2bd9292ce1c2c58e56ece5d3e2a3b5cbf0067e6d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+072b12265a71173feaf1e5f8d2003973f77c4dfa6ecfb508c84674ff75aea843  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ```
 
 ## Included features
@@ -44,14 +44,16 @@ e8001906fb4fa60cc71636e2bd6d3c1f01a29bec0e5afa5773cd1b18b7c616a7  openwrt-mediat
 - **PH WiFi defaults:** country `PH`, full PH-allowed channel set, no firmware txpower/channel clamps, and automatic regulatory max power.
 - **LuCI:** HTTPS, Argon dark theme, Chinese translations, package manager, curated Services menu ordering, and shared ZBT styling across custom firmware apps.
 - **QModem Next:** modern JS modem UI with built-in SMS, Monitor, AT Debug, and modem controls.
+- **Carrier TTL fix (opt-in):** **Modem → QModem → TTL** rewrites the IPv4 TTL / IPv6 hop limit of forwarded traffic, for carriers that tear down a tethered session seconds after it attaches. Pre-seeded to `64` and left **disabled**, because enabling it also clears hardware flow offloading. Use `65` only when the modem is still NATing for itself (an RNDIS composition handing out `192.168.225.x`); with the firmware's `donot_nat=1` contract the module is a transparent pipe and `64` is correct. Note that turning TTL back off does not restore flow offloading — do that with `uci set firewall.@defaults[0].flow_offloading='1' && uci commit firewall && /etc/init.d/firewall restart`.
 - **Modem stack:** QMI, MBIM, NCM, MHI, USB serial, QModem, `sms_tool_q`.
 - **Z8803BE-T SIM wiring note:** on this exact model/variant, SIM1 is wired to modem1 and SIM2 is wired to modem2; one module cannot control both SIM cards, so SIM switching is not supported. Supplier notes that another Z8803BE-T version does support one module controlling two SIM cards.
 - **Modem LEDs:** firmware-enabled LED services and state poller.
 - **Default modem power:** slot 1 on (`5g1=1`), slot 2 off (`5g2=0`). When slot 2 is manually powered, its QModem profile and WAN integration are selected by USB path without modifying slot 1.
-- **Networking:** WireGuard, SQM/CAKE, DDNS, firewall4/nftables.
-- **WAN failover defaults:** first boot seeds WAN metric `10` and WWAN/QModem metric `20` for carrier-driven cable-unplug failover.
-- **Storage:** USB 3.0, ext4, vfat, exfat, ntfs3, Samba 4, SFTP.
-- **Monitoring:** router health, autocore, cpufreq, collectd/statistics, WiFi clients/history, and wrtbwmon Traffic Statistics device/domain views.
+- **Networking:** WireGuard (`wireguard-tools`, command line only), firewall4/nftables.
+- **WAN failover defaults:** first boot seeds SFP metric `9`, RJ45 WAN metric `10`, and cellular metric `200`, so a wired uplink always wins and cellular carries the router when nothing wired is up.
+- **Storage:** USB 3.0, ext4, vfat, exfat, `block-mount`, SFTP.
+- **Monitoring:** ZBT Health page, autocore, temperature logging, modem event history.
+- **Deliberately small image:** v25.12.016 shipped 525 packages in a 62 MB image; v25.12.020 ships 278 in 20.7 MB. This board runs from SPI-NAND with a squashfs rootfs plus a UBIFS overlay, and a fat rootfs stretched the post-flash configuration reset into minutes during which modem hotplug, WiFi bring-up and firewall rules raced a half-built overlay. Traffic statistics, QoS, DDNS, NAS, DNS filtering and broad diagnostic tools are therefore not preinstalled; install them on demand from the package manager.
 - **Temperature monitor:** built-in ZBT temperature charts with per-module avoid-limit overlays and fan PWM logging.
 - **Router health page:** built-in ZBT Health page for overlay/storage, RAM, conntrack, uptime, and write-hotspot checks.
 - **Shell defaults:** banner, color prompt, useful aliases/tools, `git`, `git-http`, and a BusyBox-compatible `install` shim.
@@ -149,10 +151,9 @@ Optional donations support continued maintenance and hardware testing:
 - [OpenWrt mainline](https://openwrt.org) — the underlying distribution this build is based on (no MediaTek vendor feed required).
 - [ImmortalWrt](https://github.com/immortalwrt) — additional package and LuCI overlays used during build.
 
-## More documentation
+## Contributing
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Configuration](docs/CONFIGURATION.md)
-- [Getting started](docs/GETTING-STARTED.md)
-- [Development](docs/DEVELOPMENT.md)
-- [Testing](docs/TESTING.md)
+Bug reports and pull requests are welcome. Builds run in Docker through
+`.buildenv/build.sh` — its usage block lists the subcommands — and
+`sh tests/check-zbt-firmware.sh` is the static gate a change has to clear
+before it ships in a release.

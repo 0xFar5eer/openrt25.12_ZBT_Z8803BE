@@ -20,7 +20,7 @@
 - **内核:** Linux `6.12.74`
 - **目标平台:** `mediatek/filogic`
 - **设备:** MediaTek MT7988A / Filogic 880 + MT7996 系列三频 WiFi 7
-- **发布标签:** `v25.12.019`
+- **发布标签:** `v25.12.020`
 
 ## 下载
 
@@ -39,9 +39,9 @@
 ## 校验值
 
 ```text
-296339130bcfd945567e38018f9ea7557595e4b04a705dc0a760865ba8f2ce43  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-3f9bc4acfdb50e2f1a2b4695ab1710e7df5756040830decbc1707b3b8993a242  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-e8001906fb4fa60cc71636e2bd6d3c1f01a29bec0e5afa5773cd1b18b7c616a7  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+b79322f99dc47c41432523ce89bf875d3a482f39831c4965ffa4e5d5dfe4dfbd  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+2095f444768ef7e3da12275d2bd9292ce1c2c58e56ece5d3e2a3b5cbf0067e6d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+072b12265a71173feaf1e5f8d2003973f77c4dfa6ecfb508c84674ff75aea843  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ```
 
 ## 已包含功能
@@ -54,6 +54,7 @@ e8001906fb4fa60cc71636e2bd6d3c1f01a29bec0e5afa5773cd1b18b7c616a7  openwrt-mediat
 - **自定义 LuCI 应用:** About、Health、Temperature 和 Modem Events。
 - **已移除的可选套件:** 流量统计、QoS、DDNS、NAS、DNS 过滤和广泛诊断工具不预装；可按需通过软件包管理器安装。
 - **QModem Next:** 现代 JS 调制解调器界面，内置短信、监控、AT 调试和调制解调器控制。
+- **运营商 TTL 修复（默认关闭）:** LuCI 的 **调制解调器 → QModem → TTL** 可改写转发流量的 IPv4 TTL / IPv6 hop limit，用于应对会在会话建立数秒后主动断开的运营商。预置为 `64` 且默认**关闭**，因为启用后同时会关闭硬件 flow offloading。仅当调制解调器自身仍在做 NAT（常见于分配 `192.168.225.x` 的 RNDIS 组合模式）时才需要改为 `65`；在固件 `donot_nat=1` 约定下模块是透明管道，`64` 即为正确值。在 GUI 中关闭 TTL 不会自动恢复 flow offloading，需手动执行 `uci set firewall.@defaults[0].flow_offloading='1' && uci commit firewall && /etc/init.d/firewall restart`。
 - **调制解调器栈:** QMI、MBIM、NCM、MHI、USB serial、QModem、`sms_tool_q`。
 - **Z8803BE-T SIM 接线说明:** 此精确型号/版本中，SIM1 固定连接 modem1，SIM2 固定连接 modem2；单个模块不能控制两张 SIM 卡，因此不支持 SIM 切换。
 - **公开固件默认值:** 5G1 在冷启动时供电以枚举 USB 调制解调器；5G2 默认关闭直到手动启用。手动启用 5G2 后，固件按 USB 路径选择对应的 QModem 配置和 WAN 集成，不修改 5G1 的配置。

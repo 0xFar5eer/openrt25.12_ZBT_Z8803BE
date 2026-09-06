@@ -1,0 +1,69 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Z8803BE — pre-seed the QModem TTL-for-fw4 plugin, disabled.
+#
+# WHY THE PLUGIN EXISTS:
+# Carriers that police tethering (common on US postpaid data plans) inspect
+# the IPv4 TTL / IPv6 hop limit of a data session. A phone tethering natively
+# presents TTL 64. The same phone behind this router presents TTL 63, because
+# ip_forward_finish() decrements it once before the postrouting hook. Some
+# carriers react to that single decrement by tearing the PDN session down a
+# couple of seconds after it attaches — which is exactly the "online, SMS
+# works, internet dies after ~2s" symptom reported in issue #9.
+#
+# luci-app-qmodem-ttlfw4 rewrites the value on egress:
+#   feeds/qmodem/luci/luci-app-qmodem-ttlfw4/root/etc/init.d/qmodem_ttl
+#     chain postrouting { iifname "br-lan" ip ttl set <n> }
+#     chain postrouting { iifname "br-lan" ip6 hoplimit set <n> }
+# Because postrouting runs after the kernel's own decrement, `set 64` is an
+# absolute write: 64 leaves this router toward the modem.
+#
+# WHY 64 AND NOT 65:
+# 64 is correct as long as the modem is a transparent IP pipe, which is what
+# the firmware contract in 40-zbt-qmodem-dns-suppress arranges: donot_nat=1
+# makes modem_dial.sh send AT+QCFG="nat",0, so the module stops routing and
+# stops decrementing. A second decrement only happens when modem-side NAT is
+# still on — the default for RNDIS compositions that hand out 192.168.225.x,
+# where no AT+QCFG is sent because quectel-CM is not the dialer. In that case
+# the carrier sees 63 and the operator can either raise this value to 65 or,
+# better, turn modem NAT off so 64 is right for every path.
+#
+# WHY DISABLED BY DEFAULT:
+# Enabling TTL rewriting forces firewall.@defaults[0].flow_offloading=0 and
+# flow_offloading_hw=0 (the plugin does this itself in set_if_ttl). Hardware
+# offload is what keeps this board's routing fast, so silently turning it off
+# for every user would be a throughput regression on wired WAN. The user opts
+# in with one switch in LuCI -> Modem -> QModem -> TTL.
+#
+# KNOWN UPSTREAM QUIRK:
+# The plugin's stop_service() removes the nft file but does not restore
+# flow_offloading to 1, so disabling TTL in the GUI leaves offload off until
+# it is re-enabled by hand. Documented here and in the README; not patched so
+# the feed stays pristine (same policy as 52-zbt-qmodem-monitor-overlay).
+#
+# IDEMPOTENCE:
+# uci set is a no-op when the value already matches, so this is safe on every
+# boot and across sysupgrade. A user-set ttl is only overwritten when it is
+# absent, never when it is already configured.
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+# Skip cleanly on builds that do not ship the plugin.
+[ -e /etc/config/qmodem_ttl ] || exit 0
+
+# Seed the value only when unset, so an operator's 65 survives a reflash.
+if [ -z "$(uci -q get qmodem_ttl.main.ttl)" ]; then
+	uci -q set qmodem_ttl.main.ttl='64'
+fi
+
+# Always land on "configured but inert".
+uci -q set qmodem_ttl.main.enable='0'
+uci -q commit qmodem_ttl
+
+/etc/init.d/qmodem_ttl disable >/dev/null 2>&1 || true
+
+exit 0
