@@ -94,12 +94,15 @@ if brlan="$(uci -q show network 2>/dev/null \
 	uci -q del_list "network.${brlan}.ports=eth1"
 fi
 
-# Register WWAN (4_1 / 4_1v6) stubs for QModem. The QModem connection
-# manager owns direct QMI address/route installation; these stubs provide
-# the metric and firewall identity, not a DHCP client.
+# Register WWAN (4_1 / 4_1v6) stubs for QModem. These provide the metric
+# and firewall identity, and must state the proto QModem itself would
+# choose. For a Quectel modem dialing QMI that is 'dhcp' (see the long
+# note in 30-zbt-z8803be-wan-failover): asserting 'none' here made QModem
+# rewrite proto and metric and re-run `ifup` on every dial, which bounced
+# udhcpc off a live lease and dropped the uplink for seconds at a time.
 if ! uci -q get network.4_1 >/dev/null 2>&1; then
 	uci -q set network.4_1=interface
-	uci -q set network.4_1.proto='none'
+	uci -q set network.4_1.proto='dhcp'
 	uci -q set network.4_1.device='wwan0'
 fi
 uci -q set network.4_1.metric='200'
@@ -109,18 +112,21 @@ uci -q set network.4_1.ifname='wwan0'
 
 if ! uci -q get network.4_1v6 >/dev/null 2>&1; then
 	uci -q set network.4_1v6=interface
-	uci -q set network.4_1v6.proto='none'
+	uci -q set network.4_1v6.proto='dhcpv6'
 	uci -q set network.4_1v6.device='wwan0'
 fi
 uci -q set network.4_1v6.metric='200'
 uci -q set network.4_1v6.defaultroute='1'
 uci -q set network.4_1v6.peerdns='0'
 
+# See 30-zbt-z8803be-wan-failover: qmodem.<sec>.metric is what QModem
+# copies into network.<sec>.metric at dial time, and default_metric only
+# applies when QModem first creates the profile.
 if [ -e /etc/config/qmodem ]; then
 	set_slot_default_metric '4-1' '200'
-	if uci -q get qmodem.4_1 >/dev/null 2>&1; then
-		uci -q set qmodem.4_1.metric='200'
-	fi
+	for sec in 4_1 4_2; do
+		uci -q get "qmodem.$sec" >/dev/null 2>&1 && uci -q set "qmodem.${sec}.metric=200"
+	done
 	uci -q commit qmodem
 fi
 

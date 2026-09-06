@@ -11,7 +11,7 @@
 #       network.wan.peerdns   = 0   (drop ISP DHCP option 6)
 #       network.4_1.peerdns   = 0   (if cellular is explicitly enabled,
 #                                    drop operator DNS pushed via netifd
-#                                    for the qmodem proto=none stub)
+#                                    for the qmodem proto=dhcp stub)
 #   Note: feeds/qmodem/.../modem_dial.sh:397 deletes
 #   network.4_1.peerdns whenever the operator DNS list is empty
 #   (Smart PH common case), so `uci show network` after a dial may
@@ -61,13 +61,27 @@ uci -q set network.wan.defaultroute='1'
 uci -q set network.wan.peerdns='0'
 uci -q set network.wan.force_link='0'
 
-# Register dormant WWAN (4_1 / 4_1v6) proto=none stubs bound to wwan0.
+# Register dormant WWAN (4_1 / 4_1v6) stubs bound to wwan0.
 # Firmware defaults to wired WAN only: cellular has high metric, no
 # default route, and IPv6 disabled. If a deployment explicitly enables
 # cellular later, these stubs still let fw4 bind wwan0 to the wan zone.
+#
+# proto MUST be 'dhcp', not 'none'. QModem's set_if() derives the proto
+# from the modem identity (feeds/qmodem/.../modem_dial.sh:603-630) and
+# only falls back to 'none' for unisoc+mbim or bridge mode; a Quectel
+# on a Qualcomm platform dialing QMI always resolves to proto='dhcp'.
+# Its idempotence check (modem_dial.sh:759-779) then compares
+# network.<sec>.proto and .metric against what it is about to write, and
+# on any mismatch rewrites both and runs `ifup <sec>`. Asserting
+# proto='none' here therefore guaranteed a rewrite plus an ifup on every
+# single dial, which restarts udhcpc against a live lease: the client
+# gets SIGTERM, unicasts a DHCPRELEASE, and the uplink black-holes for a
+# few seconds. Observed in the field as "internet works for a couple of
+# seconds then drops" (issue #9). Matching QModem's own value makes the
+# comparison succeed and the churn disappear.
 if ! uci -q get network.4_1 >/dev/null 2>&1; then
 	uci -q set network.4_1=interface
-	uci -q set network.4_1.proto='none'
+	uci -q set network.4_1.proto='dhcp'
 	uci -q set network.4_1.device='wwan0'
 fi
 uci -q set network.4_1.metric='200'
@@ -83,12 +97,20 @@ uci -q set network.4_1.ifname='wwan0'
 
 if ! uci -q get network.4_1v6 >/dev/null 2>&1; then
 	uci -q set network.4_1v6=interface
-	uci -q set network.4_1v6.proto='none'
+	uci -q set network.4_1v6.proto='dhcpv6'
 	uci -q set network.4_1v6.device='wwan0'
 fi
 uci -q set network.4_1v6.metric='200'
 uci -q set network.4_1v6.disabled='1'
 
+# qmodem.<sec>.metric is the value QModem copies into network.<sec>.metric
+# when it dials, so it is the only place the metric can be set durably.
+# @modem-slot.default_metric is read solely when QModem CREATES a profile
+# (modem_scan.sh:485-515); an existing section keeps its stored metric, so
+# seeding the slot alone is not enough. On a clean flash the profile is
+# usually created before this uci-default runs, hence the explicit write
+# guarded by section existence, plus the same assertion in the runtime
+# hotplug and watchdog for the race.
 if [ -e /etc/config/qmodem ]; then
 	set_slot_default_metric '4-1' '200'
 	if uci -q get qmodem.4_1 >/dev/null 2>&1; then

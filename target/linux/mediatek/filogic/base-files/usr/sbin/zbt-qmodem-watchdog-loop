@@ -9,6 +9,10 @@ POLL_INTERVAL_FAST="${POLL_INTERVAL_FAST:-5}"
 POLL_INTERVAL_SLOW="${POLL_INTERVAL_SLOW:-30}"
 FAST_PHASE_SECS="${FAST_PHASE_SECS:-60}"
 SETTLE_DELAY="${SETTLE_DELAY:-15}"
+# Minimum gap between two UCI-writing passes for the same section while the
+# link still looks healthy. See REASSERT THROTTLE in reassert_section().
+REASSERT_MIN_INTERVAL="${REASSERT_MIN_INTERVAL:-120}"
+RUNDIR=/tmp/zbt-watchdog
 NAME=zbt-qmodem-watchdog
 
 is_active_rndis() {
@@ -56,10 +60,39 @@ active_sections() {
 	done
 }
 
+link_healthy() {
+	local sec="$1" device="$2"
+	ip -4 addr show "$device" 2>/dev/null | grep -q 'inet ' || return 1
+	ubus call "network.interface.$sec" status 2>/dev/null | grep -q '"up": true' || return 1
+	return 0
+}
+
+# REASSERT THROTTLE. A healthy link that merely disagrees with our preferred
+# proto/metric is not an emergency: QModem owns those fields and will keep
+# writing its own view, so chasing it every 5 s produces commits, which produce
+# reloads, which produce redials. Only act immediately when the link is
+# genuinely down or unaddressed; otherwise rate-limit the writes per section.
+recently_asserted() {
+	local sec="$1" last now
+	last=$(cat "$RUNDIR/last-assert.$sec" 2>/dev/null) || return 1
+	case "$last" in ''|*[!0-9]*) return 1 ;; esac
+	now=$(awk '{print int($1)}' /proc/uptime)
+	[ $((now - last)) -lt "$REASSERT_MIN_INTERVAL" ]
+}
+
+mark_asserted() {
+	awk '{print int($1)}' /proc/uptime > "$RUNDIR/last-assert.$1"
+}
+
 reassert_section() {
 	local sec="$1" power device zone changed=1
+	local network_changed=0 firewall_changed=0
 	power="$(slot_power "$sec")"
 	device="$(section_device "$sec")" || return 1
+
+	if recently_asserted "$sec" && link_healthy "$sec" "$device"; then
+		return 1
+	fi
 
 	# The physically enumerated slot alone may be held on. Do not touch its peer.
 	if [ -w "/sys/class/gpio/$power/value" ] && [ "$(cat "/sys/class/gpio/$power/value" 2>/dev/null)" != 1 ]; then
@@ -72,12 +105,22 @@ reassert_section() {
 		changed=0
 	fi
 
-	network_changed=0
+	# qmodem.<sec>.metric is the input QModem copies into network.<sec>.metric at
+	# dial time (modem_dial.sh:385,771). Setting it is what makes the stub values
+	# below stick instead of being overwritten on the next dial.
+	if [ "$(uci -q get "qmodem.$sec.metric")" != 200 ]; then
+		uci -q set "qmodem.$sec.metric=200"
+		uci -q commit qmodem
+		changed=0
+	fi
+
+	# proto must match what QModem's set_if() would itself choose for this
+	# modem: 'dhcp' for a Quectel dialing QMI. See 30-zbt-z8803be-wan-failover.
 	for spec in \
-		"$sec=interface" "${sec}.proto=none" "${sec}.device=$device" \
+		"$sec=interface" "${sec}.proto=dhcp" "${sec}.device=$device" \
 		"${sec}.ifname=$device" "${sec}.metric=200" \
 		"${sec}.defaultroute=1" "${sec}.peerdns=0" \
-		"${sec}v6=interface" "${sec}v6.proto=none" \
+		"${sec}v6=interface" "${sec}v6.proto=dhcpv6" \
 		"${sec}v6.device=$device" "${sec}v6.metric=200" \
 		"${sec}v6.disabled=1"
 	do
@@ -107,6 +150,8 @@ reassert_section() {
 		fi
 	fi
 
+	mark_asserted "$sec"
+
 	ip -4 addr show "$device" 2>/dev/null | grep -q 'inet ' || return "$changed"
 	if ! ubus call "network.interface.$sec" status 2>/dev/null | grep -q '"up": true'; then
 		ifup "$sec" >/dev/null 2>&1 || /etc/init.d/network reload >/dev/null 2>&1
@@ -115,8 +160,14 @@ reassert_section() {
 	return "$changed"
 }
 
+mkdir -p "$RUNDIR"
+# Measure the fast phase from the first ever run, not from this process's
+# start. The loop is respawned by procd on config edits, and re-arming the
+# 5 s cadence on every respawn kept it polling at boot speed indefinitely.
+[ -s "$RUNDIR/boot_ts" ] || awk '{print int($1)}' /proc/uptime > "$RUNDIR/boot_ts"
+
 sleep "$SETTLE_DELAY"
-start_ts=$(awk '{print int($1)}' /proc/uptime)
+start_ts=$(cat "$RUNDIR/boot_ts")
 while :; do
 	if ! is_active_rndis && [ "$(uci -q get qmodem.main.block_auto_probe)" != 1 ] && [ "$(uci -q get qmodem.main.enable_dial)" = 1 ]; then
 		changed=1

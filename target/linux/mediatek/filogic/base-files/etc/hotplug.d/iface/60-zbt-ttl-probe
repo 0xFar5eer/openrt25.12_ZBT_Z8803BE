@@ -1,0 +1,40 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Z8803BE — once a cellular profile has an address, make sure the TTL the
+# luci-app-qmodem-ttlfw4 plugin will present matches how the module is really
+# dialing.
+#
+# WHY HERE AND NOT IN A UCI-DEFAULT
+# The answer depends on the address the dialer obtained, which does not exist
+# until the first successful ifup. ifup is also the moment it can change again
+# (mode switch, slot swap, a different SIM handing out a different allocation),
+# so re-probing on every cellular ifup is what keeps the value honest.
+#
+# WHY BACKGROUND
+# zbt-modem-nat-probe --apply can restart qmodem_ttl, which restarts the
+# firewall. Hotplug handlers run inside the netifd event path, so nothing here
+# may block it. The probe is debounced in /tmp, so the repeated ifups that a
+# flapping profile produces cost nothing.
+#
+# The probe never enables the plugin and never touches a ttl an operator has
+# edited by hand — see the SAFETY block in /usr/sbin/zbt-modem-nat-probe.
+
+[ "$ACTION" = "ifup" ] || exit 0
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+case "$INTERFACE" in
+	4_1 | 4_2 | 4_1v6 | 4_2v6) ;;
+	*) exit 0 ;;
+esac
+
+[ -x /usr/sbin/zbt-modem-nat-probe ] || exit 0
+[ -e /etc/config/qmodem_ttl ] || exit 0
+
+( /usr/sbin/zbt-modem-nat-probe --apply "$INTERFACE" >/dev/null 2>&1 ) &
+
+exit 0

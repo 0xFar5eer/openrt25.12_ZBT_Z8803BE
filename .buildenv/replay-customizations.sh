@@ -48,7 +48,9 @@ FILES=(
     target/linux/mediatek/filogic/base-files/etc/init.d/zbt-modem-leds
     target/linux/mediatek/filogic/base-files/etc/hotplug.d/iface/40-zbt-status-led
     target/linux/mediatek/filogic/base-files/etc/hotplug.d/iface/50-zbt-wwan-dns
+    target/linux/mediatek/filogic/base-files/etc/hotplug.d/iface/60-zbt-ttl-probe
     target/linux/mediatek/filogic/base-files/etc/hotplug.d/net/10-zbt-qmi-rawip
+    target/linux/mediatek/filogic/base-files/etc/hotplug.d/net/15-zbt-rndis-auto
     target/linux/mediatek/filogic/base-files/etc/hotplug.d/net/20-zbt-modem-led
     target/linux/mediatek/filogic/base-files/etc/hotplug.d/usb/20-zbt-modem-factory-reset
     target/linux/mediatek/filogic/base-files/etc/hotplug.d/usb/40-zbt-qmodem-autoenable
@@ -56,6 +58,7 @@ FILES=(
     target/linux/mediatek/filogic/base-files/usr/sbin/zbt-modem-hard-reboot-guard
     target/linux/mediatek/filogic/base-files/usr/sbin/zbt-modem-led-poller
     target/linux/mediatek/filogic/base-files/usr/sbin/zbt-modem-monitor-cooldown
+    target/linux/mediatek/filogic/base-files/usr/sbin/zbt-modem-nat-probe
     target/linux/mediatek/filogic/base-files/usr/sbin/zbt-modem-reboot-guard
     target/linux/mediatek/filogic/base-files/usr/sbin/zbt-modem-soft-reboot
     target/linux/mediatek/filogic/base-files/usr/sbin/zbt-qmodem-watchdog-loop

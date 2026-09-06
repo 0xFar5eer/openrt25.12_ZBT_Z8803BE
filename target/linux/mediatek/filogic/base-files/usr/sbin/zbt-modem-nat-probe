@@ -1,0 +1,296 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Z8803BE — work out whether the cellular module is still NATing, and therefore
+# what TTL the firmware should present to the carrier.
+#
+# WHY THIS IS NEEDED
+# The build contract says the modem must be a transparent IP pipe:
+# 40-zbt-qmodem-dns-suppress sets donot_nat=1 and modem_dial.sh turns that into
+# AT+QCFG="nat",0. But that AT command is only emitted from at_dial(), the path
+# used for ncm/ecm. qmi_dial() just execs quectel-CM-M and never touches NAT, so
+# on a Quectel module dialed in QMI mode the module keeps routing and keeps
+# decrementing TTL. The signature in the field is a wwan0 address from the
+# module's own embedded DHCP server (Quectel default 192.0.0.1/24, RNDIS/ECM
+# default 192.168.225.1/24) instead of a carrier-assigned address.
+#
+# That costs one extra decrement, so transit traffic that luci-app-qmodem-ttlfw4
+# rewrites to 64 reaches the carrier as 63 — the exact value US postpaid
+# tethering polices look for. Under module NAT the correct setting is 65. This
+# script decides which of the two applies instead of guessing, and can keep the
+# plugin's ttl value in step with it.
+#
+# WHY THE HEURISTIC AND NOT ALWAYS AN AT QUERY
+# AT+QCFG="nat" is the decisive answer, but it needs the AT port, and QModem's
+# own monitor/recovery paths use /dev/ttyUSB* too. The default (automatic) path
+# therefore stays passive and reads only the address the dialer already obtained.
+# Pass --at for the definitive read; that is the mode to use when diagnosing by
+# hand, not the mode the ifup hook runs in.
+#
+# SAFETY
+# - Never enables the TTL plugin: enabling it forces
+#   firewall.@defaults[0].flow_offloading=0, which is a throughput decision for
+#   the operator, not this script.
+# - Never restarts qmodem_ttl while it is disabled. Its set_if_ttl() commits
+#   firewall and restarts it, so restarting a disabled service is pure churn.
+# - Respects operator edits. If the ttl differs from the last value this script
+#   wrote, the operator has set it by hand; auto mode is then turned off for
+#   good rather than overwriting them on the next ifup.
+
+BOARD=${BOARD:-zbtlink,zbt-z8803be}
+TTL_FILE=${TTL_FILE:-/etc/config/qmodem_ttl}
+STAMP=${STAMP:-/tmp/zbt-modem-nat-probe.stamp}
+DEBOUNCE_S=${DEBOUNCE_S:-120}
+TTL_FOR_NAT=${TTL_FOR_NAT:-65}
+TTL_FOR_TRANSPARENT=${TTL_FOR_TRANSPARENT:-64}
+# Subnets handed out by the module's own embedded NAT, matched on the leading
+# octets. Deliberately narrow: a carrier-assigned 10.x is normal and must not
+# be read as modem NAT.
+NAT_PREFIXES="192.0.0. 192.168.225. 10.168."
+
+APPLY=0
+USE_AT=0
+FORCE=0
+SECTIONS=""
+
+log() {
+	logger -t zbt-modem-nat-probe "$1"
+}
+
+usage() {
+	printf 'usage: %s [--apply] [--at] [--force] [section ...]\n' "$0"
+	printf '  --apply  write the recommended ttl into qmodem_ttl.main.ttl\n'
+	printf '  --at     also read AT+QCFG="nat" from the module (touches the AT port)\n'
+	printf '  --force  skip the board guard\n'
+	printf '  section  qmodem/network section to probe (default: 4_1 4_2)\n'
+	printf '\nWithout --apply this is read-only and prints key=value lines.\n'
+}
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--apply) APPLY=1 ;;
+		--at) USE_AT=1 ;;
+		--force) FORCE=1 ;;
+		-h|--help) usage; exit 0 ;;
+		-*) printf 'unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+		*) SECTIONS="$SECTIONS $1" ;;
+	esac
+	shift
+done
+[ -n "$SECTIONS" ] || SECTIONS="4_1 4_2"
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	"$BOARD"|"$BOARD",mt7988a-nand) ;;
+	*)
+		if [ "$FORCE" = 1 ]; then
+			log "board guard skipped (--force)"
+		elif [ "$APPLY" = 1 ]; then
+			log "not a Z8803BE, refusing to apply"
+			exit 0
+		fi
+		;;
+esac
+
+now_s() {
+	date +%s 2>/dev/null || echo 0
+}
+
+record_event() {
+	[ -x /usr/sbin/zbt-modem-events ] || return 0
+	/usr/sbin/zbt-modem-events record "$@" >/dev/null 2>&1 || true
+}
+
+# Resolve the data netdev for a cellular profile. QModem writes both ifname and
+# device in set_if(); the v6 alias stores "@<v4-section>" instead, so follow it
+# one hop.
+dev_for_section() {
+	local sec="$1" dev depth=0
+	while [ -n "$sec" ] && [ "$depth" -lt 3 ]; do
+		dev=$(uci -q get "network.$sec.ifname" 2>/dev/null)
+		[ -n "$dev" ] || dev=$(uci -q get "network.$sec.device" 2>/dev/null)
+		case "$dev" in
+			'') ;;
+			@*) sec="${dev#@}"; depth=$((depth + 1)); continue ;;
+			*) printf '%s\n' "$dev"; return 0 ;;
+		esac
+		sec=""
+	done
+	# Nothing configured: fall back to the netdevs a Quectel in QMI/ECM mode
+	# actually creates, so the tool still reports something before a first dial
+	# has written the profile.
+	for dev in /sys/class/net/*; do
+		dev=${dev#/sys/class/net/}
+		case "$dev" in
+			lo|br-*|eth*|lan*|wan*|sit0|ifb*|docker*) continue ;;
+		esac
+		[ -e "/sys/class/net/$dev/qmi/raw_ip" ] && { printf '%s\n' "$dev"; return 0; }
+	done
+	for dev in wwan0 rmnet_data0 rmnet0 ecm0 usb0; do
+		[ -e "/sys/class/net/$dev" ] && { printf '%s\n' "$dev"; return 0; }
+	done
+	return 1
+}
+
+ipv4_of() {
+	ip -4 -o addr show dev "$1" 2>/dev/null | awk '{print $4; exit}'
+}
+
+gateway_of() {
+	ip -4 -o route show dev "$1" 2>/dev/null | awk '/via/ {print $3; exit}'
+}
+
+# nat | transparent | unknown
+classify_addr() {
+	local addr="$1" p
+	[ -n "$addr" ] || { printf 'unknown\n'; return; }
+	for p in $NAT_PREFIXES; do
+		case "$addr" in "$p"*) printf 'nat\n'; return ;; esac
+	done
+	case "$addr" in
+		169.254.*) printf 'unknown\n' ;;
+		*) printf 'transparent\n' ;;
+	esac
+}
+
+# Decisive but intrusive: prints 0 (off), 1 (NAT) or 2 (router) for Quectel
+# modules, returns non-zero for anything it cannot read.
+query_at_nat() {
+	local sec="$1" port tool out val
+	port=$(uci -q get "qmodem.$sec.at_port" 2>/dev/null)
+	[ -n "$port" ] && [ -e "$port" ] || return 1
+	tool=$(command -v sms_tool 2>/dev/null || command -v sms_tool_q 2>/dev/null)
+	[ -n "$tool" ] || return 1
+	out=$(timeout 8 "$tool" -d "$port" at 'AT+QCFG="nat"' 2>&1)
+	val=$(printf '%s\n' "$out" | sed -n 's/.*+QCFG:[[:space:]]*"nat",[[:space:]]*\([0-9]\{1,2\}\).*/\1/p' | head -n1)
+	[ -n "$val" ] || return 1
+	printf '%s\n' "$val"
+}
+
+# on | off | unknown. An AT read always wins over the address heuristic.
+nat_state_of() {
+	local at_nat="$1" class="$2"
+	if [ -n "$at_nat" ]; then
+		case "$at_nat" in
+			0) printf 'off\n' ;;
+			*) printf 'on\n' ;;
+		esac
+		return 0
+	fi
+	case "$class" in
+		nat) printf 'on\n' ;;
+		transparent) printf 'off\n' ;;
+		*) printf 'unknown\n' ;;
+	esac
+}
+
+ttl_for_state() {
+	case "$1" in
+		on) printf '%s\n' "$TTL_FOR_NAT" ;;
+		*) printf '%s\n' "$TTL_FOR_TRANSPARENT" ;;
+	esac
+}
+
+apply_ttl() {
+	local want="$1" section="$2" nat="$3" auto current last
+	[ -e "$TTL_FILE" ] || { printf 'applied=skipped reason=no-qmodem-ttl-package\n'; return 0; }
+
+	auto=$(uci -q get qmodem_ttl.main.zbt_auto_ttl)
+	[ -n "$auto" ] || auto=1
+	if [ "$auto" != 1 ]; then
+		printf 'applied=no reason=auto-ttl-disabled\n'
+		return 0
+	fi
+
+	current=$(uci -q get qmodem_ttl.main.ttl)
+	last=$(uci -q get qmodem_ttl.main.zbt_auto_value)
+	if [ -n "$last" ] && [ -n "$current" ] && [ "$current" != "$last" ]; then
+		uci -q set qmodem_ttl.main.zbt_auto_ttl='0'
+		uci -q commit qmodem_ttl
+		log "ttl=$current differs from the value we last wrote ($last); assuming an operator edit, auto-TTL disabled"
+		printf 'applied=no reason=operator-edit zbt_auto_ttl=0\n'
+		return 0
+	fi
+
+	if [ "$current" = "$want" ]; then
+		if [ "$last" != "$want" ]; then
+			uci -q set qmodem_ttl.main.zbt_auto_value="$want"
+			uci -q commit qmodem_ttl
+		fi
+		printf 'applied=no reason=already-set\n'
+		return 0
+	fi
+
+	uci -q set qmodem_ttl.main.ttl="$want"
+	uci -q set qmodem_ttl.main.zbt_auto_value="$want"
+	uci -q commit qmodem_ttl
+	log "ttl ${current:-unset} -> $want (module NAT ${nat}, section ${section})"
+	record_event zbt-modem-nat-probe ttl warning "$section" "Recommended TTL updated" "nat=$nat ttl=$want"
+
+	# set_if_ttl() rewrites the nft include and restarts the firewall, so only
+	# bounce the service when its rules are actually live.
+	if [ "$(uci -q get qmodem_ttl.main.enable)" = 1 ]; then
+		/etc/init.d/qmodem_ttl restart >/dev/null 2>&1 || log "qmodem_ttl restart failed"
+		printf 'applied=yes ttl=%s service=restarted\n' "$want"
+	else
+		printf 'applied=yes ttl=%s service=inert(plugin-disabled)\n' "$want"
+	fi
+}
+
+main() {
+	local sec base stype dev cidr addr prefix class at_nat nat want gw stamp age
+	stamp=$(cat "$STAMP" 2>/dev/null)
+	age=$(( $(now_s) - ${stamp:-0} ))
+	if [ "$APPLY" = 1 ] && [ "$FORCE" != 1 ] && [ "$age" -lt "$DEBOUNCE_S" ]; then
+		printf 'applied=no reason=debounced remaining=%s\n' "$(( DEBOUNCE_S - age ))"
+		return 0
+	fi
+
+	for sec in $SECTIONS; do
+		# The ifup hook hands us the netifd interface name, and 4_1v6/4_2v6 are
+		# aliases of the v4 profile rather than qmodem sections of their own.
+		base="${sec%v6}"
+		if [ "$base" != "$sec" ]; then
+			printf '\n[%s -> %s]\n' "$sec" "$base"
+			sec="$base"
+		else
+			printf '\n[%s]\n' "$sec"
+		fi
+		# modem_scan.sh:498 creates the slot profile as type "modem-device".
+		stype=$(uci -q get "qmodem.$sec" 2>/dev/null)
+		if [ -z "$stype" ]; then
+			printf 'section=absent\n'
+			continue
+		fi
+		printf 'section_type=%s\n' "$stype"
+		dev=$(dev_for_section "$sec" 2>/dev/null)
+		[ -n "$dev" ] || { printf 'device=none\n'; continue; }
+		printf 'device=%s\n' "$dev"
+		cidr=$(ipv4_of "$dev")
+		addr=${cidr%%/*}
+		prefix=${cidr#*/}
+		[ "$prefix" = "$cidr" ] && prefix=""
+		printf 'ipv4=%s\n' "${addr:-none}"
+		[ -n "$prefix" ] && printf 'prefix=%s\n' "$prefix"
+		gw=$(gateway_of "$dev")
+		printf 'gateway=%s\n' "${gw:--}"
+		class=$(classify_addr "$addr")
+		printf 'addr_class=%s\n' "$class"
+		at_nat=""
+		if [ "$USE_AT" = 1 ]; then
+			at_nat=$(query_at_nat "$sec" 2>/dev/null) || at_nat=""
+			printf 'at_nat=%s\n' "${at_nat:-unreadable}"
+		fi
+		nat=$(nat_state_of "$at_nat" "$class")
+		want=$(ttl_for_state "$nat")
+		printf 'module_nat=%s\n' "$nat"
+		printf 'recommended_ttl=%s\n' "$want"
+		printf 'current_ttl=%s\n' "$(uci -q get qmodem_ttl.main.ttl)"
+		if [ "$APPLY" = 1 ]; then
+			apply_ttl "$want" "$sec" "$nat"
+		fi
+	done
+	[ "$APPLY" = 1 ] && printf '%s\n' "$(now_s)" > "$STAMP" 2>/dev/null
+	return 0
+}
+
+main

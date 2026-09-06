@@ -20,12 +20,18 @@
 #   bombs that come with inlining a multi-line loop into
 #   `procd_set_param command sh -c '...'`).
 #
-#   Cadence is fast (5 s) for the first 60 s after start, slow (30 s)
-#   after. Procd reload triggers also wake us immediately on edits to
-#   firewall / network / qmodem UCI files, so reactivity is sub-second
-#   on the actual write events that cause trouble.
+#   Cadence is fast (5 s) for the first 60 s after the loop first ever
+#   runs, slow (30 s) after, and a per-section throttle keeps it from
+#   re-writing a link that is already healthy.
 #
-# Disable: /etc/init.d/zbt_qmodem_watchdog disable
+#   There is deliberately NO procd_add_reload_trigger here. The loop
+#   commits qmodem / network / firewall itself, so watching those same
+#   configs made every one of its own writes SIGTERM and respawn it.
+#   Two consequences, both observed in the field (issue #9): the
+#   "first 60 s" fast phase restarted on every respawn so the loop never
+#   settled into the slow cadence, and the respawn raced QModem's own
+#   dial writes, so proto/metric flip-flopped between the two owners and
+#   each flip re-ran ifup and bounced udhcpc off a live lease.
 
 START=99
 STOP=10
@@ -51,10 +57,9 @@ start_service() {
 
 	procd_open_instance "$NAME"
 	procd_set_param command "$PROG"
-	# Respawn aggressively if the loop ever exits (it shouldn't - it's
-	# a `while :;` - but procd reload-triggers SIGTERM us, so we need
-	# clean restart semantics). 5 5 0 = 5 s threshold, 5 s timeout,
-	# infinite retries.
+	# Respawn aggressively if the loop ever exits (it shouldn't - it's a
+	# `while :;` - but a crash must not cost us cellular failover).
+	# 5 5 0 = 5 s threshold, 5 s timeout, infinite retries.
 	procd_set_param respawn 5 5 0
 	# stdout/stderr -> logread alongside our explicit `logger` calls.
 	procd_set_param stdout 1
@@ -62,12 +67,8 @@ start_service() {
 	procd_close_instance
 }
 
-service_triggers() {
-	# Wake the loop immediately when any of the three configs we watch
-	# is written. Without this, the worst-case window between a qmodem
-	# rewrite and our re-assert is POLL_INTERVAL_FAST seconds (5 s by
-	# default during boot, 30 s after FAST_PHASE_SECS expires); with
-	# this trigger, procd SIGTERMs the loop and respawns it within
-	# milliseconds of the offending uci commit.
-	procd_add_reload_trigger qmodem network firewall
-}
+# service_triggers() intentionally absent -- see the note above. The loop
+# polls, and the throttle in zbt-qmodem-watchdog-loop bounds how often it
+# may write. Reactivity is POLL_INTERVAL_FAST (5 s) during the boot phase
+# and POLL_INTERVAL_SLOW (30 s) afterwards, which is fast enough to heal a
+# wiped stub and slow enough not to fight QModem for the same keys.

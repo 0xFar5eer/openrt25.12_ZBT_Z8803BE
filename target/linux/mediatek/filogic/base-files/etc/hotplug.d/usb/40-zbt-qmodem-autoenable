@@ -75,50 +75,98 @@ is_active_rndis && exit 0
 	uci -q get "qmodem.$section" >/dev/null 2>&1 || exit 0
 	is_active_rndis && exit 0
 
+	# IDEMPOTENCE. A USB "add" fires for the device and again for every
+	# interface and netdev it exposes, so this hook runs several times per
+	# enumeration. Each pass used to end in `qmodem_network restart`, which
+	# stops the dial, hangs up the PDP context and dials again -- visible in
+	# issue #9 as back-to-back "Stop Dial and Hang" / "Start Dial Now" pairs
+	# and a udhcpc that released a lease it had just been granted. If the
+	# profile is already enabled and the stubs already match, there is
+	# nothing to do, so do nothing.
+	# set_q <key> <value> writes only when the current value differs, and
+	# returns 0 when it wrote. Keeping the verdict with the caller means each
+	# config file gets its own dirty flag, so a qmodem-only edit can't drag a
+	# redundant `uci commit network` and network reload along with it.
+	set_q() {
+		[ "$(uci -q get "$1")" = "$2" ] && return 1
+		uci -q set "$1=$2"
+		return 0
+	}
+
+	qdirty=0
+	ndirty=0
+	fdirty=0
+
+	# Capture this before state is rewritten: only a profile that really was
+	# disabled needs us to restart the dialer.
+	was_disabled=0
+	[ "$(uci -q get "qmodem.$section.state")" = disabled ] && was_disabled=1
+
 	# The selected slot is already powered when it enumerates. Never change
 	# the other slot's GPIO; this preserves one-modem operation.
-	[ -w "/sys/class/gpio/$power/value" ] && printf '1' > "/sys/class/gpio/$power/value"
-	uci -q set "qmodem.$section.state=enabled"
-	uci -q set "qmodem.$section.path=$usb_path"
-	uci -q set "qmodem.$section.enable_dial=1"
-	uci -q set "qmodem.$section.do_not_add_dns=1"
-	uci -q set "qmodem.$section.donot_nat=1"
-	uci -q set "qmodem.$section.metric=200"
-	uci -q commit qmodem
+	if [ -w "/sys/class/gpio/$power/value" ] && [ "$(cat "/sys/class/gpio/$power/value" 2>/dev/null)" != 1 ]; then
+		printf '1' > "/sys/class/gpio/$power/value"
+		qdirty=1
+	fi
+
+	set_q "qmodem.$section.state" enabled && qdirty=1
+	set_q "qmodem.$section.path" "$usb_path" && qdirty=1
+	set_q "qmodem.$section.enable_dial" 1 && qdirty=1
+	set_q "qmodem.$section.do_not_add_dns" 1 && qdirty=1
+	set_q "qmodem.$section.donot_nat" 1 && qdirty=1
+	# metric on the qmodem profile is the input QModem copies into
+	# network.$section.metric when it dials, so this is the only durable place
+	# to pin the cellular preference. See 30-zbt-z8803be-wan-failover.
+	set_q "qmodem.$section.metric" 200 && qdirty=1
+	[ "$qdirty" = 1 ] && uci -q commit qmodem
 
 	# QModem supplies the runtime data device. With a single active modem this
 	# is normally wwan0 for either physical slot; retain any device it created.
 	device="$(uci -q get "network.$section.device")"
 	[ -n "$device" ] || device=wwan0
-	uci -q set "network.$section=interface"
-	uci -q set "network.$section.proto=none"
-	uci -q set "network.$section.device=$device"
-	uci -q set "network.$section.ifname=$device"
-	uci -q set "network.$section.metric=200"
-	uci -q set "network.$section.defaultroute=1"
-	uci -q set "network.$section.peerdns=0"
-	uci -q set "network.${section}v6=interface"
-	uci -q set "network.${section}v6.proto=none"
-	uci -q set "network.${section}v6.device=$device"
-	uci -q set "network.${section}v6.metric=200"
-	uci -q set "network.${section}v6.disabled=1"
-	uci -q commit network
+	uci -q get "network.$section" >/dev/null 2>&1 || { uci -q set "network.$section=interface"; ndirty=1; }
+	uci -q get "network.${section}v6" >/dev/null 2>&1 || { uci -q set "network.${section}v6=interface"; ndirty=1; }
+	# proto must be what QModem itself would choose ('dhcp' for a Quectel
+	# dialing QMI); asserting 'none' here made QModem rewrite it and re-run
+	# ifup on every dial. See 30-zbt-z8803be-wan-failover for the detail.
+	set_q "network.$section.proto" dhcp && ndirty=1
+	set_q "network.$section.device" "$device" && ndirty=1
+	set_q "network.$section.ifname" "$device" && ndirty=1
+	set_q "network.$section.metric" 200 && ndirty=1
+	set_q "network.$section.defaultroute" 1 && ndirty=1
+	set_q "network.$section.peerdns" 0 && ndirty=1
+	set_q "network.${section}v6.proto" dhcpv6 && ndirty=1
+	set_q "network.${section}v6.device" "$device" && ndirty=1
+	set_q "network.${section}v6.metric" 200 && ndirty=1
+	set_q "network.${section}v6.disabled" 1 && ndirty=1
+	[ "$ndirty" = 1 ] && uci -q commit network
 
 	wan_zone="$(uci -q show firewall | sed -nE 's/^firewall\.(@zone\[[0-9]+\])=zone$/\1/p' | while read -r sec; do [ "$(uci -q get "firewall.$sec.name")" = wan ] && printf '%s\n' "$sec" && break; done)"
 	if [ -n "$wan_zone" ]; then
 		for iface in "$section" "${section}v6"; do
 			case " $(uci -q get "firewall.$wan_zone.network") " in
 				*" $iface "*) ;;
-				*) uci -q add_list "firewall.$wan_zone.network=$iface" ;;
+				*) uci -q add_list "firewall.$wan_zone.network=$iface"; fdirty=1 ;;
 			esac
 		done
-		uci -q commit firewall
+		[ "$fdirty" = 1 ] && uci -q commit firewall
 	fi
 
-	/etc/init.d/network reload >/dev/null 2>&1
-	fw4 reload >/dev/null 2>&1
-	[ -x /etc/init.d/qmodem_network ] && /etc/init.d/qmodem_network restart >/dev/null 2>&1
-	logger -t zbt-qmodem-autoenable "enabled qmodem.$section for $slot ($power)"
+	if [ "$qdirty$ndirty$fdirty" = "000" ]; then
+		logger -t zbt-qmodem-autoenable "qmodem.$section already consistent for $slot; left the dial alone"
+		exit 0
+	fi
+
+	[ "$ndirty" = 1 ] && /etc/init.d/network reload >/dev/null 2>&1
+	[ "$fdirty" = 1 ] && fw4 reload >/dev/null 2>&1
+	# Only a profile that was actually disabled needs a dial restart; QModem's
+	# own scan redials by itself for a merely re-powered slot.
+	if [ "$was_disabled" = 1 ] && [ -x /etc/init.d/qmodem_network ]; then
+		/etc/init.d/qmodem_network restart >/dev/null 2>&1
+		logger -t zbt-qmodem-autoenable "re-enabled qmodem.$section for $slot ($power) and redialed"
+	else
+		logger -t zbt-qmodem-autoenable "reconciled qmodem.$section for $slot ($power) without redialing"
+	fi
 ) &
 
 exit 0
