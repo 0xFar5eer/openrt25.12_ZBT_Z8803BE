@@ -2,7 +2,7 @@
 
 Release `v25.12.021` is a community firmware build for ZBTLink ZBT-Z8803BE.
 
-**Assets refreshed in place (2026-09-06).** The two firmware binaries under this tag were replaced with a rebuild of the same release covering the additional fixes in sections 3–5 below. If you downloaded `v25.12.021` before this date, re-verify the SHA-256 digests in Artifacts. The package manifest and the feed tarball are byte-identical to the originals — the package set did not change.
+**Assets refreshed in place (2026-09-06).** The two firmware binaries under this tag were replaced with rebuilds of the same release: the first pass covered the additional fixes in sections 3–5 below, and a second pass corrected the upgrade migration described in section 3, whose section-matching guard was a silent no-op. If you downloaded `v25.12.021` on this date, re-verify the SHA-256 digests in Artifacts. The package manifest and the feed tarball are byte-identical to the originals — the package set did not change.
 
 ## Highlights
 
@@ -40,6 +40,7 @@ The device tree powers the 5G1 M.2 slot on at cold boot (`gpio-export,output = <
 
 - `board.d/03_gpio_switches` now seeds `5g1=1`, `5g2=0` and `sim1=1` (SIM1 routed through the mux), matching the DTS and the real at-boot hardware state.
 - An upgrade keeps the stale `value=0` config, so `99-zbt-z8803be-qmodem-autostart` runs a one-shot migration during first boot, before `S94gpio_switch` runs: a persisted `0` is raised to `1` and a `zbt_gpio_default` marker is recorded. From then on the firmware never touches the toggle again — an operator who deliberately powers 5G1 off keeps that choice.
+- Second refresh fix: the first pass of this migration located the section by its human label (`name`, "Power 5G1 modem slot") instead of its ID, so the comparison never matched and the migration silently did nothing on upgraded systems — the exact symptom a flash of the first refresh showed (modem unpowered after upgrade). It now matches the section ID or `gpio_pin`, and the marker/value writes no longer embed shell quotes (uci stores the text after `=` verbatim).
 
 ### 4. WAN failover defaults no longer stomp operator configs (new in the refreshed assets)
 
@@ -67,14 +68,15 @@ An audit of `etc/uci-defaults/` found twenty scripts that were duplicates of ren
 - The staged rootfs was inspected in the build volume: all twenty removed scripts absent, the renumbered replacements present (`32-`/`36-`/`40-`/`48-`/`54-`/`56-`/`64-`/`68-`/`72-`/`80-`/`82-`/`86-`/`90-`/`99-`), `board.d/03_gpio_switches` seeds the `5g1` default `1`, and the gpio migration is present in `99-zbt-z8803be-qmodem-autostart`.
 - `tests/check-zbt-firmware.sh` — expanded this cycle with stale-file guards plus GPIO/failover/nft invariants — and `git diff --check` pass.
 - The NAT-probe's apply paths were exercised with shimmed `uci`/`ip` state (modem NAT → 65, carrier `10.x` address → stays 64, hand-edited ttl → auto-writes disabled, debounce, missing plugin package → skip). The probe and watchdog scripts carry comment-only changes in this refresh; their behavior is unchanged.
-- **Not yet hardware-tested:** the GPIO default fix, the upgrade migration and the WAN-failover rewrite have not been run on a physical Z8803BE since this refresh. The issue #9 fixes validated for the original v25.12.021 build carry over unchanged; issue #9 reporters on older releases can still apply the two-command manual fix above (`enable=1`, `ttl=65`, restart `qmodem_ttl`) without flashing.
+- **Hardware-validated on a physical Z8803BE (2026-09-06):** the first refresh was flashed with configuration preserved; the upgrade kept the stale persisted `gpio_switch` `5g1` `value=0` and reproduced the unpowered-modem symptom, which is what exposed the migration no-op above. The corrected migration script was run against that board config: it matched the section by ID, migrated `value=0` to `1` and recorded a clean `zbt_gpio_default=1` marker (traced with `sh -x`). The modem re-enumerated, and after a radio re-attach (`AT+CFUN=0/1` — the carrier's MME was still holding the pre-cut session and rejected data calls with `call_end_reason_verbose 210`) the cellular uplink, DNS and LAN forwarding were restored end to end, with the rewritten WAN-failover zone layout intact.
+- The issue #9 fixes validated for the original v25.12.021 build carry over unchanged; issue #9 reporters on older releases can still apply the two-command manual fix above (`enable=1`, `ttl=65`, restart `qmodem_ttl`) without flashing.
 
 ## Artifacts
 
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
-  - SHA-256: `7b4879111f0ebf97dfb2a7a567d45b88e9ec92f24f3459516acc93fc050cf2da`
+  - SHA-256: `fdcdb15b96ab305444491d9cfd6e076c5317a7dfc09cc28842b4bb0d5e2fd927`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
-  - SHA-256: `aed0f73988fb425b717943f494a6c8517376bbacec9f48b048de9abbab210903`
+  - SHA-256: `16eac0891ea46f5611ba96efd7a81bd579e7a2402d1325603497eab65f927c51`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
   - SHA-256: `4a4cf6dbc0688f858a092ea0a0d7a79e3d27ce5cb840888df927bbea37e52a5f`
 - `packages-aarch64_cortex-a53.tar.gz`

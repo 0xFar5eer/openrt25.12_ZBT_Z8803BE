@@ -2,7 +2,7 @@
 
 `v25.12.021` 是面向 ZBTLink ZBT-Z8803BE 的社区固件版本。
 
-**附件已原位刷新（2026-09-06）。** 本 tag 下的两个固件二进制已被同一版本的重建镜像替换，包含下文第 3–5 节的补充修复。如果你在此日期之前下载过 `v25.12.021`，请重新核对附件列表中的 SHA-256。软件包清单与软件源 tar 包与原始版本字节一致——软件包集合没有任何变化。
+**附件已原位刷新（2026-09-06）。** 本 tag 下的两个固件二进制已被同一版本的重建镜像替换：第一轮包含下文第 3–5 节的补充修复，第二轮修正了第 3 节所述升级迁移中的 section 匹配守卫（此前该守卫是无效的空操作）。如果你在此日期下载过 `v25.12.021`，请重新核对附件列表中的 SHA-256。软件包清单与软件源 tar 包与原始版本字节一致——软件包集合没有任何变化。
 
 ## 亮点
 
@@ -40,6 +40,7 @@
 
 - `board.d/03_gpio_switches` 现在播种 `5g1=1`、`5g2=0`、`sim1=1`（SIM1 接通 mux），与 DTS 及真实的开机硬件状态一致。
 - 升级会保留旧的 `value=0` 配置，因此 `99-zbt-z8803be-qmodem-autostart` 在首次开机（先于 `S94gpio_switch`）执行一次性迁移：把持久化的 `0` 提回 `1` 并记录 `zbt_gpio_default` 标记。此后固件绝不再碰这个开关——主动关闭 5G1 的用户的选择会一直保留。
+- 第二轮刷新修复：迁移的第一版用人类可读的标签（`name`，"Power 5G1 modem slot"）去匹配 section 而不是用 section ID，比较永远不成立，升级后的系统上迁移静默失效——这正是第一次刷新刷机后暴露的症状（升级后 modem 断电）。现在改为按 section ID 或 `gpio_pin` 匹配，且写入不再内嵌 shell 引号（uci 会原样存储 `=` 之后的文本）。
 
 ### 4. WAN 故障切换默认值不再覆盖用户配置（本次刷新新增）
 
@@ -67,14 +68,15 @@
 - 在构建卷内直接检查了暂存的 rootfs：二十个被删脚本全部不存在，改号后的替代版本齐全（`32-`/`36-`/`40-`/`48-`/`54-`/`56-`/`64-`/`68-`/`72-`/`80-`/`82-`/`86-`/`90-`/`99-`），`board.d/03_gpio_switches` 播种 `5g1` 默认值 `1`，`99-zbt-z8803be-qmodem-autostart` 内含 gpio 迁移逻辑。
 - `tests/check-zbt-firmware.sh`——本轮扩充了过时文件断言以及 GPIO/故障切换/nft 不变量——与 `git diff --check` 通过。
 - NAT 探针的各写入路径用带桩的 `uci`/`ip` 状态做了演练（modem NAT → 65；运营商 `10.x` 地址 → 保持 64；手工改过的 ttl → 自动写入永久关闭；去抖；缺插件包 → 跳过）。探针与看门狗脚本本次刷新只有注释改动，行为不变。
-- **尚未做硬件验证**：GPIO 默认值修复、升级迁移和 WAN 故障切换重写在本次刷新后还没有在实体 Z8803BE 上运行过。原 v25.12.021 构建已验证的 issue #9 修复不受影响、原样保留；旧版本的 issue #9 报告者仍可按上文的两步手动修复（`enable=1`、`ttl=65`、重启 `qmodem_ttl`）在不刷机的情况下验证。
+- **已在实体 Z8803BE 上完成硬件验证（2026-09-06）**：第一轮刷新在保留配置的情况下刷入实体机；升级保留了持久化的 `gpio_switch` `5g1` `value=0`，复现了 modem 断电症状，正是它暴露了上文的迁移空操作。随后在板子上直接运行修正后的迁移脚本：按 section ID 匹配、把 `value=0` 迁移为 `1` 并写入干净的 `zbt_gpio_default=1` 标记（`sh -x` 全程跟踪）。modem 重新枚举；经一次射频重附着（`AT+CFUN=0/1`——运营商 MME 仍持有断电前的会话，用 `call_end_reason_verbose 210` 拒绝数据呼叫）后，蜂窝上行、DNS 与 LAN 转发端到端恢复，重写后的 WAN 故障切换区域布局完好。
+- 原 v25.12.021 构建已验证的 issue #9 修复不受影响、原样保留；旧版本的 issue #9 报告者仍可按上文的两步手动修复（`enable=1`、`ttl=65`、重启 `qmodem_ttl`）在不刷机的情况下验证。
 
 ## 附件
 
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
-  - SHA-256: `7b4879111f0ebf97dfb2a7a567d45b88e9ec92f24f3459516acc93fc050cf2da`
+  - SHA-256: `fdcdb15b96ab305444491d9cfd6e076c5317a7dfc09cc28842b4bb0d5e2fd927`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
-  - SHA-256: `aed0f73988fb425b717943f494a6c8517376bbacec9f48b048de9abbab210903`
+  - SHA-256: `16eac0891ea46f5611ba96efd7a81bd579e7a2402d1325603497eab65f927c51`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
   - SHA-256: `4a4cf6dbc0688f858a092ea0a0d7a79e3d27ce5cb840888df927bbea37e52a5f`
 - `packages-aarch64_cortex-a53.tar.gz`

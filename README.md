@@ -32,8 +32,8 @@ Use the latest GitHub release assets:
 ## Checksums
 
 ```text
-7b4879111f0ebf97dfb2a7a567d45b88e9ec92f24f3459516acc93fc050cf2da  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-aed0f73988fb425b717943f494a6c8517376bbacec9f48b048de9abbab210903  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+fdcdb15b96ab305444491d9cfd6e076c5317a7dfc09cc28842b4bb0d5e2fd927  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+16eac0891ea46f5611ba96efd7a81bd579e7a2402d1325603497eab65f927c51  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
 4a4cf6dbc0688f858a092ea0a0d7a79e3d27ce5cb840888df927bbea37e52a5f  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ad0a299a4249c5ed426979b0b0d070be0ef7f7bb738067895c60893e37938172  packages-aarch64_cortex-a53.tar.gz
 ```
