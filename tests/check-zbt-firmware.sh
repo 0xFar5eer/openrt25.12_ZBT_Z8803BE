@@ -100,7 +100,17 @@ require "$gpioboard" 'ucidef_add_gpio_switch "sim1" "SIM1 slot active (off = SIM
 # migrate it before S94gpio_switch runs, guarded by a once-marker so an
 # operator who powers 5G1 off later is never overridden.
 require "$autostart" 'zbt_gpio_default'
-require "$autostart" "system.\$gsec.value='1'"
+require "$autostart" 'system.$gsec.zbt_gpio_default=1'
+require "$autostart" "system.\$gsec.value=1"
+# The section must be matched by ID or gpio_pin: the name label is prose and
+# comparing it to the slot name turned the first v25.12.021 migration into a
+# silent no-op ("modem unpowered after upgrade").
+require "$autostart" '[ "$gsec" = "5g1" ]'
+require "$autostart" 'system.$gsec.gpio_pin'
+forbid "$autostart" 'system.$gsec.name'
+# uci stores the value after "=" verbatim: no embedded shell quotes.
+forbid "$autostart" "zbt_gpio_default='1'"
+forbid "$autostart" "value='1'"
 
 # The permanent TTL-64 nft rule is seeded only when absent, so an operator's
 # hand-raised 65 survives a reflash.

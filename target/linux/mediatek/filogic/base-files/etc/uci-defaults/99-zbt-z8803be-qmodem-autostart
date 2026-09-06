@@ -26,13 +26,19 @@ fi
 # boot, cutting the modem a few seconds in. Fix the persisted config before
 # S94 runs, then record a marker so an operator who later turns 5G1 off in
 # LuCI is never overridden again. Fresh flashes already seed value='1'.
+#
+# Match the section by ID or gpio_pin, never by the name label: the label is
+# prose ("Power 5G1 modem slot") and comparing it against the slot name made
+# the first v25.12.021 migration a silent no-op. uci stores whatever follows
+# "=" verbatim, so the assignments must not embed shell-style quotes.
 for gsec in $(uci -q show system 2>/dev/null \
 		| sed -nE "s/^system\.([^.=]+)=gpio_switch$/\1/p"); do
-	[ "$(uci -q get "system.$gsec.name")" = "5g1" ] || continue
+	[ "$gsec" = "5g1" ] \
+		|| [ "$(uci -q get "system.$gsec.gpio_pin")" = "5g1" ] || continue
 	[ "$(uci -q get "system.$gsec.zbt_gpio_default")" = "1" ] && continue
-	uci -q set "system.$gsec.zbt_gpio_default='1'"
+	uci -q set "system.$gsec.zbt_gpio_default=1"
 	if [ "$(uci -q get "system.$gsec.value")" = "0" ]; then
-		uci -q set "system.$gsec.value='1'"
+		uci -q set "system.$gsec.value=1"
 	fi
 	done_flag=1
 done
