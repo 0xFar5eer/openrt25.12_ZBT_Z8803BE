@@ -19,19 +19,27 @@
 # Because postrouting runs after the kernel's own decrement, `set 64` is an
 # absolute write: 64 leaves this router toward the modem.
 #
-# WHY 64 IS ONLY THE STARTING POINT:
-# 64 is correct when the modem is a transparent IP pipe. The firmware contract
-# in 40-zbt-qmodem-dns-suppress asks for that with donot_nat=1, but
-# modem_dial.sh only turns donot_nat into AT+QCFG="nat",0 from at_dial() — the
-# ncm/ecm path. qmi_dial() execs quectel-CM-M and never touches NAT, so a
-# Quectel dialed in QMI mode keeps routing and keeps decrementing, and so does
-# an RNDIS composition handing out 192.168.225.x. Under either of those the
-# carrier sees 63 and the right value is 65.
+# WHY 64 IS THE DEFAULT:
+# 64 is what a native phone presents, and it is the correct value whenever
+# the modem is a transparent IP pipe — which is the normal case here:
+# field-verified on an RM551E-GL dialing QMI on Globe PH, wwan0 holds a
+# carrier-assigned (CGNAT 10.x) address and the carrier sees exactly the
+# value this firmware rewrites onto the egress. The same is true for the
+# always-on 99-tether-ttl.nft seeded by 36-zbt-z8803be-wan-speed-mode.
 #
-# So 64 is seeded as the neutral default and /usr/sbin/zbt-modem-nat-probe
-# raises it to 65 once it can see the address the dialer actually obtained
-# (see etc/hotplug.d/iface/60-zbt-ttl-probe). The probe only rewrites ttl
-# while nothing has edited it by hand, and never enables this plugin for you.
+# The exception is a module that still NATs: the QMI dialer never sends
+# AT+QCFG="nat",0 (only the NCM/ECM at_dial() path does), so a Quectel
+# dialed QMI can keep routing behind its own embedded NAT. The signature
+# is a module-assigned wwan0 address (192.0.0.x, 192.168.225.x, 10.168.x)
+# instead of a carrier address; the module then decrements once more and
+# the carrier sees 63, which is what tethering policing reacts to. In
+# that case the right value is 65.
+#
+# /usr/sbin/zbt-modem-nat-probe (fired on cellular ifup by
+# etc/hotplug.d/iface/60-zbt-ttl-probe) classifies the address the dialer
+# obtained and raises the value to 65 only for that case. The probe only
+# rewrites ttl while nothing has edited it by hand, and never enables
+# this plugin for you.
 #
 # WHY DISABLED BY DEFAULT:
 # Enabling TTL rewriting forces firewall.@defaults[0].flow_offloading=0 and

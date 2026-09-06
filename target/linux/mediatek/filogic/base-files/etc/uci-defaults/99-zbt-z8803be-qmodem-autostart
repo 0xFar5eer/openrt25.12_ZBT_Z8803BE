@@ -13,12 +13,30 @@ esac
 
 [ -e /etc/config/qmodem ] || exit 0
 
-# The DT exports 5G1 active-high. Reassert it after qmodem_init has finished
-# its initial slot scan, since that scan can power down a newly discovered
-# modem section when its state is still disabled.
+# The DT exports 5G1 active-high and powers it on at cold boot. Reassert it
+# after qmodem_init has finished its initial slot scan, since that scan can
+# power down a newly discovered modem section when its state is still disabled.
 if [ -w /sys/class/gpio/5g1/value ]; then
 	printf '1' > /sys/class/gpio/5g1/value
 fi
+
+# One-shot migration for systems flashed before the gpio_switch default was
+# corrected: the WAN-only-era board.d seeded system.gpio_switch[5g1].value='0',
+# and gpio_switch (START=94) writes that 0 over the DTS-powered pin on every
+# boot, cutting the modem a few seconds in. Fix the persisted config before
+# S94 runs, then record a marker so an operator who later turns 5G1 off in
+# LuCI is never overridden again. Fresh flashes already seed value='1'.
+for gsec in $(uci -q show system 2>/dev/null \
+		| sed -nE "s/^system\.([^.=]+)=gpio_switch$/\1/p"); do
+	[ "$(uci -q get "system.$gsec.name")" = "5g1" ] || continue
+	[ "$(uci -q get "system.$gsec.zbt_gpio_default")" = "1" ] && continue
+	uci -q set "system.$gsec.zbt_gpio_default='1'"
+	if [ "$(uci -q get "system.$gsec.value")" = "0" ]; then
+		uci -q set "system.$gsec.value='1'"
+	fi
+	done_flag=1
+done
+[ "$done_flag" = 1 ] && uci -q commit system
 
 uci -q set qmodem.main.enable_dial='1'
 uci -q set qmodem.main.block_auto_probe='0'

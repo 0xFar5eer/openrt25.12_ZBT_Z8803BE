@@ -5,20 +5,24 @@
 # what TTL the firmware should present to the carrier.
 #
 # WHY THIS IS NEEDED
-# The build contract says the modem must be a transparent IP pipe:
-# 40-zbt-qmodem-dns-suppress sets donot_nat=1 and modem_dial.sh turns that into
-# AT+QCFG="nat",0. But that AT command is only emitted from at_dial(), the path
-# used for ncm/ecm. qmi_dial() just execs quectel-CM-M and never touches NAT, so
-# on a Quectel module dialed in QMI mode the module keeps routing and keeps
-# decrementing TTL. The signature in the field is a wwan0 address from the
-# module's own embedded DHCP server (Quectel default 192.0.0.1/24, RNDIS/ECM
-# default 192.168.225.1/24) instead of a carrier-assigned address.
+# The default TTL (64, seeded here and rewritten on the cellular egress by
+# 36-zbt-z8803be-wan-speed-mode's 99-tether-ttl.nft) assumes the modem is a
+# transparent IP pipe. That is the normal, field-verified case: an RM551E-GL
+# dialing QMI on Globe PH obtains a carrier-assigned CGNAT address on wwan0
+# and the carrier sees exactly the rewritten value.
 #
-# That costs one extra decrement, so transit traffic that luci-app-qmodem-ttlfw4
-# rewrites to 64 reaches the carrier as 63 — the exact value US postpaid
-# tethering polices look for. Under module NAT the correct setting is 65. This
-# script decides which of the two applies instead of guessing, and can keep the
-# plugin's ttl value in step with it.
+# The exception is a module that still NATs. The QMI dialer never sends
+# AT+QCFG="nat",0 (only the NCM/ECM at_dial() path does), so a Quectel dialed
+# in QMI mode can keep routing behind its own embedded NAT. The signature is
+# a wwan0 address from the module's own DHCP server (Quectel default
+# 192.0.0.1/24, RNDIS/ECM default 192.168.225.1/24) instead of a
+# carrier-assigned address.
+#
+# Module NAT costs one extra decrement, so transit traffic rewritten to 64
+# reaches the carrier as 63 — the exact value US postpaid tethering polices
+# look for. Under module NAT the correct setting is 65. This script decides
+# which of the two applies instead of guessing, and can keep the plugin's
+# ttl value in step with it.
 #
 # WHY THE HEURISTIC AND NOT ALWAYS AN AT QUERY
 # AT+QCFG="nat" is the decisive answer, but it needs the AT port, and QModem's

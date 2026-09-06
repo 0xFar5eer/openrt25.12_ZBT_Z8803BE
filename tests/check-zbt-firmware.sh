@@ -6,8 +6,10 @@ root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 bf="$root/target/linux/mediatek/filogic/base-files"
 seed="$root/.buildenv/zbt8803be.config"
 replay="$root/.buildenv/replay-customizations.sh"
-failover30="$bf/etc/uci-defaults/30-zbt-z8803be-wan-failover"
 failover32="$bf/etc/uci-defaults/32-zbt-z8803be-wan-failover"
+speedmode="$bf/etc/uci-defaults/36-zbt-z8803be-wan-speed-mode"
+autostart="$bf/etc/uci-defaults/99-zbt-z8803be-qmodem-autostart"
+gpioboard="$bf/etc/board.d/03_gpio_switches"
 auto="$bf/etc/hotplug.d/usb/40-zbt-qmodem-autoenable"
 watchdog="$bf/usr/sbin/zbt-qmodem-watchdog-loop"
 watchdog_init="$bf/etc/init.d/zbt_qmodem_watchdog"
@@ -70,15 +72,40 @@ require "$ttl" 'zbt-modem-nat-probe'
 
 # Issue #9: the WWAN stubs must state the proto QModem's set_if() would pick
 # anyway, or QModem rewrites them and re-runs ifup on every dial.
-require "$failover30" "uci -q set network.4_1.proto='dhcp'"
-require "$failover30" "uci -q set network.4_1v6.proto='dhcpv6'"
 require "$failover32" "uci -q set network.4_1.proto='dhcp'"
 require "$failover32" "uci -q set network.4_1v6.proto='dhcpv6'"
-forbid "$failover30" "network.4_1.proto='none'"
 forbid "$failover32" "network.4_1.proto='none'"
 # The metric only sticks if it is written where QModem reads it back.
-require "$failover30" "qmodem.4_1.metric='200'"
 require "$failover32" 'qmodem.${sec}.metric=200'
+
+# WAN failover must be create-if-missing: an earlier revision deleted and
+# recreated network.wan/wan6/wan_sfp unconditionally, stomping operator
+# customisations and force-adding every uplink to the stock wan zone.
+forbid "$failover32" 'uci -q delete network.'
+require "$failover32" 'ensure_invariants()'
+require "$failover32" 'ensure_invariants wan_sfp 9'
+require "$failover32" 'if ! uci -q get network.wan_sfp >/dev/null 2>&1; then'
+require "$failover32" 'iface_in_any_zone'
+require "$failover32" 'find_wan_zone'
+require "$failover32" "uci -q set network.4_1.metric='200'"
+
+# GPIO root cause of the "modem gone after reboot" regression: 5G1 must
+# default to powered-on, matching the DTS gpio-export,output = <1>, or
+# gpio_switch (START=94) cuts Vbat a few seconds into every boot.
+require "$gpioboard" 'ucidef_add_gpio_switch "5g1" "Power 5G1 modem slot" "5g1" "1"'
+require "$gpioboard" 'ucidef_add_gpio_switch "5g2" "Power 5G2 modem slot" "5g2" "0"'
+require "$gpioboard" 'ucidef_add_gpio_switch "sim1" "SIM1 slot active (off = SIM2 slot)" "sim1" "1"'
+
+# Upgrades carry the stale persisted gpio_switch value=0; 99-autostart must
+# migrate it before S94gpio_switch runs, guarded by a once-marker so an
+# operator who powers 5G1 off later is never overridden.
+require "$autostart" 'zbt_gpio_default'
+require "$autostart" "system.\$gsec.value='1'"
+
+# The permanent TTL-64 nft rule is seeded only when absent, so an operator's
+# hand-raised 65 survives a reflash.
+require "$speedmode" 'if [ ! -e /etc/nftables.d/99-tether-ttl.nft ]; then'
+require "$speedmode" 'oifname "wwan0" ip ttl set 64'
 
 # The watchdog must not trigger on the configs it commits itself, and must
 # rate-limit re-asserting a section that is already healthy.
@@ -108,6 +135,28 @@ absent "$bf/etc/hotplug.d/net/10-zbt-modem-led"
 absent "$bf/etc/hotplug.d/iface/30-zbt-status-led"
 absent "$bf/etc/hotplug.d/iface/30-zbt-wwan-dns"
 
+# Renumbered uci-defaults: the old file must be gone or both ship.
+absent "$bf/etc/uci-defaults/10-zbt-apk-feeds"
+absent "$bf/etc/uci-defaults/15-zbt-modem-factory-reset-flag"
+absent "$bf/etc/uci-defaults/30-zbt-z8803be-wan-failover"
+absent "$bf/etc/uci-defaults/32-zbt-z8803be-wan-speed-mode"
+absent "$bf/etc/uci-defaults/35-zbt-qmodem-dns-suppress"
+absent "$bf/etc/uci-defaults/38-zbt-throughput-tuning"
+absent "$bf/etc/uci-defaults/40-zbt-qmodem-watchdog-enable"
+absent "$bf/etc/uci-defaults/44-zbt-qmodem-watchdog-disable"
+absent "$bf/etc/uci-defaults/45-zbt-qmodem-monitor-enable"
+absent "$bf/etc/uci-defaults/46-zbt-qmodem-monitor-patch"
+absent "$bf/etc/uci-defaults/47-zbt-persistent-app-stats"
+absent "$bf/etc/uci-defaults/47-zbt-qmodem-soft-reboot-patch"
+absent "$bf/etc/uci-defaults/50-zbt-sms-tool-compat"
+absent "$bf/etc/uci-defaults/60-zbt-leds-cleanup"
+absent "$bf/etc/uci-defaults/70-zbt-z8803be-wifi"
+absent "$bf/etc/uci-defaults/76-zbt-z8803be-admin-password"
+absent "$bf/etc/uci-defaults/80-zbt-z8803be-dns-cache"
+absent "$bf/etc/uci-defaults/84-zbt-luci-js-compat"
+absent "$bf/etc/uci-defaults/99-zbt-z8803be-services"
+absent "$bf/etc/uci-defaults/99a-zbt-youtubeunblock-disable"
+
 # Anything new outside an allowlisted directory must be listed here too, or it
 # silently never reaches a fresh upstream checkout.
 for f in "$natprobe" "$ttlhook" "$rndis"; do
@@ -115,7 +164,7 @@ for f in "$natprobe" "$ttlhook" "$rndis"; do
 done
 
 for file in "$auto" "$watchdog" "$watchdog_init" "$rndis" "$ttl" \
-	"$failover30" "$failover32" "$natprobe" "$ttlhook"; do
+	"$failover32" "$speedmode" "$autostart" "$gpioboard" "$natprobe" "$ttlhook"; do
 	sh -n "$file"
 done
 

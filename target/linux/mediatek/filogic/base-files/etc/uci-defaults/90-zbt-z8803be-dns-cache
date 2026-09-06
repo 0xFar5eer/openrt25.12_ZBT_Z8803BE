@@ -20,8 +20,8 @@
 #   The fix is to make dnsmasq IGNORE /tmp/resolv.conf.auto entirely
 #   (`noresolv=1`) and forward only to the explicit list we seed here.
 #   Combined with `peerdns=0` on wan/4_1 and `do_not_add_dns=1` on
-#   qmodem (see 30-zbt-z8803be-wan-failover and
-#   35-zbt-qmodem-dns-suppress), the firmware now boots into a
+#   qmodem (see 32-zbt-z8803be-wan-failover and
+#   40-zbt-qmodem-dns-suppress), the firmware now boots into a
 #   deterministic, operator-DNS-immune state regardless of which uplink
 #   came up first.
 #

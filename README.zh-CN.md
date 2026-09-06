@@ -40,8 +40,8 @@
 ## 校验值
 
 ```text
-0b4c093807e7ab6fb34c23f0b766689c12d7f2ca212655643681468b66dab9cd  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-6254dffe2a51a7d86efde993528466142187598645ecf660f9463b7d89c85b64  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+7b4879111f0ebf97dfb2a7a567d45b88e9ec92f24f3459516acc93fc050cf2da  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+aed0f73988fb425b717943f494a6c8517376bbacec9f48b048de9abbab210903  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
 4a4cf6dbc0688f858a092ea0a0d7a79e3d27ce5cb840888df927bbea37e52a5f  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ad0a299a4249c5ed426979b0b0d070be0ef7f7bb738067895c60893e37938172  packages-aarch64_cortex-a53.tar.gz
 ```

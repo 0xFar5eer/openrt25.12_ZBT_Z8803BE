@@ -1,10 +1,36 @@
 #!/bin/sh
+#
+# WAN speed mode: hardware flow offloading on, and a permanent TTL-64
+# rewrite on the cellular egress.
+#
+# WHY THE NFT FILE: carriers that police tethering (US postpaid in
+# particular) tear down a session whose TTL is one below what a native
+# phone presents. The router's forward path decrements TTL once, so
+# rewriting the cellular egress to 64 restores the value a phone would
+# have when the modem itself is a transparent pipe — which is the case
+# whenever wwan0 holds a carrier-assigned address (e.g. CGNAT 10.x).
+# For a modem that still NATs (module-assigned 192.0.0.x/192.168.225.x
+# addresses) the carrier sees one less and 65 would be needed; the
+# probe at usr/sbin/zbt-modem-nat-probe detects that case and raises
+# qmodem_ttl.main.ttl, and an operator can edit this file by hand.
+#
+# WHY WRITE-IF-ABSENT: this file used to be rewritten on every flash,
+# silently reverting operator edits (e.g. a hand-raised 65) back to 64.
+# Now it is seeded only when missing; afterwards the operator owns it.
+#
+# NOTE: this file matches oifname wwan0 only. A ping run on the router
+# itself is unaffected by it, so TTL tests must be run from a LAN
+# client (see the README TTL section).
 
 case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
 	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
 	*) exit 0 ;;
 esac
 
+# Hardware offload is the speed contract of this script. Note the
+# interplay with luci-app-qmodem-ttlfw4: enabling the TTL plugin turns
+# flow offloading off by itself, which is expected (its rewrite must
+# see the packets in netfilter) — this script does not fight that.
 uci -q set firewall.@defaults[0].flow_offloading='1'
 uci -q set firewall.@defaults[0].flow_offloading_hw='1'
 uci -q commit firewall
@@ -17,12 +43,17 @@ fi
 [ -x /etc/init.d/qosmate ] && /etc/init.d/qosmate disable >/dev/null 2>&1
 
 mkdir -p /etc/nftables.d
-cat > /etc/nftables.d/99-tether-ttl.nft <<'NFT'
+if [ ! -e /etc/nftables.d/99-tether-ttl.nft ]; then
+	cat > /etc/nftables.d/99-tether-ttl.nft <<'NFT'
+# Seeded by 36-zbt-z8803be-wan-speed-mode (only when absent — edit freely).
+# Rewrites the cellular egress TTL/hoplimit so a tethering-policing carrier
+# sees the value a native phone would present (see header of that script).
 chain postrouting {
 	type filter hook postrouting priority mangle; policy accept;
 	oifname "wwan0" ip ttl set 64
 	oifname "wwan0" ip6 hoplimit set 64
 }
 NFT
+fi
 
 exit 0

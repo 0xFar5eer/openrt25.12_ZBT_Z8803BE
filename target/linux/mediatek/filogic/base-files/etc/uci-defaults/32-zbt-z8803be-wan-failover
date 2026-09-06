@@ -17,7 +17,7 @@
 #   bug: noresolv=1 (below) makes the resolver path immune to
 #   resolv.conf.auto state regardless.
 #
-#   The dnsmasq-side half lives in 80-zbt-z8803be-dns-cache, which
+#   The dnsmasq-side half lives in 90-zbt-z8803be-dns-cache, which
 #   sets `noresolv=1` and pins `option server` to 1.1.1.1 / 8.8.8.8.
 #   The qmodem-side half lives in 40-zbt-qmodem-dns-suppress, which
 #   sets `do_not_add_dns=1` so quectel-CM-M never writes to
@@ -27,7 +27,21 @@
 #   enabled=0) so it does not contradict the deterministic policy on
 #   first boot. Setup scripts that prefer operator DNS can flip it on.
 #
-# WHY (root cause this fixes):
+# CREATE-IF-MISSING CONTRACT (operator configs are never deleted):
+#   Earlier revisions deleted and recreated network.wan/wan6/wan_sfp/
+#   wan_sfp6 unconditionally. That stomped operator customisations
+#   (static WAN addresses, disabled wan6, custom device mappings) and
+#   force-appended every uplink to the stock wan firewall zone, which
+#   broke deployments that put a port into its own zone. This revision:
+#     - splits ONLY the exact stock shape (see below);
+#     - creates missing sections with the contract defaults;
+#     - fills metric/peerdns/defaultroute on existing sections only
+#       when the option is unset;
+#     - adds firewall zone membership only for sections this script
+#       itself created, and for the WWAN stubs when no zone claims
+#       them (fw4 needs every uplink in some zone to forward).
+#
+# WHY (root cause the DNS half fixes):
 #   On a fresh `sysupgrade -n` first boot, the previous default
 #   (peerdns=1) let udhcpc on the wired WAN interfaces write the ISP's
 #   DNS into /tmp/resolv.conf.d/resolv.conf.auto BEFORE uci-defaults
@@ -54,39 +68,73 @@ set_slot_default_metric() {
 		done
 }
 
-# Wired WAN/SFP take precedence over cellular. All interfaces are brought up
-# automatically when their physical link or a ready SIM/modem is available.
-# Route metrics select SFP first, then RJ45 WAN, then cellular.
-for iface in wan wan6 wan_sfp wan_sfp6; do
-	uci -q delete "network.${iface}"
-done
+# ---------------------------------------------------------------------------
+# Wired uplinks, create-if-missing.
+#
+# board.d/02_network seeds ONE stock `wan` section spanning both physical
+# ports ("option device 'eth1 eth2'"). Route metrics are per-interface, so
+# that exact stock shape is split into:
+#     wan      = eth1 (RJ45 WAN)  metric 10
+#     wan_sfp  = eth2 (SFP cage)  metric 9
+# plus the wan6/wan_sfp6 DHCPv6 aliases. An existing section that differs
+# from the stock shape (operator static WAN, custom device list) is never
+# rewritten; only unset invariants get filled.
 
-uci -q batch <<'EOF' >/dev/null
-set network.wan=interface
-set network.wan.proto='dhcp'
-set network.wan.device='eth1'
-set network.wan.metric='10'
-set network.wan.defaultroute='1'
-set network.wan.peerdns='0'
-set network.wan6=interface
-set network.wan6.proto='dhcpv6'
-set network.wan6.device='eth1'
-set network.wan6.metric='10'
-set network.wan6.defaultroute='1'
-set network.wan6.peerdns='0'
-set network.wan_sfp=interface
-set network.wan_sfp.proto='dhcp'
-set network.wan_sfp.device='eth2'
-set network.wan_sfp.metric='9'
-set network.wan_sfp.defaultroute='1'
-set network.wan_sfp.peerdns='0'
-set network.wan_sfp6=interface
-set network.wan_sfp6.proto='dhcpv6'
-set network.wan_sfp6.device='eth2'
-set network.wan_sfp6.metric='9'
-set network.wan_sfp6.defaultroute='1'
-set network.wan_sfp6.peerdns='0'
-EOF
+# Fill the invariants this script owns, but only when unset, so an
+# operator's static proto, custom metric or defaultroute=0 survives.
+ensure_invariants() {
+	local sec=$1 metric=$2
+	uci -q get "network.$sec" >/dev/null 2>&1 || return 0
+	[ -n "$(uci -q get "network.$sec.metric")" ] || uci -q set "network.$sec.metric=$metric"
+	[ -n "$(uci -q get "network.$sec.peerdns")" ] || uci -q set "network.$sec.peerdns=0"
+	[ -n "$(uci -q get "network.$sec.defaultroute")" ] || uci -q set "network.$sec.defaultroute=1"
+}
+
+created_wired=""
+wan_dev="$(uci -q get network.wan.device 2>/dev/null)"
+case "$wan_dev" in
+*eth1*eth2*|*eth2*eth1*)
+	# Stock combined section: carve SFP out so each port gets its own
+	# metric. Preserve the section's proto (stock is dhcp) for the new
+	# SFP section.
+	wan_proto="$(uci -q get network.wan.proto 2>/dev/null)"
+	uci -q set network.wan.device='eth1'
+	if ! uci -q get network.wan_sfp >/dev/null 2>&1; then
+		uci -q set network.wan_sfp=interface
+		uci -q set "network.wan_sfp.proto=${wan_proto:-dhcp}"
+		uci -q set network.wan_sfp.device='eth2'
+		created_wired="$created_wired wan_sfp"
+	fi
+	;;
+esac
+
+if ! uci -q get network.wan_sfp >/dev/null 2>&1; then
+	case "$wan_dev" in
+	*eth2*) ;;  # operator already uses the SFP port as their WAN; leave it
+	*)
+		uci -q set network.wan_sfp=interface
+		uci -q set network.wan_sfp.proto='dhcp'
+		uci -q set network.wan_sfp.device='eth2'
+		created_wired="$created_wired wan_sfp"
+		;;
+	esac
+fi
+if ! uci -q get network.wan_sfp6 >/dev/null 2>&1; then
+	uci -q set network.wan_sfp6=interface
+	uci -q set network.wan_sfp6.proto='dhcpv6'
+	uci -q set network.wan_sfp6.device='eth2'
+	created_wired="$created_wired wan_sfp6"
+fi
+if ! uci -q get network.wan6 >/dev/null 2>&1; then
+	uci -q set network.wan6=interface
+	uci -q set network.wan6.proto='dhcpv6'
+	uci -q set network.wan6.device='eth1'
+	created_wired="$created_wired wan6"
+fi
+ensure_invariants wan 10
+ensure_invariants wan6 10
+ensure_invariants wan_sfp 9
+ensure_invariants wan_sfp6 9
 
 # Do not bridge the dedicated RJ45 WAN port into LAN.
 if brlan="$(uci -q show network 2>/dev/null \
@@ -96,10 +144,10 @@ fi
 
 # Register WWAN (4_1 / 4_1v6) stubs for QModem. These provide the metric
 # and firewall identity, and must state the proto QModem itself would
-# choose. For a Quectel modem dialing QMI that is 'dhcp' (see the long
-# note in 30-zbt-z8803be-wan-failover): asserting 'none' here made QModem
-# rewrite proto and metric and re-run `ifup` on every dial, which bounced
-# udhcpc off a live lease and dropped the uplink for seconds at a time.
+# choose. For a Quectel modem dialing QMI that is 'dhcp': asserting
+# 'none' here made QModem rewrite proto and metric and re-run `ifup` on
+# every dial, which bounced udhcpc off a live lease and dropped the
+# uplink for seconds at a time.
 if ! uci -q get network.4_1 >/dev/null 2>&1; then
 	uci -q set network.4_1=interface
 	uci -q set network.4_1.proto='dhcp'
@@ -119,9 +167,9 @@ uci -q set network.4_1v6.metric='200'
 uci -q set network.4_1v6.defaultroute='1'
 uci -q set network.4_1v6.peerdns='0'
 
-# See 30-zbt-z8803be-wan-failover: qmodem.<sec>.metric is what QModem
-# copies into network.<sec>.metric at dial time, and default_metric only
-# applies when QModem first creates the profile.
+# qmodem.<sec>.metric is what QModem copies into network.<sec>.metric at
+# dial time, and default_metric only applies when QModem first creates the
+# profile.
 if [ -e /etc/config/qmodem ]; then
 	set_slot_default_metric '4-1' '200'
 	for sec in 4_1 4_2; do
@@ -132,7 +180,15 @@ fi
 
 uci -q commit network
 
-# Keep all automatic uplinks in the WAN firewall zone.
+# ---------------------------------------------------------------------------
+# Firewall zone membership. The stock wan zone ships with network='wan wan6'
+# and board.d does not touch it. Zone-safety contract:
+#   - sections THIS SCRIPT CREATED are added to the stock zone (a fresh
+#     wan_sfp/wan_sfp6 must live in some zone to forward);
+#   - pre-existing sections are never re-added, because an operator may
+#     have deliberately moved e.g. network.wan into a dedicated zone;
+#   - the WWAN stubs are added only when NO zone claims them at all, so
+#     a custom zone assignment for 4_1 is respected.
 find_wan_zone() {
 	local sec
 	for sec in $(uci -q show firewall 2>/dev/null \
@@ -145,22 +201,36 @@ find_wan_zone() {
 	return 1
 }
 
+# True when some firewall zone lists $1 in its network list. The quoted
+# token match ('4_1') deliberately does not match '4_1v6'.
+iface_in_any_zone() {
+	uci -q show firewall 2>/dev/null | grep -q "\.network=.*'${1}'"
+}
+
 if wan_zone="$(find_wan_zone)"; then
-        zone_networks=$(uci -q get "firewall.${wan_zone}.network")
-        for iface in wan wan6 wan_sfp wan_sfp6 4_1 4_1v6; do
-                case " $zone_networks " in
+        changed=0
+        for iface in $created_wired; do
+                case " $(uci -q get "firewall.${wan_zone}.network" 2>/dev/null) " in
                         *" ${iface} "*) ;;
-                        *) uci -q add_list "firewall.${wan_zone}.network=${iface}" ;;
+                        *) uci -q add_list "firewall.${wan_zone}.network=${iface}"; changed=1 ;;
                 esac
         done
-        uci -q commit firewall
+        for iface in 4_1 4_1v6; do
+                if ! iface_in_any_zone "$iface"; then
+                        case " $(uci -q get "firewall.${wan_zone}.network" 2>/dev/null) " in
+                                *" ${iface} "*) ;;
+                                *) uci -q add_list "firewall.${wan_zone}.network=${iface}"; changed=1 ;;
+                        esac
+                fi
+        done
+        [ "$changed" = 1 ] && uci -q commit firewall
 fi
 
 # DNS-policy: seed the operator-DNS-capture hotplug as DISABLED so it
 # does not write a `server=...` snippet into /tmp/dnsmasq.*.d/ on
 # WWAN ifup. With noresolv=1 and pinned 1.1.1.1 / 8.8.8.8 forwarders
-# (see 80-zbt-z8803be-dns-cache), letting that hotplug fire on first
-# boot would re-introduce the exact race condition this commit set
+# (see 90-zbt-z8803be-dns-cache), letting that hotplug fire on first
+# boot would re-introduce the exact race condition this contract
 # fixes. Setup scripts that prefer operator DNS can flip
 # system.zbt_wwan_dns.enabled to '1' AFTER understanding the trade-off.
 #

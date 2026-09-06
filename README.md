@@ -32,8 +32,8 @@ Use the latest GitHub release assets:
 ## Checksums
 
 ```text
-0b4c093807e7ab6fb34c23f0b766689c12d7f2ca212655643681468b66dab9cd  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-6254dffe2a51a7d86efde993528466142187598645ecf660f9463b7d89c85b64  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+7b4879111f0ebf97dfb2a7a567d45b88e9ec92f24f3459516acc93fc050cf2da  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+aed0f73988fb425b717943f494a6c8517376bbacec9f48b048de9abbab210903  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
 4a4cf6dbc0688f858a092ea0a0d7a79e3d27ce5cb840888df927bbea37e52a5f  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 ad0a299a4249c5ed426979b0b0d070be0ef7f7bb738067895c60893e37938172  packages-aarch64_cortex-a53.tar.gz
 ```
@@ -46,7 +46,7 @@ ad0a299a4249c5ed426979b0b0d070be0ef7f7bb738067895c60893e37938172  packages-aarch
 - **PH WiFi defaults:** country `PH`, full PH-allowed channel set, no firmware txpower/channel clamps, and automatic regulatory max power.
 - **LuCI:** HTTPS, Argon dark theme, Chinese translations, package manager, curated Services menu ordering, and shared ZBT styling across custom firmware apps.
 - **QModem Next:** modern JS modem UI with built-in SMS, Monitor, AT Debug, and modem controls.
-- **Carrier TTL fix (opt-in):** **Modem → QModem → TTL** rewrites the IPv4 TTL / IPv6 hop limit of forwarded traffic, for carriers that tear down a tethered session seconds after it attaches (issue #9). Pre-seeded to `64` and left **disabled**, because enabling it also clears hardware flow offloading. In QMI mode the firmware's `donot_nat=1` request never reaches the modem (only the NCM/ECM dialer sends it), so a Quectel dialed QMI still NATs and the carrier sees 63 — the value to use is then `65`. A background probe (`zbt-modem-nat-probe`, fired on cellular ifup) detects the modem-NAT case from the address the dialer obtained and raises the value to `65` automatically; it never enables the plugin for you and backs off permanently if you hand-edit the value. Turning TTL back off does not restore flow offloading — do that with `uci set firewall.@defaults[0].flow_offloading='1' && uci commit firewall && /etc/init.d/firewall restart`.
+- **Carrier TTL handling:** the firmware rewrites the IPv4 TTL / IPv6 hop limit of traffic leaving the cellular interface to `64` — the value a native phone presents — via a permanent nft rule (`/etc/nftables.d/99-tether-ttl.nft`). That is correct whenever the modem is a transparent pipe, which is the normal case: a carrier-assigned address on `wwan0` (e.g. CGNAT `10.x`) means the carrier sees exactly `64`. A Quectel dialed QMI can still NAT behind its own embedded DHCP (module-assigned `192.0.0.x` / `192.168.225.x` addresses); the carrier then sees `63`, which is what US postpaid tethering policing reacts to (issue #9). A background probe (`zbt-modem-nat-probe`, fired on cellular ifup) detects that case and raises the **opt-in** TTL plugin (**Modem → QModem → TTL**, pre-seeded to `64` and disabled because enabling it also clears hardware flow offloading) to `65` automatically; it never enables the plugin for you and backs off permanently if you hand-edit the value. Turning TTL back off does not restore flow offloading — do that with `uci set firewall.@defaults[0].flow_offloading='1' && uci commit firewall && /etc/init.d/firewall restart`. Note the nft rule matches `oifname "wwan0"` only: test TTL from a LAN client, not from the router itself.
 - **Modem stack:** QMI, MBIM, NCM, MHI, USB serial, QModem, `sms_tool_q`.
 - **Z8803BE-T SIM wiring note:** on this exact model/variant, SIM1 is wired to modem1 and SIM2 is wired to modem2; one module cannot control both SIM cards, so SIM switching is not supported. Supplier notes that another Z8803BE-T version does support one module controlling two SIM cards.
 - **Modem LEDs:** firmware-enabled LED services and state poller.

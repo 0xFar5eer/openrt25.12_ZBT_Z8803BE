@@ -114,8 +114,8 @@ reassert_section() {
 		changed=0
 	fi
 
-	# proto must match what QModem's set_if() would itself choose for this
-	# modem: 'dhcp' for a Quectel dialing QMI. See 30-zbt-z8803be-wan-failover.
+# proto must match what QModem's set_if() would itself choose for this
+# modem: 'dhcp' for a Quectel dialing QMI. See 32-zbt-z8803be-wan-failover.
 	for spec in \
 		"$sec=interface" "${sec}.proto=dhcp" "${sec}.device=$device" \
 		"${sec}.ifname=$device" "${sec}.metric=200" \

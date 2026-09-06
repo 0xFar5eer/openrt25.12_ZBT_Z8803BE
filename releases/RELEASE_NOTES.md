@@ -2,6 +2,8 @@
 
 Release `v25.12.021` is a community firmware build for ZBTLink ZBT-Z8803BE.
 
+**Assets refreshed in place (2026-09-06).** The two firmware binaries under this tag were replaced with a rebuild of the same release covering the additional fixes in sections 3–5 below. If you downloaded `v25.12.021` before this date, re-verify the SHA-256 digests in Artifacts. The package manifest and the feed tarball are byte-identical to the originals — the package set did not change.
+
 ## Highlights
 
 This release fixes the cellular "connects, then dies seconds later" pattern reported in **issue #9** (T-Mobile US, Quectel RM551E-GL). Two independent firmware bugs were responsible, plus one aggravator.
@@ -23,34 +25,56 @@ The firmware asks the modem to be a transparent IP pipe (`donot_nat=1`). But in 
 
 That costs one extra TTL decrement: forwarded traffic leaves the router at 64 (or 63 untouched) and reaches T-Mobile at **63**. US postpaid tethering policing treats "not 64" as tethering and tears the data session down a couple of seconds after attach. SMS and the initial attach still work, which matches the report exactly. A `ping` run *on the router* also dies with the session, because the kill is carrier-side, not a NAT/firewall problem on the router.
 
-The opt-in TTL plugin (`luci-app-qmodem-ttlfw4`, **Modem → QModem → TTL**) rewrites the TTL on egress, and `ttl=65` compensates for the modem's own NAT. Note for testers: a rule matching `iifname "br-lan"` never affects pings run from the router itself, so testing TTL by re-pinging on the router proves nothing — test from a **LAN client**.
+The opt-in TTL plugin (`luci-app-qmodem-ttlfw4`, **Modem → QModem → TTL**) rewrites the TTL on egress, and `ttl=65` compensates for the modem's own NAT. The seeded default of `64` is the correct value whenever the modem is a transparent IP pipe — the normal case: a carrier-assigned address on `wwan0` (including CGNAT `10.x`) means the carrier sees exactly `64`. `65` is only needed when the module still NATs, whose signatures are module-assigned addresses (`192.0.0.x`, `192.168.225.x`, `10.168.x`). Note for testers: the plugin's rule matches `iifname "br-lan"` and the firmware's permanent rule matches `oifname "wwan0"`; neither affects pings run from the router itself, so testing TTL by re-pinging on the router proves nothing — test from a **LAN client**.
 
 New in this release, the firmware figures the right value out by itself:
 
-- `/usr/sbin/zbt-modem-nat-probe` (fired by a new `iface` hotplug on every cellular `ifup`) looks at the address the dialer obtained: `192.0.0.x` / `192.168.225.x` → the modem is NATing → it raises `qmodem_ttl.main.ttl` to **65**; a carrier-assigned address → leaves **64**.
+- `/usr/sbin/zbt-modem-nat-probe` (fired by a new `iface` hotplug on every cellular `ifup`) looks at the address the dialer obtained: `192.0.0.x` / `192.168.225.x` / `10.168.x` → the modem is NATing → it raises `qmodem_ttl.main.ttl` to **65**; a carrier-assigned address → leaves **64**.
 - It never enables the plugin for you, never restarts it while disabled, and if you hand-edit `ttl`, it permanently disables its own writes (`zbt_auto_ttl=0`) and leaves your value alone.
+- The permanent TTL-64 nft rule (`/etc/nftables.d/99-tether-ttl.nft`, seeded by `36-zbt-z8803be-wan-speed-mode`) is now written only when absent, so an operator's hand-edited value — e.g. a deliberate 65 — survives a reflash instead of being reset to 64 on every boot.
 - Optional manual check of the definitive answer: `sms_tool_q -d /dev/ttyUSB3 at 'AT+QCFG="nat"'` (`1` = modem NAT on → 65; `0` = transparent → 64). You can turn modem NAT off entirely with `AT+QCFG="nat",0` and then `64` is correct — but note it can reset on some module power cycles.
 
-### 3. Misc
+### 3. The first modem slot lost power seconds into every boot (new in the refreshed assets)
+
+The device tree powers the 5G1 M.2 slot on at cold boot (`gpio-export,output = <1>`), but the firmware's board config seeded the matching `gpio_switch` user-space toggle with a default of `0`. The kernel drove the pin high at probe time and the modem enumerated — then a few seconds into every boot `gpio_switch` (start order 94) wrote that `0` over the pin, cutting module power after enumeration. That was the recurring "modem gone after reboot" report. Neither recovery path could help: the auto-enable hotplug only fires on USB events, and the watchdog only acts on slots whose USB device path still exists — which the freshly powered-down slot no longer has.
+
+- `board.d/03_gpio_switches` now seeds `5g1=1`, `5g2=0` and `sim1=1` (SIM1 routed through the mux), matching the DTS and the real at-boot hardware state.
+- An upgrade keeps the stale `value=0` config, so `99-zbt-z8803be-qmodem-autostart` runs a one-shot migration during first boot, before `S94gpio_switch` runs: a persisted `0` is raised to `1` and a `zbt_gpio_default` marker is recorded. From then on the firmware never touches the toggle again — an operator who deliberately powers 5G1 off keeps that choice.
+
+### 4. WAN failover defaults no longer stomp operator configs (new in the refreshed assets)
+
+Earlier builds deleted and recreated `network.wan` / `wan6` / `wan_sfp` / `wan_sfp6` on every boot and force-appended every uplink to the stock `wan` firewall zone, wiping operator customisations (static WAN addresses, a disabled `wan6`, custom port-to-zone layouts).
+
+`32-zbt-z8803be-wan-failover` is now create-if-missing:
+
+- Only the exact stock shape (one `wan` section spanning `eth1 eth2`) is split into per-port sections so each gets its own route metric (SFP `9`, RJ45 WAN `10`, cellular `200`).
+- Missing sections are created with the contract defaults; existing sections only get `metric` / `peerdns` / `defaultroute` filled when the option is unset.
+- Firewall zone membership is added only for sections the script itself created, and for the WWAN stubs (`4_1` / `4_1v6`) only when no zone claims them.
+- The deterministic DNS policy is unchanged: `peerdns=0` on wired uplinks, and the operator-DNS capture hotplug still ships disabled (`system.zbt_wwan_dns.enabled=0`).
+
+### 5. Twenty stale uci-defaults removed (new in the refreshed assets)
+
+An audit of `etc/uci-defaults/` found twenty scripts that were duplicates of renumbered replacements, configured packages this build no longer ships, or enabled features this build deliberately defaults off. All are deleted, and `tests/check-zbt-firmware.sh` now carries an `absent` guard for each so none of them can ship again: `10-zbt-apk-feeds`, `15-zbt-modem-factory-reset-flag`, `30-zbt-z8803be-wan-failover`, `32-zbt-z8803be-wan-speed-mode`, `35-zbt-qmodem-dns-suppress`, `38-zbt-throughput-tuning`, `40-zbt-qmodem-watchdog-enable`, `44-zbt-qmodem-watchdog-disable`, `45-zbt-qmodem-monitor-enable`, `46-zbt-qmodem-monitor-patch`, `47-zbt-persistent-app-stats`, `47-zbt-qmodem-soft-reboot-patch`, `50-zbt-sms-tool-compat`, `60-zbt-leds-cleanup`, `70-zbt-z8803be-wifi`, `76-zbt-z8803be-admin-password`, `80-zbt-z8803be-dns-cache`, `84-zbt-luci-js-compat`, `99-zbt-z8803be-services`, `99a-zbt-youtubeunblock-disable`.
+
+### 6. Misc
 
 - The `zbt-modem-led` "LED sysfs node /sys/class/leds/5g1 missing — stale DTS?" log spam is gone (stale duplicate handler removed; the real node is `blue:mobile-1`/`blue:mobile-2`).
 - Manifest: 280 packages, image unchanged at ~20.7 MB. The only new packages are `luci-app-qmodem-ttlfw4` and its zh-CN translation.
 
 ## Validation
 
-- Full Docker firmware build completed successfully.
-- `sha256sum -c sha256sums --ignore-missing` passes for all artifacts.
-- The built rootfs was inspected directly: new probe/hotplug present and executable, all six stale duplicates absent, `proto='dhcp'` seeded, no `procd_add_reload_trigger` in the shipped watchdog init.
-- The NAT-probe's apply paths were exercised with shimmed `uci`/`ip` state (modem NAT → 65, carrier `10.x` address → stays 64, hand-edited ttl → auto-writes disabled, debounce, missing plugin package → skip).
-- `tests/check-zbt-firmware.sh` and `git diff --check` pass.
-- **Not yet hardware-tested:** none of this has been confirmed on a Z8803BE with a T-Mobile SIM. Issue #9 reporters: the fastest check on **v25.12.020** without flashing is the two-command manual fix in the section above (`enable=1`, `ttl=65`, restart `qmodem_ttl`).
+- Full Docker firmware rebuild completed successfully; `sha256sum -c sha256sums --ignore-missing` passes for all refreshed artifacts.
+- The staged rootfs was inspected in the build volume: all twenty removed scripts absent, the renumbered replacements present (`32-`/`36-`/`40-`/`48-`/`54-`/`56-`/`64-`/`68-`/`72-`/`80-`/`82-`/`86-`/`90-`/`99-`), `board.d/03_gpio_switches` seeds the `5g1` default `1`, and the gpio migration is present in `99-zbt-z8803be-qmodem-autostart`.
+- `tests/check-zbt-firmware.sh` — expanded this cycle with stale-file guards plus GPIO/failover/nft invariants — and `git diff --check` pass.
+- The NAT-probe's apply paths were exercised with shimmed `uci`/`ip` state (modem NAT → 65, carrier `10.x` address → stays 64, hand-edited ttl → auto-writes disabled, debounce, missing plugin package → skip). The probe and watchdog scripts carry comment-only changes in this refresh; their behavior is unchanged.
+- **Not yet hardware-tested:** the GPIO default fix, the upgrade migration and the WAN-failover rewrite have not been run on a physical Z8803BE since this refresh. The issue #9 fixes validated for the original v25.12.021 build carry over unchanged; issue #9 reporters on older releases can still apply the two-command manual fix above (`enable=1`, `ttl=65`, restart `qmodem_ttl`) without flashing.
 
 ## Artifacts
 
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
-  - SHA-256: `0b4c093807e7ab6fb34c23f0b766689c12d7f2ca212655643681468b66dab9cd`
+  - SHA-256: `7b4879111f0ebf97dfb2a7a567d45b88e9ec92f24f3459516acc93fc050cf2da`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
-  - SHA-256: `6254dffe2a51a7d86efde993528466142187598645ecf660f9463b7d89c85b64`
+  - SHA-256: `aed0f73988fb425b717943f494a6c8517376bbacec9f48b048de9abbab210903`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
   - SHA-256: `4a4cf6dbc0688f858a092ea0a0d7a79e3d27ce5cb840888df927bbea37e52a5f`
 - `packages-aarch64_cortex-a53.tar.gz`
@@ -67,6 +91,8 @@ For a clean configuration:
     sysupgrade -n openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
 
 After upgrading, if you had enabled the TTL plugin manually with `ttl=64`, leave the value alone — the probe only raises it to 65 if it is still at the seeded 64 or the last value it wrote itself.
+
+Upgrading with configuration kept: on the first boot after the upgrade, the one-shot migration raises a persisted `gpio_switch` `5g1` value of `0` to `1` (the default the hardware should always have had). If you deliberately switched the first modem slot off in LuCI, switch it off again after that first boot — from then on the firmware never touches the toggle.
 
 ## Donate
 Optional donations help support maintenance and testing:
