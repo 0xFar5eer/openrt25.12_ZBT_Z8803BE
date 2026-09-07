@@ -1,0 +1,34 @@
+#!/bin/sh
+#
+# Z8803BE: do not announce an IPv6 ULA prefix on the LAN.
+#
+# WHY: dual-stack clients break on a cellular uplink that cannot provide
+# IPv6. QMI data calls carry no DHCPv6 prefix delegation, so the router
+# never has a global prefix to hand out — but with the stock random ULA
+# configured, odhcpd still announces that ULA on the LAN and dnsmasq still
+# answers AAAA queries. A phone or browser that receives both builds global
+# destination addresses from DNS and a ULA source address, then waits for a
+# v6 path that does not exist: pages stall on assets until the client's
+# fallback timer fires ("pages don't fully load"). Dropping the ULA makes
+# clients IPv4-only immediately and honestly — v6 still comes back the
+# moment a delegated prefix exists (wired WAN), because RA/DHCPv6 on the LAN
+# announces delegations with or without a ULA.
+#
+# MARKER (zbt_no_ula): runs once per flash, like the gpio_switch migration.
+# An operator who deliberately re-adds a ULA prefix keeps it across reflashes.
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+[ "$(uci -q get network.globals.zbt_no_ula)" = "1" ] && exit 0
+
+if [ -n "$(uci -q get network.globals.ula_prefix)" ]; then
+	uci -q delete network.globals.ula_prefix
+	uci -q commit network
+fi
+uci -q set network.globals.zbt_no_ula='1'
+uci -q commit network
+
+exit 0

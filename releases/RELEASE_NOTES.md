@@ -2,7 +2,7 @@
 
 Release `v25.12.021` is a community firmware build for ZBTLink ZBT-Z8803BE.
 
-**Assets refreshed in place (2026-09-06).** The two firmware binaries under this tag were replaced with rebuilds of the same release: the first pass covered the additional fixes in sections 3–5 below, and a second pass corrected the upgrade migration described in section 3, whose section-matching guard was a silent no-op. If you downloaded `v25.12.021` on this date, re-verify the SHA-256 digests in Artifacts. The package manifest and the feed tarball are byte-identical to the originals — the package set did not change.
+**Assets refreshed in place (2026-09-06).** The two firmware binaries under this tag were replaced with rebuilds of the same release: the first pass covered the additional fixes in sections 3–5 below, a second pass corrected the upgrade migration described in section 3, and a third pass added the fixes in sections 7–8. If you downloaded `v25.12.021` on this date, re-verify the SHA-256 digests in Artifacts. The package manifest and the feed tarball are byte-identical to the originals — the package set did not change.
 
 ## Highlights
 
@@ -62,6 +62,18 @@ An audit of `etc/uci-defaults/` found twenty scripts that were duplicates of ren
 - The `zbt-modem-led` "LED sysfs node /sys/class/leds/5g1 missing — stale DTS?" log spam is gone (stale duplicate handler removed; the real node is `blue:mobile-1`/`blue:mobile-2`).
 - Manifest: 280 packages, image unchanged at ~20.7 MB. The only new packages are `luci-app-qmodem-ttlfw4` and its zh-CN translation.
 
+### 7. The permanent TTL rule now follows the probe (new in the third refresh)
+
+`zbt-modem-nat-probe` already detected the one case that matters — a Quectel dialed QMI that still NATs behind its own embedded DHCP — but it only raised `qmodem_ttl.main.ttl`, the value of the **opt-in** plugin. With the plugin disabled (its default), the permanent `99-tether-ttl.nft` rule stayed at 64 and a module-NAT user was policed by the carrier out of the box: forwarded traffic reached the carrier at 63 and the session died seconds after a client connected, while the link could look perfectly healthy with no LAN clients — which is exactly the "lasts longer when no devices are connected, dies ~10 s after one connects" pattern.
+
+On every cellular ifup the probe now rewrites the permanent rule's `ip ttl set` / `ip6 hoplimit set` values between the two firmware-managed states (64 = transparent modem, 65 = module NAT) and reloads the firewall only when a value actually changed. Any other value in that file is treated as an operator edit and never touched, and the whole behaviour is switched off by the same `zbt_auto_ttl=0` back-off that a hand-edited plugin value triggers.
+
+A field report matching this pattern (RM551E-GL, "works for a few minutes / 330 Mbps speedtest, then drops") may be module NAT on a carrier that polices TTL; the refresh makes the correct value automatic instead of requiring the operator to enable the plugin and raise it by hand. The 25 Mbps vs 330 Mbps spread is cell/RF variance, not a firmware path.
+
+### 8. No ULA announced on the LAN (new in the third refresh)
+
+Cellular QMI data calls carry no DHCPv6 prefix delegation, so on a cellular-only uplink the router has no global IPv6 prefix to delegate — but the stock random ULA prefix was still announced on the LAN and dnsmasq still answered AAAA queries. Dual-stack clients then built global destinations from DNS with an unusable ULA source path and stalled on page assets until their fallback timer fired: "pages don't fully load". The new `37-zbt-z8803be-no-ula` default removes `network.globals.ula_prefix` once per flash (marker-guarded; an operator who deliberately re-adds one keeps it). Delegated prefixes from a wired WAN are still announced normally, so IPv6 returns automatically when a delegation exists.
+
 ## Validation
 
 - Full Docker firmware rebuild completed successfully; `sha256sum -c sha256sums --ignore-missing` passes for all refreshed artifacts.
@@ -74,9 +86,9 @@ An audit of `etc/uci-defaults/` found twenty scripts that were duplicates of ren
 ## Artifacts
 
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
-  - SHA-256: `fdcdb15b96ab305444491d9cfd6e076c5317a7dfc09cc28842b4bb0d5e2fd927`
+  - SHA-256: `71ac7859719944fd95e2902d0b0256d247b918520d107e29f8fa83bbe6e8cafc`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
-  - SHA-256: `16eac0891ea46f5611ba96efd7a81bd579e7a2402d1325603497eab65f927c51`
+  - SHA-256: `830dda1a409ecfc807c517836e9b451944c696acb00f88dc5edf668b001e3fe9`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
   - SHA-256: `4a4cf6dbc0688f858a092ea0a0d7a79e3d27ce5cb840888df927bbea37e52a5f`
 - `packages-aarch64_cortex-a53.tar.gz`

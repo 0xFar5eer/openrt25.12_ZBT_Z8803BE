@@ -40,9 +40,18 @@
 # - Respects operator edits. If the ttl differs from the last value this script
 #   wrote, the operator has set it by hand; auto mode is then turned off for
 #   good rather than overwriting them on the next ifup.
-
+# - Keeps the PERMANENT rule in 99-tether-ttl.nft in step as well. Raising
+#   only the plugin's value was not enough: the plugin ships disabled, so a
+#   module that still NATs was policed out of the box with the seeded 64
+#   ("connection dies seconds after a client connects"). The rule's two
+#   values are only rewritten between the two firmware-managed states 64/65;
+#   any other value in that file is treated as an operator edit and never
+#   touched.
+#
 BOARD=${BOARD:-zbtlink,zbt-z8803be}
 TTL_FILE=${TTL_FILE:-/etc/config/qmodem_ttl}
+NFT_FILE=${NFT_FILE:-/etc/nftables.d/99-tether-ttl.nft}
+FIREWALL_INIT=${FIREWALL_INIT:-/etc/init.d/firewall}
 STAMP=${STAMP:-/tmp/zbt-modem-nat-probe.stamp}
 DEBOUNCE_S=${DEBOUNCE_S:-120}
 TTL_FOR_NAT=${TTL_FOR_NAT:-65}
@@ -194,6 +203,46 @@ ttl_for_state() {
 	esac
 }
 
+# Auto mode is the single switch for both the plugin value and the permanent
+# rule: a GUI hand-edit turns both off.
+auto_enabled() {
+	[ "$(uci -q get qmodem_ttl.main.zbt_auto_ttl)" != "0" ]
+}
+
+# The permanent postrouting rule is what actually rewrites TTL out of the
+# box, so it has to carry the same value the plugin would — including when
+# the plugin is disabled (its default state).
+apply_nft_ttl() {
+	local want="$1" section="$2" nat="$3" cur hop changed=0
+	[ -e "$NFT_FILE" ] || { printf 'nft=absent\n'; return 0; }
+	cur=$(sed -n 's/^oifname "wwan0" ip ttl set \([0-9]\{1,3\}\)$/\1/p' "$NFT_FILE")
+	case "$cur" in
+		64|65) ;;
+		*) printf 'nft=skipped reason=hand-edited\n'; return 0 ;;
+	esac
+	if [ "$cur" != "$want" ]; then
+		sed -i "s/^oifname \"wwan0\" ip ttl set [0-9]\{1,3\}$/oifname \"wwan0\" ip ttl set $want/" "$NFT_FILE" || return 0
+		changed=1
+	fi
+	hop=$(sed -n 's/^oifname "wwan0" ip6 hoplimit set \([0-9]\{1,3\}\)$/\1/p' "$NFT_FILE")
+	case "$hop" in
+		64|65)
+			if [ "$hop" != "$want" ]; then
+				sed -i "s/^oifname \"wwan0\" ip6 hoplimit set [0-9]\{1,3\}$/oifname \"wwan0\" ip6 hoplimit set $want/" "$NFT_FILE" || return 0
+				changed=1
+			fi
+			;;
+	esac
+	if [ "$changed" = 1 ]; then
+		log "99-tether-ttl.nft ttl $cur -> $want (module NAT $nat, section $section); reloading firewall"
+		record_event zbt-modem-nat-probe nft-ttl warning "$section" "Permanent TTL rule updated" "nat=$nat ttl=$want"
+		"$FIREWALL_INIT" reload >/dev/null 2>&1 || log "firewall reload failed"
+		printf 'nft=updated ttl=%s\n' "$want"
+	else
+		printf 'nft=already-set ttl=%s\n' "$want"
+	fi
+}
+
 apply_ttl() {
 	local want="$1" section="$2" nat="$3" auto current last
 	[ -e "$TTL_FILE" ] || { printf 'applied=skipped reason=no-qmodem-ttl-package\n'; return 0; }
@@ -290,7 +339,13 @@ main() {
 		printf 'recommended_ttl=%s\n' "$want"
 		printf 'current_ttl=%s\n' "$(uci -q get qmodem_ttl.main.ttl)"
 		if [ "$APPLY" = 1 ]; then
-			apply_ttl "$want" "$sec" "$nat"
+			if auto_enabled; then
+				apply_ttl "$want" "$sec" "$nat"
+				apply_nft_ttl "$want" "$sec" "$nat"
+			else
+				printf 'applied=no reason=auto-ttl-disabled\n'
+				printf 'nft=skipped reason=auto-ttl-disabled\n'
+			fi
 		fi
 	done
 	[ "$APPLY" = 1 ] && printf '%s\n' "$(now_s)" > "$STAMP" 2>/dev/null

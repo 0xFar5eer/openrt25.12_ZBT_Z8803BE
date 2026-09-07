@@ -10,9 +10,11 @@
 # have when the modem itself is a transparent pipe — which is the case
 # whenever wwan0 holds a carrier-assigned address (e.g. CGNAT 10.x).
 # For a modem that still NATs (module-assigned 192.0.0.x/192.168.225.x
-# addresses) the carrier sees one less and 65 would be needed; the
-# probe at usr/sbin/zbt-modem-nat-probe detects that case and raises
-# qmodem_ttl.main.ttl, and an operator can edit this file by hand.
+# addresses) the carrier sees one less and 65 is needed; the probe at
+# usr/sbin/zbt-modem-nat-probe detects that case on every cellular ifup
+# and keeps this file's value in step (64<->65), so module-NAT users are
+# not policed out of the box. Any value other than 64/65 in the rule
+# below is treated as an operator edit and never rewritten.
 #
 # WHY WRITE-IF-ABSENT: this file used to be rewritten on every flash,
 # silently reverting operator edits (e.g. a hand-raised 65) back to 64.
@@ -45,9 +47,11 @@ fi
 mkdir -p /etc/nftables.d
 if [ ! -e /etc/nftables.d/99-tether-ttl.nft ]; then
 	cat > /etc/nftables.d/99-tether-ttl.nft <<'NFT'
-# Seeded by 36-zbt-z8803be-wan-speed-mode (only when absent — edit freely).
-# Rewrites the cellular egress TTL/hoplimit so a tethering-policing carrier
-# sees the value a native phone would present (see header of that script).
+# Seeded by 36-zbt-z8803be-wan-speed-mode (only when absent).
+# zbt-modem-nat-probe keeps the two set values between 64 (transparent
+# modem) and 65 (module NAT) as the dialer's address changes; any other
+# value here is operator-owned and never rewritten. See the header of
+# that script and of 36-zbt-z8803be-wan-speed-mode for the full story.
 chain postrouting {
 	type filter hook postrouting priority mangle; policy accept;
 	oifname "wwan0" ip ttl set 64

@@ -8,6 +8,7 @@ seed="$root/.buildenv/zbt8803be.config"
 replay="$root/.buildenv/replay-customizations.sh"
 failover32="$bf/etc/uci-defaults/32-zbt-z8803be-wan-failover"
 speedmode="$bf/etc/uci-defaults/36-zbt-z8803be-wan-speed-mode"
+noula="$bf/etc/uci-defaults/37-zbt-z8803be-no-ula"
 autostart="$bf/etc/uci-defaults/99-zbt-z8803be-qmodem-autostart"
 gpioboard="$bf/etc/board.d/03_gpio_switches"
 auto="$bf/etc/hotplug.d/usb/40-zbt-qmodem-autoenable"
@@ -130,12 +131,29 @@ require "$auto" 'if [ "$was_disabled" = 1 ] && [ -x /etc/init.d/qmodem_network ]
 require "$auto" 'set_q "qmodem.$section.metric" 200'
 
 # Module-side NAT defeats donot_nat in QMI mode, so the TTL has to be probed.
+# The plugin ships disabled, so the probe must also keep the permanent
+# 99-tether-ttl.nft rule in step — otherwise a module that still NATs is
+# policed with the seeded 64 and the connection dies seconds after a client
+# connects. Only 64<->65 transitions are firmware-managed; anything else is
+# operator-owned.
 require_exec "$natprobe"
-require_exec "$ttlhook"
 require "$natprobe" 'TTL_FOR_NAT=${TTL_FOR_NAT:-65}'
 require "$natprobe" 'TTL_FOR_TRANSPARENT=${TTL_FOR_TRANSPARENT:-64}'
 require "$natprobe" '192.0.0. 192.168.225. 10.168.'
 require "$natprobe" 'zbt_auto_ttl'
+require "$natprobe" 'apply_nft_ttl'
+require "$natprobe" '99-tether-ttl.nft'
+require "$natprobe" 'reason=hand-edited'
+require "$natprobe" 'ip6 hoplimit set'
+require "$natprobe" 'firewall reload'
+require "$ttlhook" 'zbt-modem-nat-probe --apply'
+
+# Cellular QMI carries no DHCPv6-PD, so a stock ULA announced on the LAN
+# breaks dual-stack clients (AAAA answers, no v6 path). The no-ULA default
+# must be once-per-flash, marker-guarded.
+require "$noula" 'uci -q delete network.globals.ula_prefix'
+require "$noula" 'zbt_no_ula'
+require "$noula" 'board_name'
 require "$ttlhook" 'zbt-modem-nat-probe --apply'
 
 absent "$bf/etc/hotplug.d/usb/30-zbt-qmodem-autoenable"
@@ -174,7 +192,8 @@ for f in "$natprobe" "$ttlhook" "$rndis"; do
 done
 
 for file in "$auto" "$watchdog" "$watchdog_init" "$rndis" "$ttl" \
-	"$failover32" "$speedmode" "$autostart" "$gpioboard" "$natprobe" "$ttlhook"; do
+	"$failover32" "$speedmode" "$noula" "$autostart" "$gpioboard" \
+	"$natprobe" "$ttlhook"; do
 	sh -n "$file"
 done
 

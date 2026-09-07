@@ -2,7 +2,7 @@
 
 `v25.12.021` 是面向 ZBTLink ZBT-Z8803BE 的社区固件版本。
 
-**附件已原位刷新（2026-09-06）。** 本 tag 下的两个固件二进制已被同一版本的重建镜像替换：第一轮包含下文第 3–5 节的补充修复，第二轮修正了第 3 节所述升级迁移中的 section 匹配守卫（此前该守卫是无效的空操作）。如果你在此日期下载过 `v25.12.021`，请重新核对附件列表中的 SHA-256。软件包清单与软件源 tar 包与原始版本字节一致——软件包集合没有任何变化。
+**附件已原位刷新（2026-09-06）。** 本 tag 下的两个固件二进制已被同一版本的重建镜像替换：第一轮包含下文第 3–5 节的补充修复，第二轮修正了第 3 节所述升级迁移中的 section 匹配守卫（此前该守卫是无效的空操作），第三轮新增了第 7–8 节的修复。如果你在此日期下载过 `v25.12.021`，请重新核对附件列表中的 SHA-256。软件包清单与软件源 tar 包与原始版本字节一致——软件包集合没有任何变化。
 
 ## 亮点
 
@@ -62,6 +62,18 @@
 - 消除了 `zbt-modem-led` 的 "LED sysfs node /sys/class/leds/5g1 missing — stale DTS?" 日志刷屏（删除了遗留的重复处理器；真实节点是 `blue:mobile-1`/`blue:mobile-2`）。
 - 清单：280 个软件包，镜像保持约 20.7 MB。唯一新增的包是 `luci-app-qmodem-ttlfw4` 及其中文翻译。
 
+### 7. 常驻 TTL 规则现在跟随探针自动调整（第三轮刷新新增）
+
+`zbt-modem-nat-probe` 此前已经能识别出真正要紧的那一种情况——以 QMI 拨号、仍在自己内建 NAT 后面路由的 Quectel——但它只调整 `qmodem_ttl.main.ttl`，也就是**可选**插件的值。插件默认关闭，常驻的 `99-tether-ttl.nft` 规则仍是 64，于是 module-NAT 用户开箱即被运营商掐断：转发流量以 63 到达运营商，客户端一连上会话就死，而没有任何局域网设备时链路看起来完全正常——正是"没设备连接时能撑更久，一连上设备约 10 秒后断线"的特征。
+
+现在每次蜂窝 ifup 时，探针会把常驻规则的 `ip ttl set` / `ip6 hoplimit set` 值在两个固件托管状态之间改写（64 = 透明 modem，65 = module NAT），并且只在值真正变化时重载防火墙。文件中出现其他任何值都视为用户手工修改，固件绝不改写；整个行为也受同一个 `zbt_auto_ttl=0` 退避开关控制（手动改过插件值即触发）。
+
+与此特征吻合的现场报告（RM551E-GL，"能撑几分钟 / 330 Mbps 测速后掉线"）可能就是运营商掐 TTL 的 module-NAT 场景；本次刷新让正确值自动生效，而不再要求用户手动启用插件并改值。25 Mbps 与 330 Mbps 的差异属于小区/射频波动，不是固件路径。
+
+### 8. LAN 不再通告 ULA（第三轮刷新新增）
+
+蜂窝 QMI 数据呼叫不携带 DHCPv6 前缀委派，纯蜂窝上联时路由器没有可委派的全局 IPv6 前缀——但出厂随机 ULA 前缀仍在 LAN 上通告，dnsmasq 也继续应答 AAAA 查询。双栈客户端随后用 DNS 返回的全局目的地址配上走不通的 ULA 源路径，页面资源加载停滞直到客户端回退定时器触发："页面加载不完整"。新增的 `37-zbt-z8803be-no-ula` 默认脚本按每次刷机一次（带标记守卫；刻意重新添加 ULA 的用户设置会保留）删除 `network.globals.ula_prefix`。有线 WAN 拿到委派前缀时仍正常通告，委派存在时 IPv6 自动恢复。
+
 ## 验证
 
 - Docker 完整重建成功；刷新后的全部附件 `sha256sum -c sha256sums --ignore-missing` 通过。
@@ -74,9 +86,9 @@
 ## 附件
 
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
-  - SHA-256: `fdcdb15b96ab305444491d9cfd6e076c5317a7dfc09cc28842b4bb0d5e2fd927`
+  - SHA-256: `71ac7859719944fd95e2902d0b0256d247b918520d107e29f8fa83bbe6e8cafc`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
-  - SHA-256: `16eac0891ea46f5611ba96efd7a81bd579e7a2402d1325603497eab65f927c51`
+  - SHA-256: `830dda1a409ecfc807c517836e9b451944c696acb00f88dc5edf668b001e3fe9`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
   - SHA-256: `4a4cf6dbc0688f858a092ea0a0d7a79e3d27ce5cb840888df927bbea37e52a5f`
 - `packages-aarch64_cortex-a53.tar.gz`
