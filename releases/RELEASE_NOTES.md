@@ -2,7 +2,7 @@
 
 Release `v25.12.021` is a community firmware build for ZBTLink ZBT-Z8803BE.
 
-**Assets refreshed in place (2026-09-06).** The two firmware binaries under this tag were replaced with rebuilds of the same release: the first pass covered the additional fixes in sections 3–5 below, a second pass corrected the upgrade migration described in section 3, and a third pass added the fixes in sections 7–8. If you downloaded `v25.12.021` on this date, re-verify the SHA-256 digests in Artifacts. The package manifest and the feed tarball are byte-identical to the originals — the package set did not change.
+**Assets refreshed in place (latest pass 2026-09-08).** The two firmware binaries under this tag were replaced with rebuilds of the same release: the first pass covered the additional fixes in sections 3–5 below, a second pass corrected the upgrade migration described in section 3, a third pass added the fixes in sections 7–8, and a fourth pass (2026-09-08) adds the maintainer's Discord contact (section 9) to the LuCI About page, the SSH banner, and the README contact sections. If you downloaded `v25.12.021` on any of these dates, re-verify the SHA-256 digests in Artifacts. The package manifest is unchanged — the package set did not change; the feed tarball was rebuilt in the fourth pass because it carries the updated `luci-app-zbt-about` package.
 
 ## Highlights
 
@@ -74,6 +74,10 @@ A field report matching this pattern (RM551E-GL, "works for a few minutes / 330 
 
 Cellular QMI data calls carry no DHCPv6 prefix delegation, so on a cellular-only uplink the router has no global IPv6 prefix to delegate — but the stock random ULA prefix was still announced on the LAN and dnsmasq still answered AAAA queries. Dual-stack clients then built global destinations from DNS with an unusable ULA source path and stalled on page assets until their fallback timer fired: "pages don't fully load". The new `37-zbt-z8803be-no-ula` default removes `network.globals.ula_prefix` once per flash (marker-guarded; an operator who deliberately re-adds one keeps it). Delegated prefixes from a wired WAN are still announced normally, so IPv6 returns automatically when a delegation exists.
 
+### 9. Discord contact added (new in the fourth refresh)
+
+The maintainer's Discord handle `0xFar5eer#6504` is now listed next to Issues and Email in **LuCI → System → About this build**, in the SSH login banner, and in the Support/contact sections of both READMEs. No configuration or runtime behavior changes: only `luci-app-zbt-about` and the banner changed, so the two image digests and the feed tarball digest are updated while the package manifest is unchanged.
+
 ## Validation
 
 - Full Docker firmware rebuild completed successfully; `sha256sum -c sha256sums --ignore-missing` passes for all refreshed artifacts.
@@ -82,17 +86,18 @@ Cellular QMI data calls carry no DHCPv6 prefix delegation, so on a cellular-only
 - The NAT-probe's apply paths were exercised with shimmed `uci`/`ip` state (modem NAT → 65, carrier `10.x` address → stays 64, hand-edited ttl → auto-writes disabled, debounce, missing plugin package → skip). The probe and watchdog scripts carry comment-only changes in this refresh; their behavior is unchanged.
 - **Hardware-validated on a physical Z8803BE (2026-09-06):** the first refresh was flashed with configuration preserved; the upgrade kept the stale persisted `gpio_switch` `5g1` `value=0` and reproduced the unpowered-modem symptom, which is what exposed the migration no-op above. The corrected migration script was run against that board config: it matched the section by ID, migrated `value=0` to `1` and recorded a clean `zbt_gpio_default=1` marker (traced with `sh -x`). The modem re-enumerated, and after a radio re-attach (`AT+CFUN=0/1` — the carrier's MME was still holding the pre-cut session and rejected data calls with `call_end_reason_verbose 210`) the cellular uplink, DNS and LAN forwarding were restored end to end, with the rewritten WAN-failover zone layout intact.
 - The issue #9 fixes validated for the original v25.12.021 build carry over unchanged; issue #9 reporters on older releases can still apply the two-command manual fix above (`enable=1`, `ttl=65`, restart `qmodem_ttl`) without flashing.
+- Fourth refresh (2026-09-08): the rebuilt `luci-app-zbt-about` APK was verified to contain the new Discord contact row (staged `about.js` and the feed-tar member hash-match), and the feed tarball was regenerated from the fresh package feed with the same 156-package layout as before.
 
 ## Artifacts
 
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
-  - SHA-256: `71ac7859719944fd95e2902d0b0256d247b918520d107e29f8fa83bbe6e8cafc`
+  - SHA-256: `ad74444a8a552798b8fc896b878ac69a4538b0be68b967632c1d4ec7709c2f3d`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
-  - SHA-256: `830dda1a409ecfc807c517836e9b451944c696acb00f88dc5edf668b001e3fe9`
+  - SHA-256: `e327e89279036f5d2746fe75d7a113e984ebc707b71be4fe5875b6b19ab7ad0e`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
   - SHA-256: `4a4cf6dbc0688f858a092ea0a0d7a79e3d27ce5cb840888df927bbea37e52a5f`
 - `packages-aarch64_cortex-a53.tar.gz`
-  - SHA-256: `ad0a299a4249c5ed426979b0b0d070be0ef7f7bb738067895c60893e37938172`
+  - SHA-256: `b91a24b6d113bb9e5e90fcdd612c9c43f8516890dca71ff0e0cb7724f30b40f1`
 - `sha256sums`, `config.buildinfo`, `feeds.buildinfo`, and `version.buildinfo`
 
 ## Upgrade

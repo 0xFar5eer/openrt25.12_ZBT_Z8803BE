@@ -2,7 +2,7 @@
 
 `v25.12.021` 是面向 ZBTLink ZBT-Z8803BE 的社区固件版本。
 
-**附件已原位刷新（2026-09-06）。** 本 tag 下的两个固件二进制已被同一版本的重建镜像替换：第一轮包含下文第 3–5 节的补充修复，第二轮修正了第 3 节所述升级迁移中的 section 匹配守卫（此前该守卫是无效的空操作），第三轮新增了第 7–8 节的修复。如果你在此日期下载过 `v25.12.021`，请重新核对附件列表中的 SHA-256。软件包清单与软件源 tar 包与原始版本字节一致——软件包集合没有任何变化。
+**附件已原位刷新（最近一轮 2026-09-08）。** 本 tag 下的两个固件二进制已被同一版本的重建镜像替换：第一轮包含下文第 3–5 节的补充修复，第二轮修正了第 3 节所述升级迁移中的 section 匹配守卫（此前该守卫是无效的空操作），第三轮新增了第 7–8 节的修复，第四轮（2026-09-08）按第 9 节把维护者的 Discord 联系方式加入 LuCI About 页、SSH banner 与两份 README。如果你在上述任一日期下载过 `v25.12.021`，请重新核对附件列表中的 SHA-256。软件包清单不变——软件包集合没有任何变化；软件源 tar 包在第四轮因携带更新后的 `luci-app-zbt-about` 而重建。
 
 ## 亮点
 
@@ -74,6 +74,10 @@
 
 蜂窝 QMI 数据呼叫不携带 DHCPv6 前缀委派，纯蜂窝上联时路由器没有可委派的全局 IPv6 前缀——但出厂随机 ULA 前缀仍在 LAN 上通告，dnsmasq 也继续应答 AAAA 查询。双栈客户端随后用 DNS 返回的全局目的地址配上走不通的 ULA 源路径，页面资源加载停滞直到客户端回退定时器触发："页面加载不完整"。新增的 `37-zbt-z8803be-no-ula` 默认脚本按每次刷机一次（带标记守卫；刻意重新添加 ULA 的用户设置会保留）删除 `network.globals.ula_prefix`。有线 WAN 拿到委派前缀时仍正常通告，委派存在时 IPv6 自动恢复。
 
+### 9. 新增 Discord 联系方式（第四轮刷新新增）
+
+维护者的 Discord 账号 `0xFar5eer#6504` 现在列于 **LuCI → 系统 → 关于此固件** 的 Issue/Email 旁，同时出现在 SSH 登录 banner 与两份 README 的反馈/联系部分。不涉及任何配置或运行行为变化：只有 `luci-app-zbt-about` 与 banner 有改动，因此两个镜像摘要与软件源 tar 包摘要更新，软件包清单不变。
+
 ## 验证
 
 - Docker 完整重建成功；刷新后的全部附件 `sha256sum -c sha256sums --ignore-missing` 通过。
@@ -82,17 +86,18 @@
 - NAT 探针的各写入路径用带桩的 `uci`/`ip` 状态做了演练（modem NAT → 65；运营商 `10.x` 地址 → 保持 64；手工改过的 ttl → 自动写入永久关闭；去抖；缺插件包 → 跳过）。探针与看门狗脚本本次刷新只有注释改动，行为不变。
 - **已在实体 Z8803BE 上完成硬件验证（2026-09-06）**：第一轮刷新在保留配置的情况下刷入实体机；升级保留了持久化的 `gpio_switch` `5g1` `value=0`，复现了 modem 断电症状，正是它暴露了上文的迁移空操作。随后在板子上直接运行修正后的迁移脚本：按 section ID 匹配、把 `value=0` 迁移为 `1` 并写入干净的 `zbt_gpio_default=1` 标记（`sh -x` 全程跟踪）。modem 重新枚举；经一次射频重附着（`AT+CFUN=0/1`——运营商 MME 仍持有断电前的会话，用 `call_end_reason_verbose 210` 拒绝数据呼叫）后，蜂窝上行、DNS 与 LAN 转发端到端恢复，重写后的 WAN 故障切换区域布局完好。
 - 原 v25.12.021 构建已验证的 issue #9 修复不受影响、原样保留；旧版本的 issue #9 报告者仍可按上文的两步手动修复（`enable=1`、`ttl=65`、重启 `qmodem_ttl`）在不刷机的情况下验证。
+- 第四轮刷新（2026-09-08）：已验证重建的 `luci-app-zbt-about` APK 包含新增的 Discord 联系行（暂存 `about.js` 与 feed tar 内成员哈希一致），软件源 tar 包按原有 156 包布局（157 个 tar 条目）从全新软件源重新生成。
 
 ## 附件
 
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
-  - SHA-256: `71ac7859719944fd95e2902d0b0256d247b918520d107e29f8fa83bbe6e8cafc`
+  - SHA-256: `ad74444a8a552798b8fc896b878ac69a4538b0be68b967632c1d4ec7709c2f3d`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
-  - SHA-256: `830dda1a409ecfc807c517836e9b451944c696acb00f88dc5edf668b001e3fe9`
+  - SHA-256: `e327e89279036f5d2746fe75d7a113e984ebc707b71be4fe5875b6b19ab7ad0e`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
   - SHA-256: `4a4cf6dbc0688f858a092ea0a0d7a79e3d27ce5cb840888df927bbea37e52a5f`
 - `packages-aarch64_cortex-a53.tar.gz`
-  - SHA-256: `ad0a299a4249c5ed426979b0b0d070be0ef7f7bb738067895c60893e37938172`
+  - SHA-256: `b91a24b6d113bb9e5e90fcdd612c9c43f8516890dca71ff0e0cb7724f30b40f1`
 - `sha256sums`、`config.buildinfo`、`feeds.buildinfo`、`version.buildinfo`
 
 ## 升级

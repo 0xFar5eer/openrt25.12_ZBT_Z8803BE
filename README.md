@@ -32,10 +32,10 @@ Use the latest GitHub release assets:
 ## Checksums
 
 ```text
-71ac7859719944fd95e2902d0b0256d247b918520d107e29f8fa83bbe6e8cafc  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-830dda1a409ecfc807c517836e9b451944c696acb00f88dc5edf668b001e3fe9  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+ad74444a8a552798b8fc896b878ac69a4538b0be68b967632c1d4ec7709c2f3d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+e327e89279036f5d2746fe75d7a113e984ebc707b71be4fe5875b6b19ab7ad0e  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
 4a4cf6dbc0688f858a092ea0a0d7a79e3d27ce5cb840888df927bbea37e52a5f  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-ad0a299a4249c5ed426979b0b0d070be0ef7f7bb738067895c60893e37938172  packages-aarch64_cortex-a53.tar.gz
+b91a24b6d113bb9e5e90fcdd612c9c43f8516890dca71ff0e0cb7724f30b40f1  packages-aarch64_cortex-a53.tar.gz
 ```
 
 ## Included features
@@ -132,6 +132,7 @@ output/mediatek/filogic/openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sy
 
 - **Issues / PRs:** https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/issues
 - **Email:** [0xfar5eer@gmail.com](mailto:0xfar5eer@gmail.com)
+- **Discord:** `0xFar5eer#6504`
 
 PRs and issue reports are very welcome — this is a community build, so please file anything you spot. The same info is also surfaced on the router itself in the SSH banner and at **LuCI -> System -> About this build**.
 

@@ -14,6 +14,7 @@ const RELEASES_URL = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/rele
 const REPO_URL     = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE';
 const ISSUES_URL   = 'https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE/issues';
 const CONTACT_EMAIL = '0xfar5eer@gmail.com';
+const CONTACT_DISCORD = '0xFar5eer#6504';
 const DONATION_ADDRESSES = [
 	[ 'ERC20 / BEP20 — USDT, USDC, ETH, BNB', '0xd1122130ad6e9ab948212087a90797e3129bfc1c' ],
 	[ 'TRC20 — TRX, USDT', 'TTcT5m4BriHKyNrB4KYyLMK4ZGn54Nk6z2' ],
@@ -234,7 +235,8 @@ return view.extend({
 				E('h3', _('Support / contact')),
 				E('p', _('PRs and issue reports are very welcome - this is a community build, so please file anything you spot:')),
 				row(_('Issues'),  link(ISSUES_URL)),
-				row(_('Email'), E('a', { 'href': 'mailto:' + CONTACT_EMAIL }, CONTACT_EMAIL))
+				row(_('Email'), E('a', { 'href': 'mailto:' + CONTACT_EMAIL }, CONTACT_EMAIL)),
+				row(_('Discord'), CONTACT_DISCORD)
 			]),
 
 			E('div', { 'class': 'cbi-section', 'style': 'overflow-wrap:anywhere' }, [
