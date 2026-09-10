@@ -198,3 +198,15 @@ for file in "$auto" "$watchdog" "$watchdog_init" "$rndis" "$ttl" \
 done
 
 printf 'zbt firmware static checks passed\n'
+
+# .buildenv is copied wholesale by replay-customizations.sh. These checks
+# also work without downloaded feeds; the behavioral suite needs a pinned
+# checkout supplied as QMODEM_TEST_TREE or installed at feeds/qmodem.
+require "$replay" '    .buildenv'
+require "$root/.buildenv/build.sh" 'sh .buildenv/apply-qmodem-fixes.sh'
+sh -n "$root/.buildenv/apply-qmodem-fixes.sh"
+if [ -d "${QMODEM_TEST_TREE:-$root/feeds/qmodem}" ]; then
+	python3 "$root/.buildenv/tests/check-qmodem-dial-guards.py"
+else
+	printf 'QModem behavior tests skipped: install pinned feeds or set QMODEM_TEST_TREE\n'
+fi

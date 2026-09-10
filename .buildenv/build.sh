@@ -124,6 +124,7 @@ case "$cmd" in
         ;;
     feeds)
         run_in_container bash -c '
+            set -e
             export GIT_CONFIG_COUNT=3 GIT_CONFIG_KEY_0=http.version GIT_CONFIG_VALUE_0=HTTP/1.1 GIT_CONFIG_KEY_1=http.lowSpeedLimit GIT_CONFIG_VALUE_1=1024 GIT_CONFIG_KEY_2=http.lowSpeedTime GIT_CONFIG_VALUE_2=120
             ./scripts/feeds update -a
             rm -rf \
@@ -145,6 +146,7 @@ case "$cmd" in
                 feeds/iwrt_luci.tmp \
                 feeds/qmodem.tmp
             ./scripts/feeds update -a
+            sh .buildenv/apply-qmodem-fixes.sh
             ./scripts/feeds install -a
         '
         ;;
@@ -171,6 +173,9 @@ case "$cmd" in
         ;;
     build)
         ensure_version_file
+        # Existing feed checkouts must receive the same backport as fresh
+        # feeds; do not silently build an unpatched or changed revision.
+        run_in_container sh .buildenv/apply-qmodem-fixes.sh
         if [ "$#" -eq 0 ]; then
             run_in_container make "-j$(ncpu)"
         else

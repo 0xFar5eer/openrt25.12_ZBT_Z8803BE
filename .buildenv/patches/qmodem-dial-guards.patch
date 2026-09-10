@@ -1,0 +1,32 @@
+Subject: [PATCH] qmodem: fix PIN retry guards and PDP index fallback
+
+Backport three shell guard corrections to the QModem revision pinned in
+feeds.conf.default. Preserve the modem, carrier and user-selected settings.
+
+--- a/application/qmodem/files/usr/share/qmodem/modem_dial.sh
++++ b/application/qmodem/files/usr/share/qmodem/modem_dial.sh
+@@ -326,5 +326,5 @@
+     sim_lock_file="/var/run/qmodem/${modem_config}_dir/pincode"
+     lock ${sim_lock_file}.lock
+-    if [ -f $sim_lock_file ] && [ "$pin" == "$(cat $sim_lock_file)"];then
++    if [ -f $sim_lock_file ] && [ "$pin" == "$(cat $sim_lock_file)" ];then
+         m_debug "pin code is already try"
+     else
+@@ -391,7 +391,7 @@
+     config_get pdp_index $modem_config pdp_index
+     [ -n "$pdp_index" ] && userset_pdp_index="1" || userset_pdp_index="0"
+     config_get suggest_pdp_index $modem_config suggest_pdp_index
+-    [ -z "$suggest_pdp_index"] && suggest_pdp_index=$(get_platform_suggest_pdp_index)
++    [ -z "$suggest_pdp_index" ] && suggest_pdp_index=$(get_platform_suggest_pdp_index)
+     [ -z "$pdp_index" ] && pdp_index=$suggest_pdp_index
+     config_get ra_master $modem_config ra_master
+     config_get extend_prefix $modem_config extend_prefix
+@@ -433,7 +433,7 @@
+         [ -z "$username" ] && config_get username $modem_config username
+         [ -z "$password" ] && config_get password $modem_config password
+         [ -z "$auth" ] && config_get auth $modem_config auth
+-        [ -z "$pin" ] && config_get pincode $modem_config pincode
++        [ -z "$pincode" ] && config_get pincode $modem_config pincode
+         ;;
+         *)
+             config_get apn $modem_config apn
