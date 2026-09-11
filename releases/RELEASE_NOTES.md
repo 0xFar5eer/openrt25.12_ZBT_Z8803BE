@@ -1,103 +1,60 @@
 # ZBT-Z8803BE OpenWrt 25.12.2 / Linux 6.12.74
 
-Release `v25.12.021` is a community firmware build for ZBTLink ZBT-Z8803BE.
-
-**Assets refreshed in place (latest pass 2026-09-08).** The two firmware binaries under this tag were replaced with rebuilds of the same release: the first pass covered the additional fixes in sections 3–5 below, a second pass corrected the upgrade migration described in section 3, a third pass added the fixes in sections 7–8, and a fourth pass (2026-09-08) adds the maintainer's Discord contact (section 9) to the LuCI About page, the SSH banner, and the README contact sections. If you downloaded `v25.12.021` on any of these dates, re-verify the SHA-256 digests in Artifacts. The package manifest is unchanged — the package set did not change; the feed tarball was rebuilt in the fourth pass because it carries the updated `luci-app-zbt-about` package.
+Release `v25.12.022` is a community firmware build for ZBTLink ZBT-Z8803BE. It is a new release, not an in-place refresh of `v25.12.021`: everything validated in 021 carries over, and this page describes only what changed since that tag. The OpenWrt base and kernel are unchanged.
 
 ## Highlights
 
-This release fixes the cellular "connects, then dies seconds later" pattern reported in **issue #9** (T-Mobile US, Quectel RM551E-GL). Two independent firmware bugs were responsible, plus one aggravator.
+This release adapts the safe subset of upstream QModem PR #14 (the dialer fixes and the MLO shared-interface repair), hardens two hotplug handlers that only matter once a second modem is installed, and vendors the packages those patches touch so the fixes ship in the image instead of waiting on the feed.
 
-### 1. The dialer was being restarted on every hotplug event
+### 1. QModem dialer: five fixes, vendored
 
-A leftover renumbered hotplug script (`30-zbt-qmodem-autoenable`) shipped **alongside** its replacement `40-zbt-qmodem-autoenable`. Every USB `add` event — which fires once per device *and* per interface/netdev the modem exposes — ran the old script, which unconditionally restarted `qmodem_network`. Each restart stops the dial, hangs up the PDP context and dials again. Logs showed the resulting loop: `Stop Dial and Hang` → `Start Dial Now`, and `udhcpc` releasing a lease seconds after obtaining it.
+The whole `qmodem` application (3.0.2) now lives in the tree as `package/qmodem/`, following the same pattern as the `autocore` fork. The feed's Makefile installs straight from its `files/` tree and cannot carry patches, so shipping a fixed `modem_dial.sh` required vendoring; the vendored copy supersedes the feed package (`qmodem - 3.0.2-r1` in the manifest). Adapted from PR #14:
 
-- Both scripts are now reconciled into one idempotent handler: a USB `add` only restarts the dialer when the profile was actually disabled.
-- The watchdog (`zbt_qmodem_watchdog`) had a self-trigger feedback loop: its procd reload trigger watched `qmodem`/`network`/`firewall` — the very configs the loop commits — so it respawned itself and reset its boot fast-phase indefinitely. The trigger is removed; re-asserts are rate-limited per section and skipped while the link is healthy.
-- The dormant WWAN stubs asserted `proto='none'` while QModem itself derives `proto='dhcp'` for a Quectel dialing QMI and rewrites any mismatch, then re-runs `ifup` (bouncing udhcpc off a live lease). The stubs now assert what QModem would write, so the rewrite never happens. The cellular metric is pinned through `qmodem.<sec>.metric`, the value QModem actually copies into the network config at dial time.
-- Five more stale renumbered duplicates were removed (`00-`/`10-zbt-qmi-rawip`, `10-zbt-modem-led` with the wrong LED name `5g1`, `30-zbt-status-led`, `30-zbt-wwan-dns`, `29-zbt-modem-factory-reset`); `tests/check-zbt-firmware.sh` now guards against each of them shipping again.
+- Two shell syntax bugs in `modem_dial.sh`: the missing space before `]` in `unlock_sim`'s "this PIN already failed this boot" guard made the comparison error out and take the false branch, so every dial attempt re-sent `AT+CPIN=` toward an already-rejected PIN (modems count failed attempts and eventually present PUK). The same `]`-space bug in the `suggest_pdp_index` fallback inside `update_config` meant the platform-suggested PDP index was never filled in when the option was unset.
+- The SIM-slot-2 branch now falls back to the modem-level `pincode` when `pincode2` is unset; previously it fetched the common PIN into an unused variable, so a locked SIM on slot 2 with only `pincode` set never unlocked.
+- Metric preservation: `set_if()` copied the qmodem profile's `metric` into `network.<iface>.metric` on every redial, clobbering the router-wide route contract (SFP `9`, RJ45 WAN `10`, cellular `200`). A numeric `network.<iface>.metric` now wins over the profile value, so the cellular metric cannot drift away from the WAN-failover seeding.
+- Redial retention: the hang/cleanup pass no longer deletes the primary `network.<iface>` section. It now clears only the runtime `ifname`/`device` binding while keeping `modem_config`, `defaultroute=1` and the metric, and leaves `dns`/`peerdns` untouched, so operator DNS edits and the route metric survive redials. The IPv6 companion section is still deleted and recreated from the current PDP mode.
 
-### 2. T-Mobile kills the session because the modem still NATs (TTL 63)
+### 2. RNDIS hotplug no longer restarts the whole dialer stack
 
-This is the part specific to the "works for ~2 seconds, then everything dies" symptom.
+`15-zbt-rndis-auto` disabled the QModem profile for a detected Quectel RNDIS composition and then restarted `qmodem_network` globally, bouncing every configured modem's dial loop. It now hangs only the matching profile's procd instance (`modem_4_1`/`modem_4_2`), derived from the USB path. With a single modem the visible behavior is identical; with a second modem installed, the unrelated dialer is no longer interrupted.
 
-The firmware asks the modem to be a transparent IP pipe (`donot_nat=1`). But in **QMI mode that request is never sent**: the AT command `AT+QCFG="nat",0` is only issued on the NCM/ECM dial path. The QMI dialer (`quectel-CM-M`) never touches modem NAT, so an RM551E-GL dialed in QMI keeps routing inside itself and hands the router an address from its own embedded DHCP server — `192.0.0.2/27` from `192.0.0.1`, not a T-Mobile address.
+### 3. Front-panel modem LEDs bind by exact USB slot
 
-That costs one extra TTL decrement: forwarded traffic leaves the router at 64 (or 63 untouched) and reaches T-Mobile at **63**. US postpaid tethering policing treats "not 64" as tethering and tears the data session down a couple of seconds after attach. SMS and the initial attach still work, which matches the report exactly. A `ping` run *on the router* also dies with the session, because the kill is carrier-side, not a NAT/firewall problem on the router.
+`20-zbt-modem-led` derived the slot by suffix-matching the USB path, so a WWAN netif appearing on a root-hub port such as `2-1` or `1-1` — which has no modem slot behind it on the MT7988A — would have been bound to the 5G1/5G2 front-panel LED. The hotplug now resolves the LED from `qmodem.@modem-slot[N].led` by exact slot match (seeded by `20-zbt-qmodem-slots` with `blue:mobile-1`/`blue:mobile-2`), keeps a hard-wired `4-1`/`4-2` fallback for configs saved before the option existed, and logs and binds nothing for unmapped paths.
 
-The opt-in TTL plugin (`luci-app-qmodem-ttlfw4`, **Modem → QModem → TTL**) rewrites the TTL on egress, and `ttl=65` compensates for the modem's own NAT. The seeded default of `64` is the correct value whenever the modem is a transparent IP pipe — the normal case: a carrier-assigned address on `wwan0` (including CGNAT `10.x`) means the carrier sees exactly `64`. `65` is only needed when the module still NATs, whose signatures are module-assigned addresses (`192.0.0.x`, `192.168.225.x`, `10.168.x`). Note for testers: the plugin's rule matches `iifname "br-lan"` and the firmware's permanent rule matches `oifname "wwan0"`; neither affects pings run from the router itself, so testing TTL by re-pinging on the router proves nothing — test from a **LAN client**.
+### 4. The MLO page now writes what netifd consumes — plus a one-shot repair
 
-New in this release, the firmware figures the right value out by itself:
+`luci-app-mlo` is vendored and its page rewritten (adapted from PR #14): saving an MLD writes ONE `wifi-iface` whose `device` is the list of participating radios, with `mlo='1'` and `ieee80211w='2'`, instead of one scalar-device section per band. The old representation carried a single link per record, so hostapd never formed a multi-link group. Bands dropped from an existing MLD are rewritten into standalone per-band sections with their PMF rules preserved.
 
-- `/usr/sbin/zbt-modem-nat-probe` (fired by a new `iface` hotplug on every cellular `ifup`) looks at the address the dialer obtained: `192.0.0.x` / `192.168.225.x` / `10.168.x` → the modem is NATing → it raises `qmodem_ttl.main.ttl` to **65**; a carrier-assigned address → leaves **64**.
-- It never enables the plugin for you, never restarts it while disabled, and if you hand-edit `ttl`, it permanently disables its own writes (`zbt_auto_ttl=0`) and leaves your value alone.
-- The permanent TTL-64 nft rule (`/etc/nftables.d/99-tether-ttl.nft`, seeded by `36-zbt-z8803be-wan-speed-mode`) is now written only when absent, so an operator's hand-edited value — e.g. a deliberate 65 — survives a reflash instead of being reset to 64 on every boot.
-- Optional manual check of the definitive answer: `sms_tool_q -d /dev/ttyUSB3 at 'AT+QCFG="nat"'` (`1` = modem NAT on → 65; `0` = transparent → 64). You can turn modem NAT off entirely with `AT+QCFG="nat",0` and then `64` is correct — but note it can reset on some module power cycles.
+New `74-zbt-mlo-shared-iface-repair` migrates groups written by the old page on first boot: an SSID-group of `mlo=1` AP sections with two or more radios is rewritten into the shared multi-device representation, redundant peer sections and the per-record `mld_ap`/`mld_id` options are removed, and LAN membership is made explicit. Ordinary APs and single-link groups are left alone; the script is board-guarded and commits only when something changed.
 
-### 3. The first modem slot lost power seconds into every boot (new in the refreshed assets)
+### 5. Packages feed tarball regenerated
 
-The device tree powers the 5G1 M.2 slot on at cold boot (`gpio-export,output = <1>`), but the firmware's board config seeded the matching `gpio_switch` user-space toggle with a default of `0`. The kernel drove the pin high at probe time and the modem enumerated — then a few seconds into every boot `gpio_switch` (start order 94) wrote that `0` over the pin, cutting module power after enumeration. That was the recurring "modem gone after reboot" report. Neither recovery path could help: the auto-enable hotplug only fires on USB events, and the watchdog only acts on slots whose USB device path still exists — which the freshly powered-down slot no longer has.
-
-- `board.d/03_gpio_switches` now seeds `5g1=1`, `5g2=0` and `sim1=1` (SIM1 routed through the mux), matching the DTS and the real at-boot hardware state.
-- An upgrade keeps the stale `value=0` config, so `99-zbt-z8803be-qmodem-autostart` runs a one-shot migration during first boot, before `S94gpio_switch` runs: a persisted `0` is raised to `1` and a `zbt_gpio_default` marker is recorded. From then on the firmware never touches the toggle again — an operator who deliberately powers 5G1 off keeps that choice.
-- Second refresh fix: the first pass of this migration located the section by its human label (`name`, "Power 5G1 modem slot") instead of its ID, so the comparison never matched and the migration silently did nothing on upgraded systems — the exact symptom a flash of the first refresh showed (modem unpowered after upgrade). It now matches the section ID or `gpio_pin`, and the marker/value writes no longer embed shell quotes (uci stores the text after `=` verbatim).
-
-### 4. WAN failover defaults no longer stomp operator configs (new in the refreshed assets)
-
-Earlier builds deleted and recreated `network.wan` / `wan6` / `wan_sfp` / `wan_sfp6` on every boot and force-appended every uplink to the stock `wan` firewall zone, wiping operator customisations (static WAN addresses, a disabled `wan6`, custom port-to-zone layouts).
-
-`32-zbt-z8803be-wan-failover` is now create-if-missing:
-
-- Only the exact stock shape (one `wan` section spanning `eth1 eth2`) is split into per-port sections so each gets its own route metric (SFP `9`, RJ45 WAN `10`, cellular `200`).
-- Missing sections are created with the contract defaults; existing sections only get `metric` / `peerdns` / `defaultroute` filled when the option is unset.
-- Firewall zone membership is added only for sections the script itself created, and for the WWAN stubs (`4_1` / `4_1v6`) only when no zone claims them.
-- The deterministic DNS policy is unchanged: `peerdns=0` on wired uplinks, and the operator-DNS capture hotplug still ships disabled (`system.zbt_wwan_dns.enabled=0`).
-
-### 5. Twenty stale uci-defaults removed (new in the refreshed assets)
-
-An audit of `etc/uci-defaults/` found twenty scripts that were duplicates of renumbered replacements, configured packages this build no longer ships, or enabled features this build deliberately defaults off. All are deleted, and `tests/check-zbt-firmware.sh` now carries an `absent` guard for each so none of them can ship again: `10-zbt-apk-feeds`, `15-zbt-modem-factory-reset-flag`, `30-zbt-z8803be-wan-failover`, `32-zbt-z8803be-wan-speed-mode`, `35-zbt-qmodem-dns-suppress`, `38-zbt-throughput-tuning`, `40-zbt-qmodem-watchdog-enable`, `44-zbt-qmodem-watchdog-disable`, `45-zbt-qmodem-monitor-enable`, `46-zbt-qmodem-monitor-patch`, `47-zbt-persistent-app-stats`, `47-zbt-qmodem-soft-reboot-patch`, `50-zbt-sms-tool-compat`, `60-zbt-leds-cleanup`, `70-zbt-z8803be-wifi`, `76-zbt-z8803be-admin-password`, `80-zbt-z8803be-dns-cache`, `84-zbt-luci-js-compat`, `99-zbt-z8803be-services`, `99a-zbt-youtubeunblock-disable`.
+`packages-aarch64_cortex-a53.tar.gz` was regenerated from this build's package tree with the same 156-apk layout (157 tar members). It now carries the fixed, vendored `qmodem-3.0.2-r1` apk and the current `luci-app-zbt-about` build; the `v25.12.021` tarball had been assembled before the dialer fixes existed (the 021 firmware image itself was not affected — the fixed dialer ships in the image, only the feed tarball lagged). While regenerating, one stale leftover from 021 still present in the feed tree (the superseded `luci-app-zbt-about-26.218.24774~bd3a8ec` apk) was removed, so the tarball again contains exactly one apk per package.
 
 ### 6. Misc
 
-- The `zbt-modem-led` "LED sysfs node /sys/class/leds/5g1 missing — stale DTS?" log spam is gone (stale duplicate handler removed; the real node is `blue:mobile-1`/`blue:mobile-2`).
-- Manifest: 280 packages, image unchanged at ~20.7 MB. The only new packages are `luci-app-qmodem-ttlfw4` and its zh-CN translation.
-
-### 7. The permanent TTL rule now follows the probe (new in the third refresh)
-
-`zbt-modem-nat-probe` already detected the one case that matters — a Quectel dialed QMI that still NATs behind its own embedded DHCP — but it only raised `qmodem_ttl.main.ttl`, the value of the **opt-in** plugin. With the plugin disabled (its default), the permanent `99-tether-ttl.nft` rule stayed at 64 and a module-NAT user was policed by the carrier out of the box: forwarded traffic reached the carrier at 63 and the session died seconds after a client connected, while the link could look perfectly healthy with no LAN clients — which is exactly the "lasts longer when no devices are connected, dies ~10 s after one connects" pattern.
-
-On every cellular ifup the probe now rewrites the permanent rule's `ip ttl set` / `ip6 hoplimit set` values between the two firmware-managed states (64 = transparent modem, 65 = module NAT) and reloads the firewall only when a value actually changed. Any other value in that file is treated as an operator edit and never touched, and the whole behaviour is switched off by the same `zbt_auto_ttl=0` back-off that a hand-edited plugin value triggers.
-
-A field report matching this pattern (RM551E-GL, "works for a few minutes / 330 Mbps speedtest, then drops") may be module NAT on a carrier that polices TTL; the refresh makes the correct value automatic instead of requiring the operator to enable the plugin and raise it by hand. The 25 Mbps vs 330 Mbps spread is cell/RF variance, not a firmware path.
-
-### 8. No ULA announced on the LAN (new in the third refresh)
-
-Cellular QMI data calls carry no DHCPv6 prefix delegation, so on a cellular-only uplink the router has no global IPv6 prefix to delegate — but the stock random ULA prefix was still announced on the LAN and dnsmasq still answered AAAA queries. Dual-stack clients then built global destinations from DNS with an unusable ULA source path and stalled on page assets until their fallback timer fired: "pages don't fully load". The new `37-zbt-z8803be-no-ula` default removes `network.globals.ula_prefix` once per flash (marker-guarded; an operator who deliberately re-adds one keeps it). Delegated prefixes from a wired WAN are still announced normally, so IPv6 returns automatically when a delegation exists.
-
-### 9. Discord contact added (new in the fourth refresh)
-
-The maintainer's Discord handle `0xFar5eer#6504` is now listed next to Issues and Email in **LuCI → System → About this build**, in the SSH login banner, and in the Support/contact sections of both READMEs. No configuration or runtime behavior changes: only `luci-app-zbt-about` and the banner changed, so the two image digests and the feed tarball digest are updated while the package manifest is unchanged.
+- Manifest: 280 packages, image unchanged at ~20.7 MB. `qmodem` and `luci-app-mlo` now come from the vendored copies (`qmodem - 3.0.2-r1`, `luci-app-mlo - 26.221.38405~a36ca24`); the QModem companion apps (`luci-app-qmodem-monitor`/`-next`/`-ttlfw4`, `qmodem_monitor`) report the vendored release number as well.
 
 ## Validation
 
-- Full Docker firmware rebuild completed successfully; `sha256sum -c sha256sums --ignore-missing` passes for all refreshed artifacts.
-- The staged rootfs was inspected in the build volume: all twenty removed scripts absent, the renumbered replacements present (`32-`/`36-`/`40-`/`48-`/`54-`/`56-`/`64-`/`68-`/`72-`/`80-`/`82-`/`86-`/`90-`/`99-`), `board.d/03_gpio_switches` seeds the `5g1` default `1`, and the gpio migration is present in `99-zbt-z8803be-qmodem-autostart`.
-- `tests/check-zbt-firmware.sh` — expanded this cycle with stale-file guards plus GPIO/failover/nft invariants — and `git diff --check` pass.
-- The NAT-probe's apply paths were exercised with shimmed `uci`/`ip` state (modem NAT → 65, carrier `10.x` address → stays 64, hand-edited ttl → auto-writes disabled, debounce, missing plugin package → skip). The probe and watchdog scripts carry comment-only changes in this refresh; their behavior is unchanged.
-- **Hardware-validated on a physical Z8803BE (2026-09-06):** the first refresh was flashed with configuration preserved; the upgrade kept the stale persisted `gpio_switch` `5g1` `value=0` and reproduced the unpowered-modem symptom, which is what exposed the migration no-op above. The corrected migration script was run against that board config: it matched the section by ID, migrated `value=0` to `1` and recorded a clean `zbt_gpio_default=1` marker (traced with `sh -x`). The modem re-enumerated, and after a radio re-attach (`AT+CFUN=0/1` — the carrier's MME was still holding the pre-cut session and rejected data calls with `call_end_reason_verbose 210`) the cellular uplink, DNS and LAN forwarding were restored end to end, with the rewritten WAN-failover zone layout intact.
-- The issue #9 fixes validated for the original v25.12.021 build carry over unchanged; issue #9 reporters on older releases can still apply the two-command manual fix above (`enable=1`, `ttl=65`, restart `qmodem_ttl`) without flashing.
-- Fourth refresh (2026-09-08): the rebuilt `luci-app-zbt-about` APK was verified to contain the new Discord contact row (staged `about.js` and the feed-tar member hash-match), and the feed tarball was regenerated from the fresh package feed with the same 156-package layout as before.
+- Full Docker rebuild completed successfully; `sha256sum -c sha256sums --ignore-missing` passes for all artifacts.
+- The staged rootfs was inspected in the build volume: all five dialer fixes are present in the installed `modem_dial.sh`; the feed's `qmi|mbim|mhi) proto="none"` interface-ownership code is absent; the scoped RNDIS hang, exact-path LED resolution, seeded `led` options, the MLO repair script and the rewritten MLO page are all present.
+- `tests/check-zbt-firmware.sh` — expanded this cycle with guards for the scoped hang (a global `qmodem_network restart` in the RNDIS hotplug now fails the check), exact-path LED mapping, the seeded `led` options, the five vendored dialer fixes, and the MLO repair — plus `node --check` on the MLO page and `git diff --check` pass. The checker also forbids the PR parts deliberately not adopted (`dual-modem.sh`, `zbt_netcard`, `proto="none"` QMI ownership).
+- The regenerated feed tarball was verified member-by-member against the fresh package tree: 157 members, and its `qmodem-3.0.2-r1.apk` is byte-identical to the apk the image was built from.
+- **Not hardware-tested:** MLO client association (no MLO-capable client was available for this pass), the SIM-slot-2 PIN path (single-SIM wiring on this unit), and everything behind a second modem — the 5G2 slot is unpopulated and the remaining PR #14 dual-modem work is deferred until that hardware is in hand. The cellular unit (RM551E-GL, QMI, slot 4-1) and its validated issue #9 behavior are unchanged by this release.
 
 ## Artifacts
 
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
-  - SHA-256: `ad74444a8a552798b8fc896b878ac69a4538b0be68b967632c1d4ec7709c2f3d`
+  - SHA-256: `37d2364c3219afb26b9c9b2e6ccdea8a73fe7941de2a0d39b2bb0a9368991ea9`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
-  - SHA-256: `e327e89279036f5d2746fe75d7a113e984ebc707b71be4fe5875b6b19ab7ad0e`
+  - SHA-256: `ff1e023ee2aa1170778552db9e58e334226d3c60d5ef0f3c4daa6250cb2a02cf`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
-  - SHA-256: `4a4cf6dbc0688f858a092ea0a0d7a79e3d27ce5cb840888df927bbea37e52a5f`
+  - SHA-256: `b7773d432b257ac851b2c973e0397bcbb6eb6f588aa32c0740806c1c8715fc7a`
 - `packages-aarch64_cortex-a53.tar.gz`
-  - SHA-256: `b91a24b6d113bb9e5e90fcdd612c9c43f8516890dca71ff0e0cb7724f30b40f1`
+  - SHA-256: `fc7b71089f4e1ab3f280294d4bdb64b7acff1018a207b73f99de16e0b771a9ae`
 - `sha256sums`, `config.buildinfo`, `feeds.buildinfo`, and `version.buildinfo`
 
 ## Upgrade
@@ -109,9 +66,10 @@ For a clean configuration:
 
     sysupgrade -n openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
 
-After upgrading, if you had enabled the TTL plugin manually with `ttl=64`, leave the value alone — the probe only raises it to 65 if it is still at the seeded 64 or the last value it wrote itself.
+Upgrading from v25.12.021 with configuration kept:
 
-Upgrading with configuration kept: on the first boot after the upgrade, the one-shot migration raises a persisted `gpio_switch` `5g1` value of `0` to `1` (the default the hardware should always have had). If you deliberately switched the first modem slot off in LuCI, switch it off again after that first boot — from then on the firmware never touches the toggle.
+- The one-shot `74-zbt-mlo-shared-iface-repair` rewrites MLO groups created with the previous MLO page into the shared representation on first boot; MLO groups saved afterwards use the new representation directly. If you never configured an MLO group, nothing happens.
+- Existing `network.<cellular>.metric`, `dns` and `peerdns` values now survive redials; nothing needs to be re-entered after upgrading.
 
 ## Donate
 Optional donations help support maintenance and testing:

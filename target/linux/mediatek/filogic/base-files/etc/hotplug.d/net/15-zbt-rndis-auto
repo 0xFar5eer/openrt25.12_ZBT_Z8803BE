@@ -48,7 +48,10 @@ done
 if [ -n "$rndis_slot" ] && uci -q get "qmodem.$rndis_slot" >/dev/null 2>&1 && [ "$(uci -q get "qmodem.$rndis_slot.state")" != "disabled" ]; then
 	uci -q set "qmodem.$rndis_slot.state=disabled"
 	uci -q commit qmodem
-	[ -x /etc/init.d/qmodem_network ] && /etc/init.d/qmodem_network restart >/dev/null 2>&1
+	# Hang only this profile's dialer instance (procd modem_4_1 / modem_4_2).
+	# A global qmodem_network restart would also respawn every other modem's
+	# dial loop, bouncing a second modem that is mid-dial for no reason.
+	[ -x /etc/init.d/qmodem_network ] && /etc/init.d/qmodem_network hang "$rndis_slot" >/dev/null 2>&1
 	logger -t zbt-rndis-auto "disabled qmodem.$rndis_slot for Quectel RNDIS on $DEVICENAME"
 fi
 

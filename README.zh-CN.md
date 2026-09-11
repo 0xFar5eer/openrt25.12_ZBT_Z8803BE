@@ -20,7 +20,7 @@
 - **内核:** Linux `6.12.74`
 - **目标平台:** `mediatek/filogic`
 - **设备:** MediaTek MT7988A / Filogic 880 + MT7996 系列三频 WiFi 7
-- **发布标签:** `v25.12.021`
+- **发布标签:** `v25.12.022`
 
 ## 下载
 
@@ -40,10 +40,10 @@
 ## 校验值
 
 ```text
-ad74444a8a552798b8fc896b878ac69a4538b0be68b967632c1d4ec7709c2f3d  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-e327e89279036f5d2746fe75d7a113e984ebc707b71be4fe5875b6b19ab7ad0e  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-4a4cf6dbc0688f858a092ea0a0d7a79e3d27ce5cb840888df927bbea37e52a5f  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
-b91a24b6d113bb9e5e90fcdd612c9c43f8516890dca71ff0e0cb7724f30b40f1  packages-aarch64_cortex-a53.tar.gz
+37d2364c3219afb26b9c9b2e6ccdea8a73fe7941de2a0d39b2bb0a9368991ea9  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+ff1e023ee2aa1170778552db9e58e334226d3c60d5ef0f3c4daa6250cb2a02cf  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+b7773d432b257ac851b2c973e0397bcbb6eb6f588aa32c0740806c1c8715fc7a  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+fc7b71089f4e1ab3f280294d4bdb64b7acff1018a207b73f99de16e0b771a9ae  packages-aarch64_cortex-a53.tar.gz
 ```
 
 ## 已包含功能

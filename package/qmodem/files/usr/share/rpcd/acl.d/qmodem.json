@@ -1,0 +1,31 @@
+{
+	"qmodem": {
+		"description": "QModem control interface",
+		"read": {
+			"ubus": {
+				"qmodem": [
+					"*"
+				],
+				"rc": [
+					"list"
+				],
+				"luci": [
+					"setInitAction"
+				]
+			}
+		},
+		"write": {
+			"ubus": {
+				"qmodem": [
+					"*"
+				],
+				"rc": [
+					"list"
+				],
+				"luci": [
+					"setInitAction"
+				]
+			}
+		}
+	}
+}

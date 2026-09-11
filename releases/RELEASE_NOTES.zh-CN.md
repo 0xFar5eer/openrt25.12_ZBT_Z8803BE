@@ -1,103 +1,60 @@
 # ZBT-Z8803BE OpenWrt 25.12.2 / Linux 6.12.74
 
-`v25.12.021` 是面向 ZBTLink ZBT-Z8803BE 的社区固件版本。
-
-**附件已原位刷新（最近一轮 2026-09-08）。** 本 tag 下的两个固件二进制已被同一版本的重建镜像替换：第一轮包含下文第 3–5 节的补充修复，第二轮修正了第 3 节所述升级迁移中的 section 匹配守卫（此前该守卫是无效的空操作），第三轮新增了第 7–8 节的修复，第四轮（2026-09-08）按第 9 节把维护者的 Discord 联系方式加入 LuCI About 页、SSH banner 与两份 README。如果你在上述任一日期下载过 `v25.12.021`，请重新核对附件列表中的 SHA-256。软件包清单不变——软件包集合没有任何变化；软件源 tar 包在第四轮因携带更新后的 `luci-app-zbt-about` 而重建。
+`v25.12.022` 是面向 ZBTLink ZBT-Z8803BE 的社区固件版本。这是新发布的版本，不是对 `v25.12.021` 的原位刷新：021 中已验证的内容全部保留，本页只描述自该 tag 以来的变化。OpenWrt 基线与内核不变。
 
 ## 亮点
 
-本版本修复了 **issue #9**（T-Mobile 美国，Quectel RM551E-GL）报告的"蜂窝网络连接后几秒内断开"的问题。根源是两个相互独立的固件缺陷，外加一个放大器。
+本版本吸收了上游 QModem PR #14 的安全子集（拨号器修复与 MLO 共享接口修复），加固了两个只有在插入第二块 modem 后才真正起作用的热插拔处理器，并把补丁触及的软件包收编进源码树，让修复随镜像发布而不再等 feed。
 
-### 1. 每个热插拔事件都在重启拨号器
+### 1. QModem 拨号器：五项修复，收编（vendor）
 
-一个改号后遗留的热插拔脚本（`30-zbt-qmodem-autoenable`）与它的替代品 `40-zbt-qmodem-autoenable` **同时**被装进了固件。modem 暴露的每个 USB 设备和每个网络接口都会触发一次 USB `add` 事件，旧脚本无条件重启 `qmodem_network`：每次重启都会停拨、挂断 PDP 上下文再重新拨号。日志中的表现就是 `Stop Dial and Hang` → `Start Dial Now` 循环，`udhcpc` 拿到租约几秒后又主动释放。
+整个 `qmodem` 应用（3.0.2）现在以 `package/qmodem/` 的形式进入源码树，与 `autocore` fork 同一模式。feed 的 Makefile 直接从其 `files/` 目录安装、无法携带补丁，要发布修复过的 `modem_dial.sh` 就必须收编；收编副本取代 feed 包（清单中为 `qmodem - 3.0.2-r1`）。自 PR #14 改编：
 
-- 两个脚本合并为一个幂等处理器：只有 profile 确实处于 disabled 状态时才会重启拨号器。
-- 看门狗（`zbt_qmodem_watchdog`）存在自触发死循环：procd reload 触发器监视的 `qmodem`/`network`/`firewall` 正是循环自身提交的配置，导致它不断重启自己、无限重置开机快速轮询阶段。触发器已移除；重新断言按 section 限速，链路健康时直接跳过。
-- 挂起的 WWAN 桩配置之前断言 `proto='none'`，而 QModem 对拨 QMI 的 Quectel 自己推导出 `proto='dhcp'`，只要与存储值不一致就会改写并重新 `ifup`（把 udhcpc 从活租约上踢下线）。桩配置现在直接断言 QModem 会写的值。蜂窝 metric 改为固定在 `qmodem.<sec>.metric`——QModem 拨号时真正复制进网络配置的那个输入值。
-- 另外删除了五个改号遗留的重复文件（`00-`/`10-zbt-qmi-rawip`、LED 名字仍为旧值 `5g1` 的 `10-zbt-modem-led`、`30-zbt-status-led`、`30-zbt-wwan-dns`、`29-zbt-modem-factory-reset`）；`tests/check-zbt-firmware.sh` 新增断言防止它们再次被打包。
+- `modem_dial.sh` 的两个 shell 语法错误：`unlock_sim` 里"该 PIN 本次开机已试过"守卫的 `]` 前缺空格，比较总是报错并走假分支，导致每次拨号都向已被拒绝的 PIN 重新发送 `AT+CPIN=`（modem 会计数失败次数并最终转入 PUK）。`update_config` 内 `suggest_pdp_index` 回退的同类 `]` 缺空格错误，使选项未设置时平台建议的 PDP index 永远不会被填上。
+- SIM 槽位 2 分支现在在 `pincode2` 未设置时回退到 modem 级 `pincode`；此前它把公共 PIN 取进了未使用的变量，导致槽位 2 上只设置了 `pincode` 的锁卡 SIM 永远不会解锁。
+- metric 保留：`set_if()` 每次重拨都会把 qmodem profile 的 `metric` 复制进 `network.<iface>.metric`，覆盖路由器级的路由约定（SFP `9`、RJ45 WAN `10`、蜂窝 `200`）。现在数值型的 `network.<iface>.metric` 优先于 profile 值，蜂窝 metric 不会再偏离 WAN 故障切换的播种值。
+- 重拨保留：挂断/清理流程不再删除主 `network.<iface>` section，只清除运行时的 `ifname`/`device` 绑定，保留 `modem_config`、`defaultroute=1` 与 metric，并且不动 `dns`/`peerdns`，用户的 DNS 修改与路由 metric 在重拨后得以保留。IPv6 伴随 section 仍按现行 PDP 模式删除重建。
 
-### 2. T-Mobile 掐断会话的原因：modem 仍在做 NAT（TTL 63）
+### 2. RNDIS 热插拔不再重启整个拨号器栈
 
-这是"上线约 2 秒后全部断网"症状的直接原因。
+`15-zbt-rndis-auto` 在识别出 Quectel RNDIS 组合并禁用对应 QModem profile 后，原本全局重启 `qmodem_network`，把所有已配置 modem 的拨号循环全部打断。现在只挂断该 profile 对应的 procd 实例（`modem_4_1`/`modem_4_2`），按 USB 路径推导。单 modem 时可见行为完全一致；装了第二块 modem 后，无关的拨号器不再被打断。
 
-固件通过 `donot_nat=1` 要求 modem 做透明 IP 管道。但 **QMI 模式下这个请求从未发出**：AT 命令 `AT+QCFG="nat",0` 只在 NCM/ECM 拨号路径上发送。QMI 拨号器（`quectel-CM-M`）完全不碰 modem 侧 NAT，于是以 QMI 拨号的 RM551E-GL 继续在模块内部路由，并把自身内建 DHCP 服务器分配的地址交给路由器——`192.0.0.2/27`（网关 `192.0.0.1`），而不是 T-Mobile 的地址。
+### 3. 前面板 modem LED 按精确 USB 槽位绑定
 
-这多消耗一次 TTL 递减：转发流量以 64 离开路由器（不修 TTL 则为 63），到达 T-Mobile 时是 **63**。美国后付费套餐的共享热点检测把"不是 64"视为热点共享，会在附着成功几秒后拆除数据会话。短信和初始附着不受影响——与报告完全吻合。在**路由器上**执行的 `ping` 也会随会话一起死，因为掐断发生在运营商侧，而不是路由器的 NAT/防火墙。
+`20-zbt-modem-led` 此前按 USB 路径后缀匹配推导槽位，WWAN netif 若出现在 `2-1`、`1-1` 这类 MT7988A 根集线器端口（后面没有 modem 槽位）上，就会被绑到 5G1/5G2 前面板 LED。热插拔现在按精确槽位从 `qmodem.@modem-slot[N].led` 解析 LED（由 `20-zbt-qmodem-slots` 播种 `blue:mobile-1`/`blue:mobile-2`），保留 `4-1`/`4-2` 硬编码回退以兼容旧配置，未映射路径则打日志且不做绑定。
 
-可选的 TTL 插件（`luci-app-qmodem-ttlfw4`，**Modem → QModem → TTL**）在出方向改写 TTL，`ttl=65` 用于补偿 modem 自身的 NAT。只要 modem 是透明 IP 管道——这是通常情况——播种的默认值 `64` 就是正确值：`wwan0` 上拿到运营商分配的地址（包括 CGNAT `10.x`）时，运营商看到的就是 `64`。只有模块仍在做 NAT 时才需要 `65`，其特征是模块自己分配的地址（`192.0.0.x`、`192.168.225.x`、`10.168.x`）。测试提示：插件的规则匹配 `iifname "br-lan"`，固件常驻规则匹配 `oifname "wwan0"`，两者都不影响在路由器本机执行的 ping，所以"改完规则在路由器上 ping"证明不了任何事——请用**局域网客户端**测试。
+### 4. MLO 页面现在写出 netifd 真正消费的形态——附带一次性修复
 
-本版本开始固件会自动判断正确值：
+`luci-app-mlo` 已收编并重写页面（自 PR #14 改编）：保存 MLD 时写出一个 `wifi-iface`，其 `device` 是参与 radio 的列表并带 `mlo='1'`、`ieee80211w='2'`，而不是每个频段一个标量 device section。旧表示每条记录只带一条链路，hostapd 永远不会组成多链路组。从已有 MLD 中移除的频段会改写为独立 section，并保留各频段的 PMF 规则。
 
-- 新增 `/usr/sbin/zbt-modem-nat-probe`（由新增的 `iface` 热插拔在每次蜂窝 `ifup` 时触发）检查拨号器拿到的地址：`192.0.0.x` / `192.168.225.x` / `10.168.x` → modem 在 NAT → 自动把 `qmodem_ttl.main.ttl` 提到 **65**；运营商分配的地址 → 保持 **64**。
-- 它不会替你启用插件，不会在插件未启用时重启它；如果你手动改过 `ttl`，它会永久停用自己的自动写入（`zbt_auto_ttl=0`）。
-- 常驻的 TTL-64 nft 规则（`/etc/nftables.d/99-tether-ttl.nft`，由 `36-zbt-z8803be-wan-speed-mode` 播种）现在只在文件缺失时写入，手动改过的值（比如刻意的 65）在重刷后仍然保留，不会被每次开机重置回 64。
-- 手动查看权威答案：`sms_tool_q -d /dev/ttyUSB3 at 'AT+QCFG="nat"'`（`1` = modem NAT 开 → 65；`0` = 透明 → 64）。也可以用 `AT+QCFG="nat",0` 彻底关掉 modem NAT，那样 64 就是正确值——但部分模块断电重启后该设置会复位。
+新增 `74-zbt-mlo-shared-iface-repair` 在首次开机迁移旧页面写下的分组：同一 SSID 的 `mlo=1` AP section 组若含两块及以上 radio，会被改写为共享多 device 表示，冗余的成员 section 与每条记录的 `mld_ap`/`mld_id` 选项被删除，并显式加入 LAN。普通 AP 与单链路分组不动；脚本带板级守卫，仅在有改动时提交。
 
-### 3. 第一个 modem 槽位在每次开机几秒后断电（本次刷新新增）
+### 5. 软件源 tar 包重新生成
 
-设备树在冷启动时给 5G1 M.2 槽位上电（`gpio-export,output = <1>`），但固件的 board 配置给对应的 `gpio_switch` 用户态开关播种了默认值 `0`。内核在探测时把引脚拉高、modem 完成枚举——然后每次开机几秒后，`gpio_switch`（启动顺序 94）把那个 `0` 写回引脚，在枚举之后切断模块供电。这就是反复出现的"重启后 modem 消失"报告。两条恢复路径都帮不上忙：自动启用热插拔只在 USB 事件时触发，看门狗只处理 USB 设备路径仍然存在的槽位——而刚被断电的槽位已经没有这个路径了。
-
-- `board.d/03_gpio_switches` 现在播种 `5g1=1`、`5g2=0`、`sim1=1`（SIM1 接通 mux），与 DTS 及真实的开机硬件状态一致。
-- 升级会保留旧的 `value=0` 配置，因此 `99-zbt-z8803be-qmodem-autostart` 在首次开机（先于 `S94gpio_switch`）执行一次性迁移：把持久化的 `0` 提回 `1` 并记录 `zbt_gpio_default` 标记。此后固件绝不再碰这个开关——主动关闭 5G1 的用户的选择会一直保留。
-- 第二轮刷新修复：迁移的第一版用人类可读的标签（`name`，"Power 5G1 modem slot"）去匹配 section 而不是用 section ID，比较永远不成立，升级后的系统上迁移静默失效——这正是第一次刷新刷机后暴露的症状（升级后 modem 断电）。现在改为按 section ID 或 `gpio_pin` 匹配，且写入不再内嵌 shell 引号（uci 会原样存储 `=` 之后的文本）。
-
-### 4. WAN 故障切换默认值不再覆盖用户配置（本次刷新新增）
-
-更早的版本每次开机都删除并重建 `network.wan` / `wan6` / `wan_sfp` / `wan_sfp6`，并把所有上行强制追加进出厂 `wan` 防火墙区域，破坏用户的自定义配置（静态 WAN 地址、被禁用的 `wan6`、自定义端口-区域布局）。
-
-`32-zbt-z8803be-wan-failover` 现在是"缺失才创建"：
-
-- 只有完全匹配出厂形态（一个横跨 `eth1 eth2` 的 `wan` section）时才拆分为按端口独立的 section，让每个口有自己的路由 metric（SFP `9`、RJ45 WAN `10`、蜂窝 `200`）。
-- 缺失的 section 按约定默认值创建；已存在的 section 只在 `metric` / `peerdns` / `defaultroute` 未设置时才补齐。
-- 防火墙区域成员只对脚本自己创建的 section 追加；WWAN 桩（`4_1` / `4_1v6`）只有在没有任何区域认领时才追加。
-- 确定性 DNS 策略不变：有线上行 `peerdns=0`，运营商 DNS 捕获热插拔仍然默认禁用（`system.zbt_wwan_dns.enabled=0`）。
-
-### 5. 删除二十个过时的 uci-default 脚本（本次刷新新增）
-
-对 `etc/uci-defaults/` 的审计发现二十个脚本：或是改号后的重复品，或是配置本构建已不再打包的软件包，或是启用本构建刻意默认关闭的功能。全部删除，并且 `tests/check-zbt-firmware.sh` 对每个都加了 `absent` 断言防止再次被打包：`10-zbt-apk-feeds`、`15-zbt-modem-factory-reset-flag`、`30-zbt-z8803be-wan-failover`、`32-zbt-z8803be-wan-speed-mode`、`35-zbt-qmodem-dns-suppress`、`38-zbt-throughput-tuning`、`40-zbt-qmodem-watchdog-enable`、`44-zbt-qmodem-watchdog-disable`、`45-zbt-qmodem-monitor-enable`、`46-zbt-qmodem-monitor-patch`、`47-zbt-persistent-app-stats`、`47-zbt-qmodem-soft-reboot-patch`、`50-zbt-sms-tool-compat`、`60-zbt-leds-cleanup`、`70-zbt-z8803be-wifi`、`76-zbt-z8803be-admin-password`、`80-zbt-z8803be-dns-cache`、`84-zbt-luci-js-compat`、`99-zbt-z8803be-services`、`99a-zbt-youtubeunblock-disable`。
+`packages-aarch64_cortex-a53.tar.gz` 按本次构建的软件源树重新生成，保持原有 156 包布局（157 个 tar 条目）。它现在携带修复后的收编 `qmodem-3.0.2-r1` apk 与当前构建的 `luci-app-zbt-about`；`v25.12.021` 的 tar 包是在拨号器修复存在之前组装的（021 固件镜像本身不受影响——修复过的拨号器在镜像内，滞后的只是 feed tar 包）。重新生成时还清除了 021 遗留在 feed 树中的过时 apk（被取代的 `luci-app-zbt-about-26.218.24774~bd3a8ec`），tar 包恢复为每个软件包恰好一个 apk。
 
 ### 6. 其他
 
-- 消除了 `zbt-modem-led` 的 "LED sysfs node /sys/class/leds/5g1 missing — stale DTS?" 日志刷屏（删除了遗留的重复处理器；真实节点是 `blue:mobile-1`/`blue:mobile-2`）。
-- 清单：280 个软件包，镜像保持约 20.7 MB。唯一新增的包是 `luci-app-qmodem-ttlfw4` 及其中文翻译。
-
-### 7. 常驻 TTL 规则现在跟随探针自动调整（第三轮刷新新增）
-
-`zbt-modem-nat-probe` 此前已经能识别出真正要紧的那一种情况——以 QMI 拨号、仍在自己内建 NAT 后面路由的 Quectel——但它只调整 `qmodem_ttl.main.ttl`，也就是**可选**插件的值。插件默认关闭，常驻的 `99-tether-ttl.nft` 规则仍是 64，于是 module-NAT 用户开箱即被运营商掐断：转发流量以 63 到达运营商，客户端一连上会话就死，而没有任何局域网设备时链路看起来完全正常——正是"没设备连接时能撑更久，一连上设备约 10 秒后断线"的特征。
-
-现在每次蜂窝 ifup 时，探针会把常驻规则的 `ip ttl set` / `ip6 hoplimit set` 值在两个固件托管状态之间改写（64 = 透明 modem，65 = module NAT），并且只在值真正变化时重载防火墙。文件中出现其他任何值都视为用户手工修改，固件绝不改写；整个行为也受同一个 `zbt_auto_ttl=0` 退避开关控制（手动改过插件值即触发）。
-
-与此特征吻合的现场报告（RM551E-GL，"能撑几分钟 / 330 Mbps 测速后掉线"）可能就是运营商掐 TTL 的 module-NAT 场景；本次刷新让正确值自动生效，而不再要求用户手动启用插件并改值。25 Mbps 与 330 Mbps 的差异属于小区/射频波动，不是固件路径。
-
-### 8. LAN 不再通告 ULA（第三轮刷新新增）
-
-蜂窝 QMI 数据呼叫不携带 DHCPv6 前缀委派，纯蜂窝上联时路由器没有可委派的全局 IPv6 前缀——但出厂随机 ULA 前缀仍在 LAN 上通告，dnsmasq 也继续应答 AAAA 查询。双栈客户端随后用 DNS 返回的全局目的地址配上走不通的 ULA 源路径，页面资源加载停滞直到客户端回退定时器触发："页面加载不完整"。新增的 `37-zbt-z8803be-no-ula` 默认脚本按每次刷机一次（带标记守卫；刻意重新添加 ULA 的用户设置会保留）删除 `network.globals.ula_prefix`。有线 WAN 拿到委派前缀时仍正常通告，委派存在时 IPv6 自动恢复。
-
-### 9. 新增 Discord 联系方式（第四轮刷新新增）
-
-维护者的 Discord 账号 `0xFar5eer#6504` 现在列于 **LuCI → 系统 → 关于此固件** 的 Issue/Email 旁，同时出现在 SSH 登录 banner 与两份 README 的反馈/联系部分。不涉及任何配置或运行行为变化：只有 `luci-app-zbt-about` 与 banner 有改动，因此两个镜像摘要与软件源 tar 包摘要更新，软件包清单不变。
+- 清单：280 个软件包，镜像保持约 20.7 MB。`qmodem` 与 `luci-app-mlo` 现在来自收编副本（`qmodem - 3.0.2-r1`、`luci-app-mlo - 26.221.38405~a36ca24`）；QModem 伴随应用（`luci-app-qmodem-monitor`/`-next`/`-ttlfw4`、`qmodem_monitor`）同样显示收编版本号。
 
 ## 验证
 
-- Docker 完整重建成功；刷新后的全部附件 `sha256sum -c sha256sums --ignore-missing` 通过。
-- 在构建卷内直接检查了暂存的 rootfs：二十个被删脚本全部不存在，改号后的替代版本齐全（`32-`/`36-`/`40-`/`48-`/`54-`/`56-`/`64-`/`68-`/`72-`/`80-`/`82-`/`86-`/`90-`/`99-`），`board.d/03_gpio_switches` 播种 `5g1` 默认值 `1`，`99-zbt-z8803be-qmodem-autostart` 内含 gpio 迁移逻辑。
-- `tests/check-zbt-firmware.sh`——本轮扩充了过时文件断言以及 GPIO/故障切换/nft 不变量——与 `git diff --check` 通过。
-- NAT 探针的各写入路径用带桩的 `uci`/`ip` 状态做了演练（modem NAT → 65；运营商 `10.x` 地址 → 保持 64；手工改过的 ttl → 自动写入永久关闭；去抖；缺插件包 → 跳过）。探针与看门狗脚本本次刷新只有注释改动，行为不变。
-- **已在实体 Z8803BE 上完成硬件验证（2026-09-06）**：第一轮刷新在保留配置的情况下刷入实体机；升级保留了持久化的 `gpio_switch` `5g1` `value=0`，复现了 modem 断电症状，正是它暴露了上文的迁移空操作。随后在板子上直接运行修正后的迁移脚本：按 section ID 匹配、把 `value=0` 迁移为 `1` 并写入干净的 `zbt_gpio_default=1` 标记（`sh -x` 全程跟踪）。modem 重新枚举；经一次射频重附着（`AT+CFUN=0/1`——运营商 MME 仍持有断电前的会话，用 `call_end_reason_verbose 210` 拒绝数据呼叫）后，蜂窝上行、DNS 与 LAN 转发端到端恢复，重写后的 WAN 故障切换区域布局完好。
-- 原 v25.12.021 构建已验证的 issue #9 修复不受影响、原样保留；旧版本的 issue #9 报告者仍可按上文的两步手动修复（`enable=1`、`ttl=65`、重启 `qmodem_ttl`）在不刷机的情况下验证。
-- 第四轮刷新（2026-09-08）：已验证重建的 `luci-app-zbt-about` APK 包含新增的 Discord 联系行（暂存 `about.js` 与 feed tar 内成员哈希一致），软件源 tar 包按原有 156 包布局（157 个 tar 条目）从全新软件源重新生成。
+- Docker 完整重建成功；全部附件 `sha256sum -c sha256sums --ignore-missing` 通过。
+- 在构建卷内检查了暂存的 rootfs：五项拨号器修复全部出现在安装后的 `modem_dial.sh` 中；feed 的 `qmi|mbim|mhi) proto="none"` 接管代码不存在；RNDIS 按实例挂断、精确槽位 LED 解析、播种的 `led` 选项、MLO 修复脚本与重写后的 MLO 页面均在。
+- `tests/check-zbt-firmware.sh`——本轮扩充了按实例挂断守卫（RNDIS 热插拔中出现全局 `qmodem_network restart` 将导致检查失败）、精确路径 LED 映射、播种 `led` 选项、五项收编拨号器修复与 MLO 修复——加上 MLO 页面的 `node --check` 与 `git diff --check` 全部通过。检查器同时禁止刻意未采纳的 PR 部分（`dual-modem.sh`、`zbt_netcard`、`proto="none"` 的 QMI 接管）。
+- 重新生成的 feed tar 包与全新软件源树逐成员核对：157 个条目，其中 `qmodem-3.0.2-r1.apk` 与镜像构建所用的 apk 字节一致。
+- **未做硬件验证：** MLO 客户端关联（本轮没有可用的 MLO 客户端）、SIM 槽位 2 的 PIN 路径（本机单 SIM 接线），以及一切依赖第二块 modem 的场景——5G2 槽位未插卡，PR #14 其余双 modem 工作推迟到硬件到手。本机的蜂窝单元（RM551E-GL、QMI、槽位 4-1）及其已验证的 issue #9 行为不受本版本影响。
 
 ## 附件
 
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
-  - SHA-256: `ad74444a8a552798b8fc896b878ac69a4538b0be68b967632c1d4ec7709c2f3d`
+  - SHA-256: `37d2364c3219afb26b9c9b2e6ccdea8a73fe7941de2a0d39b2bb0a9368991ea9`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
-  - SHA-256: `e327e89279036f5d2746fe75d7a113e984ebc707b71be4fe5875b6b19ab7ad0e`
+  - SHA-256: `ff1e023ee2aa1170778552db9e58e334226d3c60d5ef0f3c4daa6250cb2a02cf`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
-  - SHA-256: `4a4cf6dbc0688f858a092ea0a0d7a79e3d27ce5cb840888df927bbea37e52a5f`
+  - SHA-256: `b7773d432b257ac851b2c973e0397bcbb6eb6f588aa32c0740806c1c8715fc7a`
 - `packages-aarch64_cortex-a53.tar.gz`
-  - SHA-256: `b91a24b6d113bb9e5e90fcdd612c9c43f8516890dca71ff0e0cb7724f30b40f1`
+  - SHA-256: `fc7b71089f4e1ab3f280294d4bdb64b7acff1018a207b73f99de16e0b771a9ae`
 - `sha256sums`、`config.buildinfo`、`feeds.buildinfo`、`version.buildinfo`
 
 ## 升级
@@ -109,9 +66,10 @@
 
     sysupgrade -n openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
 
-升级后，如果你之前手动启用过 TTL 插件并设了 `ttl=64`，请保持该值不动——只有当它仍是播种值 64 或探针自己写入的最后一个值时，探针才会把它提到 65。
+从 v25.12.021 保留配置升级时：
 
-保留配置升级时：升级后的首次开机，一次性迁移会把持久化的 `gpio_switch` `5g1` 值 `0` 提为 `1`（硬件本应一直保持的默认值）。如果你是主动在 LuCI 里关掉第一个 modem 槽位的，请在这次开机后重新关一次——此后固件绝不再碰这个开关。
+- 一次性 `74-zbt-mlo-shared-iface-repair` 会在首次开机把旧 MLO 页面创建的分组改写为共享表示；此后在页面保存的 MLD 直接使用新表示。从未配置过 MLO 组则什么都不发生。
+- 现有 `network.<蜂窝>.metric`、`dns` 与 `peerdns` 现在能在重拨后保留；升级后无需重新填写。
 
 ## 捐赠
 捐赠是对维护和测试工作的支持：

@@ -15,6 +15,11 @@ auto="$bf/etc/hotplug.d/usb/40-zbt-qmodem-autoenable"
 watchdog="$bf/usr/sbin/zbt-qmodem-watchdog-loop"
 watchdog_init="$bf/etc/init.d/zbt_qmodem_watchdog"
 rndis="$bf/etc/hotplug.d/net/15-zbt-rndis-auto"
+ledhot="$bf/etc/hotplug.d/net/20-zbt-modem-led"
+slots="$bf/etc/uci-defaults/20-zbt-qmodem-slots"
+mlorepair="$bf/etc/uci-defaults/74-zbt-mlo-shared-iface-repair"
+mlojs="$root/package/luci-app-mlo/htdocs/luci-static/resources/view/mlo/main.js"
+qmodem_dial="$root/package/qmodem/files/usr/share/qmodem/modem_dial.sh"
 ttl="$bf/etc/uci-defaults/54-zbt-qmodem-ttl-defaults"
 natprobe="$bf/usr/sbin/zbt-modem-nat-probe"
 ttlhook="$bf/etc/hotplug.d/iface/60-zbt-ttl-probe"
@@ -65,6 +70,41 @@ require "$watchdog" 'slot="${sec/_/-}"'
 require "$watchdog" 'power="$(slot_power "$sec")"'
 require "$rndis" '4-1) rndis_slot=4_1'
 require "$rndis" '4-2) rndis_slot=4_2'
+# A second modem must never be bounced by RNDIS detection on the other
+# slot: hang only the detected profile's dialer instance.
+require "$rndis" 'qmodem_network hang "$rndis_slot"'
+forbid "$rndis" 'qmodem_network restart'
+# The modem LED hotplug handler binds by exact USB slot path: the qmodem
+# modem-slot led option first, then the hard-wired 4-1/4-2 fallback. A
+# suffix map (*-1/*-2) misbinds usb1/usb2 root-hub ports like 2-1 to the
+# 5G1 LED even though no modem slot lives there.
+require "$ledhot" 'qmodem.$led_sec.led'
+require "$ledhot" '4-1) [ -n "$led_name" ] || led_name="blue:mobile-1"'
+require "$ledhot" '4-2) [ -n "$led_name" ] || led_name="blue:mobile-2"'
+require "$ledhot" 'no LED mapping for USB slot'
+forbid "$ledhot" '*-1)'
+forbid "$ledhot" '*-2)'
+require "$slots" "qmodem.@modem-slot[-1].led='blue:mobile-1'"
+require "$slots" "qmodem.@modem-slot[-1].led='blue:mobile-2'"
+# package/qmodem vendors the pinned feed app so dialer fixes are carried
+# in-tree (upstream's Build/Prepare is empty, so a patches/ dir would never
+# apply). The fixes must stay in and the dual-modem/proto=none rewrites out.
+require "$seed" 'CONFIG_PACKAGE_qmodem=y'
+require "$qmodem_dial" 'network_metric=$(uci -q get network.${interface_name}.metric)'
+require "$qmodem_dial" 'if [ "$network_cfg" = "$interface_name" ]; then'
+require "$qmodem_dial" '[ -z "$pincode" ] && config_get pincode $modem_config pincode'
+require "$qmodem_dial" '[ -z "$suggest_pdp_index" ] && suggest_pdp_index=$(get_platform_suggest_pdp_index)'
+forbid "$qmodem_dial" 'zbt_netcard'
+forbid "$qmodem_dial" 'dual-modem.sh'
+forbid "$qmodem_dial" 'qmi|mbim|mhi) proto="none"'
+# MLO must be written as ONE shared wifi-iface with a device list; per-band
+# mlo=1 sections yield single-link MLDs that never group. The migration
+# uci-default repairs records saved by older app versions.
+require "$mlojs" 'function sectionDevices(section)'
+require "$mlojs" "uci.set('wireless', mldIface, 'mlo', '1')"
+require "$mlorepair" 'uci -q add_list "wireless.${first}.device=${device}"'
+require "$mlorepair" 'uci -q set "wireless.${first}.mlo=1"'
+require "$mlorepair" 'uci -q delete "wireless.${member}"'
 require "$seed" 'CONFIG_PACKAGE_luci-app-qmodem-ttlfw4=y'
 require "$ttl" "qmodem_ttl.main.ttl='64'"
 require "$ttl" "qmodem_ttl.main.enable='0'"
@@ -191,9 +231,10 @@ for f in "$natprobe" "$ttlhook" "$rndis"; do
 	require "$replay" "${f#$root/}"
 done
 
-for file in "$auto" "$watchdog" "$watchdog_init" "$rndis" "$ttl" \
-	"$failover32" "$speedmode" "$noula" "$autostart" "$gpioboard" \
-	"$natprobe" "$ttlhook"; do
+for file in "$auto" "$watchdog" "$watchdog_init" "$rndis" "$ledhot" \
+	"$slots" "$mlorepair" "$qmodem_dial" "$ttl" "$failover32" \
+	"$speedmode" "$noula" "$autostart" "$gpioboard" "$natprobe" \
+	"$ttlhook"; do
 	sh -n "$file"
 done
 

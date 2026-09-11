@@ -1,0 +1,70 @@
+include $(TOPDIR)/rules.mk
+include $(INCLUDE_DIR)/kernel.mk
+
+# Vendored from FUjr/QModem application/qmodem at
+# a8b8a63e5b0853c79d2ad3f1ebbb673a724872bf (QMODEM_VERSION 3.0.2). This base-tree
+# copy shadows the feed package (scripts/feeds install skips packages that already
+# exist here), and local fixes are carried directly in files/ instead of a patch:
+# upstream's Build/Prepare is empty, so a patches/ dir would never be applied.
+# The feed derives PKG_RELEASE from its own git history, so pin it here and bump
+# it whenever files/ changes.
+PKG_NAME:=qmodem
+PKG_RELEASE:=1
+PKG_VERSION:=3.0.2
+
+include $(INCLUDE_DIR)/package.mk
+
+define Package/$(PKG_NAME)
+  PKGARCH:=all
+  SECTION:=utils
+  CATEGORY:=Utilities
+  TITLE:=QModem scripts
+  DEPENDS:=	\
+  		+kmod-usb2 +kmod-usb3 \
+		+kmod-usb-serial +kmod-usb-serial-option +kmod-usb-serial-qualcomm \
+		+kmod-usb-net +kmod-usb-acm \
+		+kmod-usb-wdm \
+		+kmod-usb-net-cdc-ether \
+		+kmod-usb-net-cdc-mbim \
+		+kmod-usb-net-rndis \
+		+kmod-usb-net-cdc-ncm +kmod-usb-net-huawei-cdc-ncm \
+  		+ubus-at-daemon +tom_modem +terminfo +sms-tool_q \
+		+jq +bc\
+		+coreutils +coreutils-stat \
+		+usbutils \
+		+PACKAGE_luci-app-qmodem_INCLUDE_rdisc6:rdisc6 \
+		+PACKAGE_luci-app-qmodem_INCLUDE_ndisc6:ndisc6 \
+		+PACKAGE_luci-app-qmodem_INCLUDE_generic-qmi-wwan:kmod-usb-net-qmi-wwan \
+		+PACKAGE_luci-app-qmodem_INCLUDE_vendor-qmi-wwan:kmod-qmi_wwan_q \
+		+PACKAGE_luci-app-qmodem_INCLUDE_vendor-qmi-wwan:kmod-qmi_wwan_f \
+		+PACKAGE_luci-app-qmodem_INCLUDE_vendor-qmi-wwan:kmod-qmi_wwan_s \
+		+PACKAGE_luci-app-qmodem_VENDOR_MHI_PCIe_DRIVER:kmod-pcie_mhi \
+		+PACKAGE_luci-app-qmodem_GENERIC_MHI_PCIe_DRIVER:kmod-mhi-wwan \
+		+PACKAGE_luci-app-qmodem_GENERIC_MHI_PCIe_DRIVER:kmod-mhi-pci-generic \
+		+PACKAGE_luci-app-qmodem_GENERIC_MHI_PCIe_DRIVER:kmod-mhi-pci-generic \
+		+PACKAGE_luci-app-qmodem_GENERIC_MHI_PCIe_DRIVER:kmod-mhi-wwan-ctrl \
+		+PACKAGE_luci-app-qmodem_GENERIC_MHI_PCIe_DRIVER:kmod-mhi-wwan-mbim \
+		+PACKAGE_luci-app-qmodem_INCLUDE_ADD_PCI_SUPPORT:pciutils \
+		+PACKAGE_luci-app-qmodem_INCLUDE_ADD_MTK_T7XX_SUPPORT:umbim \
+		+PACKAGE_luci-app-qmodem_INCLUDE_ADD_MTK_T7XX_SUPPORT:kmod-mtk-t7xx \
+		+PACKAGE_luci-app-qmodem_INCLUDE_ADD_QFIREHOSE_SUPPORT:qfirehose \
+		+PACKAGE_luci-app-qmodem_USE_TOM_CUSTOMIZED_QUECTEL_CM:quectel-CM-5G-M \
+		+PACKAGE_luci-app-qmodem_USING_QWRT_QUECTEL_CM_5G:quectel-CM-5G \
+		+PACKAGE_luci-app-qmodem_USING_NORMAL_QUECTEL_CM:quectel-cm
+endef
+
+define Package/$(PKG_NAME)/description
+	QModem scripts
+endef
+
+define Build/Prepare
+endef
+
+define Build/Compile
+endef
+
+define Package/$(PKG_NAME)/install
+		$(CP) ./files/* $(1)/
+endef
+
+$(eval $(call BuildPackage,$(PKG_NAME)))

@@ -25,6 +25,8 @@ echo "Replaying customizations: $SRC -> $DST"
 DIRS=(
     .buildenv
     package/emortal/autocore
+    package/luci-app-mlo
+    package/qmodem
     package/luci-app-zbt-about
     package/luci-app-zbt-health
     package/luci-app-zbt-modem-events

@@ -13,6 +13,10 @@
 #     sleep 1
 #     echo $gpio_up   > /sys/class/gpio/$gpio/value
 #
+# The `led` option on each slot is read by etc/hotplug.d/net/20-zbt-modem-led
+# to bind a modem's data netif to its front-panel LED by exact USB slot path;
+# qmodem itself ignores the option.
+#
 # For this board:
 #   USB slot 4-1 -> 5G1 modem slot -> gpio-export "5g1" -> active-high
 #   USB slot 4-2 -> 5G2 modem slot -> gpio-export "5g2" -> active-high
@@ -49,11 +53,13 @@ set qmodem.@modem-slot[-1].slot='4-1'
 set qmodem.@modem-slot[-1].gpio='5g1'
 set qmodem.@modem-slot[-1].gpio_up='1'
 set qmodem.@modem-slot[-1].gpio_down='0'
+set qmodem.@modem-slot[-1].led='blue:mobile-1'
 add qmodem modem-slot
 set qmodem.@modem-slot[-1].slot='4-2'
 set qmodem.@modem-slot[-1].gpio='5g2'
 set qmodem.@modem-slot[-1].gpio_up='1'
 set qmodem.@modem-slot[-1].gpio_down='0'
+set qmodem.@modem-slot[-1].led='blue:mobile-2'
 commit qmodem
 EOF
 

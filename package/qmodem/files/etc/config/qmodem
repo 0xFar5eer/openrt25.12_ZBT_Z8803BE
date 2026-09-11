@@ -1,0 +1,8 @@
+config main 'main'
+	option enable_dial '1'
+	option try_preset_usb "1"
+	option try_preset_pcie "1"
+	option enable_pcie_scan '1'
+	option start_delay '0'
+	option usage_stats_nvram_save '0'
+	option usage_stats_nvram_interval '300'

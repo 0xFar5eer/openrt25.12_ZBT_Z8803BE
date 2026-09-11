@@ -4,8 +4,10 @@
 #
 # When a QMI (qmi_wwan) or MBIM (cdc_mbim / mhi_wwan_mbim) netif appears,
 # figure out which M.2 slot it hotplugged from by walking the USB device
-# tree, and bind the matching LED (blue:mobile-1 for slot 4-1,
-# blue:mobile-2 for slot 4-2) to the netdev trigger with link + tx + rx modes:
+# tree, then resolve the matching front-panel LED from the qmodem modem-slot
+# sections (option led, seeded by 20-zbt-qmodem-slots) with a hard-wired
+# fallback for the two slots this board ships with. The LED is bound to the
+# netdev trigger with link + tx + rx modes:
 #
 #   LED off      -> modem not linked (dialing, no signal, or PDP down)
 #   LED solid    -> modem has an active data call (wwan has an IP)
@@ -63,15 +65,23 @@ while [ -n "$dev" ] && [ "$i" -lt 6 ]; do
 	i=$((i + 1))
 done
 
+# Resolve the LED by exact USB slot path. The qmodem modem-slot sections
+# carry the authoritative map; the two hard-wired cases are an upgrade-safe
+# fallback for configs saved before the led option existed. A suffix match
+# (e.g. *-1) must never be used: the MT7988A usb1/usb2 root hubs expose
+# ports like 2-1/1-1 that have no modem slot behind them.
+led_name=""
+led_sec="$(uci -q show qmodem 2>/dev/null | grep -E "^qmodem\.@modem-slot\[[0-9]+\]\.slot='$slot'$" | head -n 1 | cut -d. -f2 | cut -d= -f1)"
+[ -n "$led_sec" ] && led_name="$(uci -q get "qmodem.$led_sec.led")"
 case "$slot" in
-	*-1)
-		LED="/sys/class/leds/blue:mobile-1"
-		;;
-	*-2)
-		LED="/sys/class/leds/blue:mobile-2"
-		;;
-	*)   exit 0 ;;
+	4-1) [ -n "$led_name" ] || led_name="blue:mobile-1" ;;
+	4-2) [ -n "$led_name" ] || led_name="blue:mobile-2" ;;
 esac
+[ -n "$led_name" ] || {
+	logger -t zbt-modem-led "no LED mapping for USB slot $slot ($DEVICENAME); leaving front-panel LEDs alone"
+	exit 0
+}
+LED="/sys/class/leds/$led_name"
 
 [ -d "$LED" ] || {
 	logger -t zbt-modem-led "LED sysfs node $LED missing — stale DTS?"
