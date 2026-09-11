@@ -1,0 +1,5 @@
+#!/bin/sh
+# Upgrade old global/implicit rules once; never reset per-modem user choices.
+/usr/sbin/zbt-qmodem-ttl migrate || exit 1
+/etc/init.d/qmodem_ttl enable
+exit 0

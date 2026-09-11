@@ -1,0 +1,81 @@
+#!/bin/sh
+# Repair MLD records written by older versions of the custom LuCI page.
+# The new filename deliberately reruns this migration on the next sysupgrade.
+# Ordinary APs and manually named MLO sections are intentionally untouched.
+
+. /lib/functions.sh
+
+case "$(board_name)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+sections="$(uci -q show wireless | sed -nE 's/^wireless\.([^.]+)=wifi-iface$/\1/p')"
+changed=0
+processed=' '
+
+for first in $sections; do
+	case "$processed" in *" $first "*) continue ;; esac
+	case "$first" in mld_*) ;; *) continue ;; esac
+	[ "$(uci -q get "wireless.${first}.mlo")" = "1" ] || continue
+	mode="$(uci -q get "wireless.${first}.mode")"
+	[ -z "$mode" ] || [ "$mode" = "ap" ] || continue
+	ssid="$(uci -q get "wireless.${first}.ssid")"
+	[ -n "$ssid" ] || continue
+
+	members="$first"
+	for candidate in $sections; do
+		[ "$candidate" != "$first" ] || continue
+		[ "$(uci -q get "wireless.${candidate}.mlo")" = "1" ] || continue
+		candidate_mode="$(uci -q get "wireless.${candidate}.mode")"
+		[ -z "$candidate_mode" ] || [ "$candidate_mode" = "ap" ] || continue
+		[ "$(uci -q get "wireless.${candidate}.ssid")" = "$ssid" ] || continue
+		members="$members $candidate"
+	done
+
+	devices=""
+	for member in $members; do
+		for device in $(uci -q get "wireless.${member}.device"); do
+			case " $devices " in
+				*" $device "*) ;;
+				*) devices="${devices}${devices:+ }${device}" ;;
+			esac
+		done
+	done
+
+	set -- $devices
+	if [ "$#" -lt 2 ]; then
+		logger -t zbt-mlo "leaving invalid one-link MLD '$ssid' unchanged"
+		processed="${processed}${members} "
+		continue
+	fi
+
+	# One wifi-iface with list device is the representation consumed by the
+	# pinned netifd MLO implementation. Make its LAN membership explicit so
+	# the common ap-mld interface is added to br-lan and receives DHCP traffic.
+	uci -q delete "wireless.${first}.device"
+	for device in "$@"; do
+		uci -q add_list "wireless.${first}.device=${device}"
+	done
+	uci -q delete "wireless.${first}.network"
+	uci -q add_list "wireless.${first}.network=lan"
+	uci -q set "wireless.${first}.mode=ap"
+	uci -q set "wireless.${first}.mlo=1"
+	uci -q set "wireless.${first}.ieee80211w=2"
+	uci -q set "wireless.${first}.disabled=0"
+	uci -q delete "wireless.${first}.mld_ap" 2>/dev/null
+	uci -q delete "wireless.${first}.mld_id" 2>/dev/null
+	for member in $members; do
+		[ "$member" = "$first" ] || uci -q delete "wireless.${member}"
+	done
+	processed="${processed}${members} "
+	changed=1
+	logger -t zbt-mlo "repaired MLO SSID '$ssid' as one ${#}-radio LAN wifi-iface"
+done
+
+[ "$changed" -eq 0 ] || {
+	uci -q commit wireless
+	# This migration runs before netifd's first bring-up. The committed settings
+	# are consumed naturally; reloading Wi-Fi here races that initial bring-up.
+}
+exit 0

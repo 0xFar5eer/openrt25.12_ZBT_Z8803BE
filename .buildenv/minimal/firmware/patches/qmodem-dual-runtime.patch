@@ -1,0 +1,681 @@
+--- a/application/qmodem/files/usr/share/qmodem/modem_dial.sh
++++ b/application/qmodem/files/usr/share/qmodem/modem_dial.sh
+@@ -328 +328 @@
+-    if [ -f $sim_lock_file ] && [ "$pin" == "$(cat $sim_lock_file)"];then
++    if [ -f $sim_lock_file ] && [ "$pin" == "$(cat $sim_lock_file)" ];then
+@@ -394 +394 @@
+-    [ -z "$suggest_pdp_index"] && suggest_pdp_index=$(get_platform_suggest_pdp_index)
++    [ -z "$suggest_pdp_index" ] && suggest_pdp_index=$(get_platform_suggest_pdp_index)
+@@ -436 +436 @@
+-        [ -z "$pin" ] && config_get pincode $modem_config pincode
++        [ -z "$pincode" ] && config_get pincode $modem_config pincode
+@@ -448,6 +448,14 @@
+     interface_name=$modem_config
+     [ -n "$alias" ] && interface_name=$alias
+     interface6_name=${interface_name}v6
++    # The persistent netifd interface metric is the router-wide route
++    # contract. QModem brings the link up, but must not overwrite the value
++    # selected by the network/MWAN configuration on every redial.
++    network_metric=$(uci -q get network.${interface_name}.metric)
++    case "$network_metric" in
++        ''|*[!0-9]*) ;;
++        *) metric="$network_metric" ;;
++    esac
+     if [ "$use_ubus" = "1" ]; then
+         use_ubus_flag="-u"
+     else
+@@ -603,2 +611,7 @@
+-    proto="dhcp"
+-    protov6="dhcpv6"
++    proto="dhcp"
++    protov6="dhcpv6"
++    # quectel-CM-M -d owns QMI/MBIM addresses and routes. A second DHCP
++    # client on the same device tears down the address the modem just got.
++    if [ -x /usr/bin/quectel-CM-M ]; then
++        case "$driver" in qmi|mbim|mhi) proto="none"; protov6="none" ;; esac
++    fi
+@@ -836 +849,18 @@
+-        uci delete network.$network_cfg
++        if [ "$network_cfg" = "$interface_name" ]; then
++            # Keep the stable 4_1/2_1 record that MWAN3 tracks. Removing it
++            # made LuCI report "No interface metric set" and allowed the
++            # next QModem scan to silently recreate a different route
++            # priority. The physical device binding is runtime state and is
++            # cleared while the modem is down.
++            uci -q set network.${network_cfg}=interface
++            uci -q set network.${network_cfg}.modem_config="${modem_config}"
++            uci -q set network.${network_cfg}.defaultroute='1'
++            uci -q set network.${network_cfg}.peerdns='0'
++            uci -q set network.${network_cfg}.metric="${metric:-200}"
++            uci -q delete network.${network_cfg}.ifname
++            uci -q delete network.${network_cfg}.device
++        else
++            # The IPv6 companion is recreated from the current PDP mode;
++            # retaining it can leave a stale @interface/device reference.
++            uci -q delete network.${network_cfg}
++        fi
+@@ -988,60 +1018,44 @@
+-    cmd_line="quectel-CM"
+-    [ -e "/usr/bin/quectel-CM-M" ] && cmd_line="quectel-CM-M" && tom_modified=1
+-    case $pdp_type in
+-        "ip") cmd_line="$cmd_line -4" ;;
+-        "ipv6") cmd_line="$cmd_line -6" ;;
+-        "ipv4v6") cmd_line="$cmd_line -4 -6" ;;
+-        *) cmd_line="$cmd_line -4 -6" ;;
+-    esac
+-
+-    if [ -n "$pdp_index" ] && [ "$userset_pdp_index" = "1" ]; then
+-        cmd_line="$cmd_line -n $pdp_index"
+-    fi
+-    if [ "$manufacturer" = "telit" ] && [ "$force_set_apn" != "1" ];then
+-        m_debug 'please use force apn set for telit modem'
+-    fi
+-    if [ -n "$apn" ]; then
+-        cmd_line="$cmd_line -s $apn"
+-    fi
+-    if [ -n "$username" ]; then
+-        cmd_line="$cmd_line $username"
+-    fi
+-    if [ -n "$password" ]; then
+-        cmd_line="$cmd_line $password"
+-    fi
+-    if [ "$auth" != "none" ]; then
+-        cmd_line="$cmd_line $auth"
+-    fi
+-    if [ -n "$modem_netcard" ]; then
+-    qmi_if=$modem_netcard
+-    #if is wwan* ,use the first part of the name
+-    if  [[ "$modem_netcard" = "wwan"* ]];then
+-        qmi_if=$(echo "$modem_netcard" | cut -d_ -f1)
+-    fi
+-    #if is rmnet* ,use the first part of the name
+-    if [[ "$modem_netcard" = "rmnet"* ]];then
+-        qmi_if=$(echo "$modem_netcard" | cut -d. -f1)
+-    fi
+-        cmd_line="${cmd_line} -i ${qmi_if}"
+-    fi
+-    if [ "$bridge_enabled" = "1" ];then
+-        cmd_line="${cmd_line} -b"
+-    fi
+-    if [ "$do_not_add_dns" = "1" ];then
+-        cmd_line="${cmd_line} -D"
+-    fi
+-    if [ -e "/usr/bin/quectel-CM-M" ];then
+-        [ -n "$metric" ] && cmd_line="$cmd_line -d -M $metric"
+-        [ "$force_set_apn" == "1" ] && cmd_line="$cmd_line -F"
+-    else
+-        [ -n "$metric" ] && cmd_line="$cmd_line"
+-    fi
+-    cmd_line="$cmd_line -f $log_file"
+-    while true; do
+-        m_debug "dialing: $cmd_line"
+-        $cmd_line &
+-        echo "$!" > "${MODEM_RUNDIR}/${modem_config}_dir/$modem_config.pid"
+-        m_debug "pid: $!"
+-        wait
+-        m_debug "quectel-CM exited, retrying dial"
+-    done
++    # Keep APN and credentials as separate arguments (never shell-split).
++    . /usr/lib/zbt/dual-modem.sh
++    modem_netcard=$(zbt_netdev "$modem_config") || return 1
++    zbt_port_matches "$modem_config" "$at_port" || return 1
++    cm=quectel-CM
++    [ ! -x /usr/bin/quectel-CM-M ] || cm=quectel-CM-M
++    set -- "$cm"
++    case "$pdp_type" in
++        ip) set -- "$@" -4 ;;
++        ipv6) set -- "$@" -6 ;;
++        *) set -- "$@" -4 -6 ;;
++    esac
++    [ "$userset_pdp_index" != 1 ] || set -- "$@" -n "$pdp_index"
++    # Preserve normal carrier/modem negotiation in QMI auto mode. The helper
++    # supplies a narrow AT&T US fallback without persisting or logging IMSI.
++    effective_apn="$apn"
++    if [ "$driver" = qmi ]; then
++        effective_apn=$(zbt_effective_apn "$apn" "$at_port")
++    fi
++    if [ "$driver" != qmi ] || [ -n "$effective_apn" ]; then
++        set -- "$@" -s "$effective_apn" "${username:-}" "${password:-}" "${auth:-none}"
++    fi
++    set -- "$@" -i "$modem_netcard"
++    [ -z "$pincode" ] || set -- "$@" -p "$pincode"
++    [ "$bridge_enabled" != 1 ] || set -- "$@" -b
++    [ "$do_not_add_dns" != 1 ] || set -- "$@" -D
++    if [ "$cm" = quectel-CM-M ]; then
++        set -- "$@" -d -M "${metric:-200}"
++        [ "$force_set_apn" != 1 ] || set -- "$@" -F
++    fi
++    set -- "$@" -f "$log_file"
++    cm_pid=''
++    # Stop only this invocation's child, never a process ID saved by an old
++    # modem or a killall that would disconnect the other SIM.
++    trap '[ -z "$cm_pid" ] || kill -TERM "$cm_pid" 2>/dev/null; wait; rm -f "${MODEM_RUNDIR}/${modem_config}_dir/$modem_config.pid"; ifdown "$interface_name"; ifdown "$interface6_name"; exit 0' INT TERM
++    while true; do
++        m_debug "dialing $modem_config on $modem_netcard (APN mode: $(zbt_apn_mode "$apn"))"
++        "$@" &
++        cm_pid=$!
++        echo "$cm_pid" > "${MODEM_RUNDIR}/${modem_config}_dir/$modem_config.pid"
++        wait "$cm_pid"
++        cm_pid=''
++        sleep 5
++    done
+--- a/application/qmodem/files/etc/init.d/qmodem_init
++++ b/application/qmodem/files/etc/init.d/qmodem_init
+@@ -127,21 +127,16 @@
+-_try_device()
+-{
+-    config_get path "$1" path
+-    config_get network "$1" network
+-    if [ ! -d "$path" ]; then
+-        /usr/share/qmodem/modem_scan.sh disable "$1"
+-        uci delete network.$1
+-        uci delete network.${1}v6
+-        uci commit network
+-        /etc/init.d/network reload
+-        return
+-    fi
+-    # if device_path not parent of netdevice_path,then disable device path an scan again
+-    netdevice_path=`readlink -f /sys/class/net/$network/device/`
+-    device_path=`readlink -f $path`
+-    is_parent=`echo "$device_path" | grep -q "^$netdevice_path"`
+-    if [ -z "$is_parent" ] || [ ! -d "$netdevice_path" ]; then
+-        /usr/share/qmodem/modem_scan.sh disable "$1"
+-        /usr/share/qmodem/modem_scan.sh add "$path" "$slot" 
+-    fi
+-}
++_try_device()
++{
++    local path network type slot netdevice_path device_path
++    config_get path "$1" path
++    config_get network "$1" network
++    config_get type "$1" data_interface
++    [ -d "$path" ] || return 0
++    slot=$(basename "$path")
++    device_path=$(readlink -f "$path")
++    netdevice_path=$(readlink -f "/sys/class/net/$network/device")
++    case "$netdevice_path" in
++        "$device_path"/*) [ -d "$netdevice_path" ] && return 0 ;;
++    esac
++    # Scanner accepts slot + type, never a full sysfs path as a lock name.
++    /usr/share/qmodem/modem_scan.sh add "$slot" "$type"
++}
+--- a/application/qmodem/files/usr/share/qmodem/modem_scan.sh
++++ b/application/qmodem/files/usr/share/qmodem/modem_scan.sh
+@@ -13,2 +13,3 @@
+-    section_name=$1
+-    /usr/share/qmodem/modem_hook.sh $section_name post_init
++    section_name=$1
++    [ ! -x /usr/sbin/zbt-qmodem-profile ] || /usr/sbin/zbt-qmodem-profile "$section_name"
++    /usr/share/qmodem/modem_hook.sh $section_name post_init
+@@ -506,7 +507,7 @@
+         uci -q batch << EOF
+ set qmodem.$section_name.path="$modem_path"
+ set qmodem.$section_name.data_interface="$slot_type"
+-set qmodem.$section_name.enable_dial="1"
++set qmodem.$section_name.enable_dial="$([ "$section_name" = 2_1 ] && echo 0 || echo 1)"
+ set qmodem.$section_name.soft_reboot="1"
+ set qmodem.$section_name.extend_prefix="1"
+ set qmodem.$section_name.pdp_type="ipv4v6"
+@@ -518,1 +519,3 @@
+-set qmodem.$section_name.name=$modem_name
++set qmodem.$section_name.path="$modem_path"
++set qmodem.$section_name.data_interface="$slot_type"
++set qmodem.$section_name.name=$modem_name
+--- a/application/qmodem/files/usr/share/qmodem/vendor/quectel.sh
++++ b/application/qmodem/files/usr/share/qmodem/vendor/quectel.sh
+@@ -528,112 +528,5 @@
+-get_lockband_nr()
+-{
+-    local at_port="$1"
+-    m_debug  "Quectel sdx55 get lockband info"
+-    get_wcdma_config_command='AT+QNWPREFCFG="gw_band"'
+-    get_lte_config_command='AT+QNWPREFCFG="lte_band"'
+-    get_nsa_nr_config_command='AT+QNWPREFCFG="nsa_nr5g_band"'
+-    get_sa_nr_config_command='AT+QNWPREFCFG="nr5g_band"'
+-    wcdma_avalible_band="1,2,3,4,5,6,7,8,9,19"
+-    lte_avalible_band="1,2,3,4,5,7,8,12,13,14,17,18,19,20,25,26,28,29,30,32,34,38,39,40,41,42,66,71"
+-    nsa_nr_avalible_band="1,2,3,5,7,8,12,20,25,28,38,40,41,48,66,71,77,78,79,257,258,260,261"
+-    sa_nr_avalible_band="1,2,3,5,7,8,12,20,25,28,38,40,41,48,66,71,77,78,79"
+-    [ -n $(uci -q get qmodem.$config_section.sa_band) ] && sa_nr_avalible_band=$(uci -q get qmodem.$config_section.sa_band | tr '/' ',')
+-    [ -n $(uci -q get qmodem.$config_section.nsa_band) ] && nsa_nr_avalible_band=$(uci -q get qmodem.$config_section.nsa_band | tr '/' ',')
+-    [ -n $(uci -q get qmodem.$config_section.lte_band) ] && lte_avalible_band=$(uci -q get qmodem.$config_section.lte_band | tr '/' ',')
+-    [ -n $(uci -q get qmodem.$config_section.wcdma_band) ] && wcdma_avalible_band=$(uci -q get qmodem.$config_section.wcdma_band | tr '/' ',')
+-    gw_band=$(at $at_port  $get_wcdma_config_command |grep -e "+QNWPREFCFG: " )
+-    lte_band=$(at $at_port $get_lte_config_command|grep -e "+QNWPREFCFG: ")
+-    nsa_nr_band=$(at $at_port $get_nsa_nr_config_command|grep -e "+QNWPREFCFG: ")
+-    sa_nr_band=$(at $at_port  $get_sa_nr_config_command|grep -e "+QNWPREFCFG: ")
+-    json_add_object "UMTS"
+-    json_add_array "available_band"
+-    json_close_array
+-    json_add_array "lock_band"
+-    json_close_object
+-    json_close_object
+-    json_add_object "LTE"
+-    json_add_array "available_band"
+-    json_close_array
+-    json_add_array "lock_band"
+-    json_close_array
+-    json_close_object
+-
+-    json_add_object "NR"
+-    json_add_array "available_band"
+-    json_close_array
+-    json_add_array "lock_band"
+-    json_close_array
+-    json_close_object
+-    json_add_object "NR_NSA"
+-    json_add_array "available_band"
+-    json_close_array
+-    json_add_array "lock_band"
+-    json_close_array
+-    json_close_object
+-    for i in $(echo "$wcdma_avalible_band" | awk -F"," '{for(j=1; j<=NF; j++) print $j}'); do
+-        json_select "UMTS"
+-        json_select "available_band"
+-        add_avalible_band_entry  "$i" "UMTS_$i"
+-        json_select ..
+-        json_select ..
+-    done
+-    for i in $(echo "$lte_avalible_band" | awk -F"," '{for(j=1; j<=NF; j++) print $j}'); do
+-        json_select "LTE"
+-        json_select "available_band"
+-        add_avalible_band_entry  "$i" "LTE_B$i"
+-        json_select ..
+-        json_select ..
+-    done
+-    for i in $(echo "$nsa_nr_avalible_band" | awk -F"," '{for(j=1; j<=NF; j++) print $j}'); do
+-        json_select "NR_NSA"
+-        json_select "available_band"
+-        add_avalible_band_entry  "$i" "NSA_NR_N$i"
+-        json_select ..
+-        json_select ..
+-    done
+-    for i in $(echo "$sa_nr_avalible_band" | awk -F"," '{for(j=1; j<=NF; j++) print $j}'); do
+-        json_select "NR"
+-        json_select "available_band"
+-        add_avalible_band_entry  "$i" "SA_NR_N$i"
+-        json_select ..
+-        json_select ..
+-    done
+-    #+QNWPREFCFG: "nr5g_band",1:3:7:20:28:40:41:71:77:78:79
+-    for i in $(echo "$gw_band" | cut -d, -f2 |tr -d '\r' | awk -F":" '{for(j=1; j<=NF; j++) print $j}'); do
+-        if [ -n "$i" ]; then
+-            json_select "UMTS"
+-            json_select "lock_band"
+-            json_add_string "" "$i"
+-            json_select ..
+-            json_select ..
+-        fi
+-    done
+-    for i in $(echo "$lte_band" | cut -d, -f2|tr -d '\r' | awk -F":" '{for(j=1; j<=NF; j++) print $j}'); do
+-        if [ -n "$i" ]; then
+-            json_select "LTE"
+-            json_select "lock_band"
+-            json_add_string "" "$i"
+-            json_select ..
+-            json_select ..
+-        fi
+-    done
+-    for i in $(echo "$nsa_nr_band" | cut -d, -f2|tr -d '\r' | awk -F":" '{for(j=1; j<=NF; j++) print $j}'); do
+-        if [ -n "$i" ]; then
+-            json_select "NR_NSA"
+-            json_select "lock_band"
+-            json_add_string "" "$i"
+-            json_select ..
+-            json_select ..
+-        fi
+-    done
+-    for i in $(echo "$sa_nr_band" | cut -d, -f2|tr -d '\r' | awk -F":" '{for(j=1; j<=NF; j++) print $j}'); do
+-        if [ -n "$i" ]; then
+-            json_select "NR"
+-            json_select "lock_band"
+-            json_add_string "" "$i"
+-            json_select ..
+-            json_select ..
+-        fi
+-    done
+-    json_close_array
+-}
++get_lockband_nr()
++{
++    . /usr/lib/zbt/quectel-bands.sh
++    zbt_get_lockband_nr "$1"
++}
+@@ -895,21 +788,4 @@
+-set_lockband_nr(){
+-    lock_band=$(echo $lock_band | tr ',' ':')
+-    case "$band_class" in
+-        "UMTS") 
+-            at_command="AT+QNWPREFCFG=\"gw_band\",$lock_band"
+-            res=$(at $at_port $at_command)
+-            ;;
+-        "LTE") 
+-            at_command="AT+QNWPREFCFG=\"lte_band\",$lock_band"
+-            res=$(at $at_port $at_command)
+-            ;;
+-        "NR_NSA")
+-            at_command="AT+QNWPREFCFG=\"nsa_nr5g_band\",$lock_band"
+-            res=$(at $at_port $at_command)
+-            ;;
+-        "NR")
+-            at_command="AT+QNWPREFCFG=\"nr5g_band\",$lock_band"
+-            res=$(at $at_port $at_command)
+-            ;;
+-    esac
+-}
++set_lockband_nr(){
++    . /usr/lib/zbt/quectel-bands.sh
++    zbt_set_lockband_nr
++}
+--- a/luci/luci-app-qmodem-next/htdocs/luci-static/resources/view/qmodem/config_advanced.js
++++ b/luci/luci-app-qmodem-next/htdocs/luci-static/resources/view/qmodem/config_advanced.js
+@@ -54,0 +55 @@
++		var selectionGeneration = 0;
+@@ -57,0 +59 @@
++			var generation = ++selectionGeneration;
+@@ -66,0 +69 @@
++					if (generation !== selectionGeneration || select.value !== selectedId) return;
+@@ -69,0 +73 @@
++					if (generation !== selectionGeneration || select.value !== selectedId) return;
+@@ -1109,0 +1114,9 @@
++		var generation = (lockbandContent._zbtBandGeneration || 0) + 1;
++		lockbandContent._zbtBandGeneration = generation;
++		dom.content(lockbandContent, E('div', { 'class': 'spinning' }, _('Reading band configuration from this modem...')));
++		function retryRead() {
++			if (!lockbandContent._zbtBandBusy) return self.loadLockBand(modem, lockbandContent);
++		}
++		function retryButton() {
++			return E('button', { 'class': 'btn cbi-button', 'type': 'button', 'click': retryRead }, _('Read bands again'));
++		}
+@@ -1111 +1124,2 @@
+-		qmodem.getLockBand(modem.id).then(function(result) {
++		return qmodem.getLockBand(modem.id).then(function(result) {
++			if (generation !== lockbandContent._zbtBandGeneration) return;
+@@ -1114,2 +1128,2 @@
+-				dom.content(lockbandContent, E('div', { 'class': 'alert-message warning' },
+-					_('No result returned from getLockBand')));
++				dom.content(lockbandContent, E('div', { 'class': 'alert-message warning' }, [
++					E('p', {}, _('No result returned from getLockBand. Current bands are unknown.')), retryButton()]));
+@@ -1124,2 +1138,2 @@
+-				dom.content(lockbandContent, E('div', { 'class': 'alert-message warning' },
+-					_('Invalid lockband data structure')));
++				dom.content(lockbandContent, E('div', { 'class': 'alert-message warning' }, [
++					E('p', {}, _('Invalid band response. Current bands are unknown.')), retryButton()]));
+@@ -1138,2 +1152,2 @@
+-				dom.content(lockbandContent, E('div', { 'class': 'alert-message info' },
+-					_('No bands available for this modem')));
++				dom.content(lockbandContent, E('div', { 'class': 'alert-message info' }, [
++					E('p', {}, _('No band information returned by this modem.')), retryButton()]));
+@@ -1149,0 +1164,17 @@
++				if (bandData && (bandData.read_error || bandData.read_state === 'unknown')) {
++					var unknownSection = E('div', { 'class': 'cbi-section' }, [
++						E('h3', {}, bandClass),
++						E('p', { 'class': 'alert-message warning' }, _('Current bands are unknown, not all disabled. Editing is unavailable until this modem returns a valid band list.')),
++						E('p', {}, bandData.read_error || _('Band query did not return a usable response.')),
++						retryButton()
++					]);
++					if (bandData.read_command || bandData.read_response) {
++						unknownSection.appendChild(E('details', {}, [
++							E('summary', {}, _('Band query diagnostics')),
++							E('pre', { 'style': 'white-space: pre-wrap; overflow-wrap: anywhere;' },
++								[bandData.read_command || '', bandData.read_response || _('No response')].join('\n'))
++						]));
++					}
++					container.appendChild(unknownSection);
++					return;
++				}
+@@ -1164,5 +1194,0 @@
+-				if (availableBands.length === 0) {
+-					console.info('No available bands for', bandClass);
+-					return;
+-				}
+-
+@@ -1176,0 +1203,12 @@
++				lockedBands = lockedBands.map(String);
++				if (availableBands.length === 0) {
++					var reportedOnly = E('strong', { 'id': 'locked_' + modem.id + '_' + bandClass });
++					self.updateLockedDisplay(reportedOnly, lockedBands, []);
++					container.appendChild(E('div', { 'class': 'cbi-section' }, [
++						E('h3', {}, bandClass),
++						E('p', {}, _('Bands reported by modem')), reportedOnly,
++						E('p', { 'class': 'alert-message warning' }, _('The supported-band list is unavailable. Reported bands are shown read-only; no capability list has been guessed.')),
++						retryButton()
++					]));
++					return;
++				}
+@@ -1200 +1238 @@
+-				currentSection.appendChild(E('label', { 'class': 'cbi-value-title' }, _('Locked Bands')));
++				currentSection.appendChild(E('label', { 'class': 'cbi-value-title' }, _('Bands reported by modem')));
+@@ -1208,0 +1247,6 @@
++				var pendingDisplay = E('p', { 'class': 'cbi-section-descr' }, _('No pending changes.'));
++				function updatePending() {
++					var selected = E('span', {});
++					self.updateLockedDisplay(selected, lockbandState[bandClass].locked, availableBands);
++					dom.content(pendingDisplay, [E('strong', {}, _('Unsaved selection (not applied to modem): ')), selected]);
++				}
+@@ -1241 +1285 @@
+-							self.updateLockedDisplay(lockedDisplay, lockbandState[bandClass].locked, bandData.available_band);
++							updatePending();
+@@ -1256,0 +1301 @@
++				bandSection.appendChild(pendingDisplay);
+@@ -1288 +1333 @@
+-						self.updateLockedDisplay(lockedDisplay, lockbandState[bandClass].locked, bandData.available_band);
++						updatePending();
+@@ -1295,0 +1341,5 @@
++						if (lockbandContent._zbtBandBusy) return;
++						if (lockbandState[bandClass].locked.length === 0) {
++							ui.addNotification(null, E('p', _('Select at least one band. An empty selection is not an unlock command.')), 'error');
++							return;
++						}
+@@ -1303 +1353,2 @@
+-						applyBtn.disabled = true;
++						lockbandContent._zbtBandBusy = true;
++						lockbandContent.querySelectorAll('button, input').forEach(function(control) { control.disabled = true; });
+@@ -1306 +1357,5 @@
+-						qmodem.setLockBand(modem.id, params).then(function(result) {
++						return qmodem.setLockBand(modem.id, params).then(function(result) {
++							var reply = result && (result.result || result);
++							var response = reply && reply.set_lockband;
++							if (typeof response !== 'string' || !/(^|\n)OK(?:\s|$)/.test(response) || /ERROR/.test(response))
++								throw new Error(response || _('Modem did not confirm the band change'));
+@@ -1309,2 +1363,0 @@
+-								// Refresh the display
+-								self.loadLockBand(modem, lockbandContent);
+@@ -1313,2 +1365,0 @@
+-								applyBtn.disabled = false;
+-								applyBtn.textContent = _('Apply');
+@@ -1318,2 +1369,5 @@
+-							applyBtn.disabled = false;
+-							applyBtn.textContent = _('Apply');
++						}).then(function() {
++							// A rejected/mismatched write may still have changed the modem.
++							// Always discard the draft and query its actual state again.
++							lockbandContent._zbtBandBusy = false;
++							return self.loadLockBand(modem, lockbandContent);
+@@ -1330,0 +1385 @@
++			container.appendChild(retryButton());
+@@ -1334,0 +1390 @@
++			if (generation !== lockbandContent._zbtBandGeneration) return;
+@@ -1340 +1396,2 @@
+-					_('Please check browser console for more details'))
++					_('Current bands are unknown. Reading bands does not change settings.')),
++				retryButton()
+@@ -1347 +1404 @@
+-			displayElement.textContent = _('None (All bands unlocked)');
++			displayElement.textContent = _('No bands selected (not an unlock command)');
+--- a/luci/luci-app-qmodem-next/htdocs/luci-static/resources/qmodem/qmodem.js
++++ b/luci/luci-app-qmodem-next/htdocs/luci-static/resources/qmodem/qmodem.js
+@@ -255,7 +255,25 @@
+ 	expect: { }
+ });
+ 
++// Human labels must never double as netifd interface names.
++function modemDisplayName(section, includeModel) {
++	var s = typeof section === 'string' ? (uci.get('qmodem', section) || { '.name': section }) : (section || {});
++	var id = s['.name'] || '', slot = s.slot || id;
++	var label = (s.display_name || '').trim();
++	if (!label) {
++		label = s.alias || '';
++		if (!label || label === id || /^(4_1|2_1|modem1|modem2)$/.test(label)) {
++			if (slot === '4_1' || slot === '4-1' || slot === 'slot_4_1') label = _('Modem 1');
++			else if (slot === '2_1' || slot === '2-1' || slot === 'slot_2_1') label = _('Modem 2');
++			else label = s.alias || s.name || id;
++		}
++	}
++	return label + (includeModel && s.name ? ' (' + s.name.toUpperCase() + ')' : '');
++}
++
+ return L.Class.extend({
++	getModemLabel: modemDisplayName,
++
+ 	// Get modem base information
+ 	getBaseInfo: function(section) {
+ 		return callBaseInfo(section);
+@@ -447,7 +465,7 @@
+ 			uci.sections('qmodem', 'modem-device', function(s) {
+ 				sections.push({
+ 					id: s['.name'],
+-					name: s.name || s['.name'],
++					name: modemDisplayName(s, true),
+ 					enabled: s.enabled !== '0'
+ 				});
+ 			});
+--- a/luci/luci-app-qmodem-next/htdocs/luci-static/resources/view/qmodem/overview.js
++++ b/luci/luci-app-qmodem-next/htdocs/luci-static/resources/view/qmodem/overview.js
+@@ -219,8 +219,7 @@
+ 		
+ 		sections.forEach(function(section) {
+ 			if (section.state !== 'disabled' && section.at_port) {
+-				var name = section.name ? section.name.toUpperCase() : 'Unknown';
+-				var displayName = section.alias ? section.alias + ' (' + name + ')' : name;
++				var displayName = qmodem.getModemLabel(section, true);
+ 				
+ 				modems.push({
+ 					id: section['.name'],
+--- a/luci/luci-app-qmodem-next/htdocs/luci-static/resources/view/qmodem/network_config.js
++++ b/luci/luci-app-qmodem-next/htdocs/luci-static/resources/view/qmodem/network_config.js
+@@ -19,7 +19,8 @@
+ 	load: function() {
+ 		return Promise.all([
+ 			uci.load('qmodem'),
+-			qmodem.rcStatus('qmodem_network')
++			qmodem.rcStatus('qmodem_network'),
++			uci.load('network')
+ 		]).then(L.bind(function(results) {
+ 			this.rcStatusData = results[1];
+ 			
+@@ -196,9 +196,10 @@
+ 	s = m.section(form.GridSection, 'modem-device', _('Dial Configuration'));
+ 	s.anonymous = false;
+ 	s.addremove = false;
++	s.sectiontitle = function(section_id) { return qmodem.getModemLabel(section_id); };
+ 	s.modaltitle = L.bind(function(section_id) {
+ 		var name = uci.get('qmodem', section_id, 'name');
+-		var alias = uci.get('qmodem', section_id, 'alias');
++		var alias = qmodem.getModemLabel(section_id);
+ 		return _('Dial Configuration') + ': ' + (alias || name || section_id);
+ 	}, this);
+ 
+@@ -251,9 +252,9 @@
+ 			return name.toUpperCase();
+ 		};
+ 
+-		o = s.option(form.DummyValue, 'alias', _('Modem Alias'));
++		o = s.option(form.DummyValue, '_display_name', _('Modem Alias'));
+ 		o.cfgvalue = function(section_id) {
+-			return uci.get('qmodem', section_id, 'alias') || '-';
++			return qmodem.getModemLabel(section_id) || '-';
+ 		};
+ 
+ 	o = s.option(form.DummyValue, 'state', _('Status'));
+@@ -307 +308 @@
+-	o = s.option(form.Value, 'alias', _('Modem Alias'));
++	o = s.option(form.Value, 'display_name', _('Modem Alias'), _('Display name only; changing it does not rename the network interface.'));
+@@ -384,0 +386,10 @@
++	// United States (US); Value remains editable for carrier and MVNO APNs.
++	o.value('broadband', _('AT&T data device (US)'));
++	o.value('NXTGENPHONE', _('AT&T LTE phone SIM (US)'));
++	o.value('ENHANCEDPHONE', _('AT&T 5G phone SIM (US)'));
++	o.value('firstnet-broadband', _('FirstNet (US)'));
++	o.value('fast.t-mobile.com', _('T-Mobile (US)'));
++	o.value('vzwinternet', _('Verizon (US)'));
++	o.value('h2g2', _('Google Fi data-only SIM (US)'));
++	o.value('h2g2-t', _('Google Fi phone SIM (US)'));
++	o.value('usccinternet', _('U.S. Cellular (US)'));
+@@ -461,0 +473,10 @@
++	// Keep the second SIM selector equivalent to the primary SIM selector.
++	o.value('broadband', _('AT&T data device (US)'));
++	o.value('NXTGENPHONE', _('AT&T LTE phone SIM (US)'));
++	o.value('ENHANCEDPHONE', _('AT&T 5G phone SIM (US)'));
++	o.value('firstnet-broadband', _('FirstNet (US)'));
++	o.value('fast.t-mobile.com', _('T-Mobile (US)'));
++	o.value('vzwinternet', _('Verizon (US)'));
++	o.value('h2g2', _('Google Fi data-only SIM (US)'));
++	o.value('h2g2-t', _('Google Fi phone SIM (US)'));
++	o.value('usccinternet', _('U.S. Cellular (US)'));
+@@ -501,7 +522,9 @@
+-	o = s.option(form.Value, 'metric', _('Metric'));
+-	o.description = _('The metric value is used to determine the priority of the route. The smaller the value, the higher the priority. Cannot duplicate.');
+-	o.default = '10';
+-	o.rmempty = true;
++	o = s.option(form.DummyValue, '_route_metric', _('Route Metric'));
++	o.description = _('Read-only here: route priority is managed in MultiWAN Manager (or Network Interfaces when MWAN3 is not installed). QModem only brings this link online.');
++	o.cfgvalue = function(section_id) {
++		return uci.get('network', section_id, 'metric') || _('Not set');
++	};
++	o.rawhtml = false;
+ 	o.modalonly = true;
+ 
+ 	// Pre Dial Delay
+@@ -877 +898 @@
+-		var alias = uci.get('qmodem', section_id, 'alias');
++		var alias = qmodem.getModemLabel(section_id);
+@@ -965 +986 @@
+-				var alias = uci.get('qmodem', section_id, 'alias') || '';
++				var alias = qmodem.getModemLabel(section_id) || '';
+--- a/luci/luci-app-qmodem-next/htdocs/luci-static/resources/view/qmodem/settings.js
++++ b/luci/luci-app-qmodem-next/htdocs/luci-static/resources/view/qmodem/settings.js
+@@ -6,6 +6,7 @@
+ 'require ui';
+ 'require poll';
+ 'require qmodem.modem_cfg as modemCfg';
++'require qmodem.qmodem as qmodem';
+ 
+ var callSystemBoard = rpc.declare({
+ 	object: 'system',
+@@ -203,6 +204,7 @@
+ 
+ 		// Modem Configuration (Device Settings Only)
+ 		s = m.section(form.GridSection, 'modem-device', _('Modem Devices'));
++		s.sectiontitle = function(section_id) { return qmodem.getModemLabel(section_id); };
+ 		s.anonymous = true;
+ 		s.sortable = true;
+ 		s.modaltitle = L.bind(function(section_id) {
+@@ -298,7 +300,7 @@
+ 
+ 		o = s.option(form.Value, 'name', _('Model Name'));
+ 		o.placeholder = _('e.g.') + ' RG500Q';
+-		o.rmempty = false;	o = s.option(form.Value, 'alias', _('Alias'));
++		o.rmempty = false;	o = s.option(form.Value, 'display_name', _('Modem Alias'));
+ 	o.placeholder = _('e.g.') + ' Modem1';
+ 	o.editable = true;
+ 
+@@ -390,7 +392,7 @@
+ 	s.sortable = true;
+ 	s.modaltitle = L.bind(function(section_id) {
+ 		var slotId = uci.get('qmodem', section_id, 'slot');
+-		var alias = uci.get('qmodem', section_id, 'alias');
++		var alias = qmodem.getModemLabel(section_id);
+ 		return _('Modem Slot') + ': ' + (alias || slotId || section_id);
+ 	}, this);
+ 
+@@ -417,8 +419,8 @@
+ 		});
+ 	}
+ 
+-	o = s.option(form.Value, 'alias', _('Default Alias'));
+-	o.description = _('After setting this option, the first module loaded into this slot will automatically be assigned this default alias.');
++	o = s.option(form.Value, 'display_name', _('Default Modem Alias'));
++	o.description = _('Display name for a newly discovered modem in this slot. The stable network interface name is unchanged.');
+ 	o.placeholder = _('e.g.') + ' Modem';
+ 	o.editable = true;

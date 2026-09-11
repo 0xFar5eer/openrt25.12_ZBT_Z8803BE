@@ -1,0 +1,4 @@
+#!/bin/sh
+# Never clear modem settings or reboot a fixed ttyUSB port after a flash.
+# Modem resets require an explicit per-slot operator action.
+exit 0

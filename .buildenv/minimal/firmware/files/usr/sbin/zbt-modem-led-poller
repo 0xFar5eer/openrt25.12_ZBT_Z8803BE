@@ -1,0 +1,32 @@
+#!/bin/sh
+. /usr/lib/zbt/modem-leds.sh
+
+cycle() {
+	local section key previous result owner
+	for section in 4_1 2_1; do
+		zbt_led_detect "$section" || continue
+		result=ok
+		if [ "$1" != status ]; then
+			zbt_led_apply || result=write_failed
+		fi
+		owner=automatic
+		zbt_led_user_managed && owner=user
+		key="$ZBT_LED_STATE:${ZBT_LED_DEVICE:-absent}:$(zbt_led_trigger):$result:$owner"
+		if [ "$1" = status ]; then
+			printf 'modem=%s usb=%s power=%s device=%s state=%s led=%s owner=%s trigger=%s brightness=%s\n' \
+				"$section" "$ZBT_USB" "$ZBT_LED_POWER" "${ZBT_LED_DEVICE:-absent}" "$ZBT_LED_STATE" \
+				"$ZBT_LED" "$owner" "$(zbt_led_trigger)" "$(zbt_led_read brightness)"
+		else
+			eval "previous=\${last_$section:-}"
+			[ "$key" = "$previous" ] || logger -t zbt-modem-leds "$section: $key (power=$ZBT_LED_POWER led=$ZBT_LED)"
+			eval "last_$section=\$key"
+		fi
+	done
+}
+
+case "${1:-daemon}" in
+	status) cycle status ;; # Read-only: safe to include in support diagnostics.
+	once) cycle once ;;
+	daemon) while :; do cycle daemon; sleep 5; done ;;
+	*) echo 'Usage: zbt-modem-led-poller [daemon|once|status]' >&2; exit 2 ;;
+esac

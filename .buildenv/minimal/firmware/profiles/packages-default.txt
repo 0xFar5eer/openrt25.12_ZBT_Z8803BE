@@ -1,0 +1,20 @@
+# Far5eer cellular baseline plus focused dual-modem repairs only.
+luci
+luci-ssl
+# Cellular modem stack (QMI/MBIM + QModem control plane)
+kmod-usb-net-qmi-wwan
+kmod-usb-net-cdc-mbim
+kmod-usb-wdm
+kmod-usb-serial-option
+uqmi
+umbim
+qmodem
+luci-app-qmodem-next
+luci-app-qmodem-ttlfw4
+luci-proto-qmi
+luci-proto-mbim
+quectel-CM-5G-M
+# Baseline HTTPS/diagnostic tools retained from Far5eer's source profile.
+ca-bundle
+jq
+curl

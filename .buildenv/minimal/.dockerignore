@@ -1,0 +1,4 @@
+**
+!firmware/
+!firmware/docker/
+!firmware/docker/Dockerfile.remote-builder

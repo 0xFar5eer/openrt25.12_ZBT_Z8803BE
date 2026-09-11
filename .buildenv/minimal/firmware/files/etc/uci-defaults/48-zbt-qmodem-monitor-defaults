@@ -1,0 +1,8 @@
+#!/bin/sh
+# Discovery supplies each actual modem's capability list. Do not precreate
+# 4_1, copy a single modem's band list, or reset both metrics to 200.
+# Per-device defaults are filled by zbt-qmodem-profile after enumeration.
+uci -q get qmodem.main.enable_dial >/dev/null || uci set qmodem.main.enable_dial=1
+# No cellular health watchdog, recovery thresholds or power-cycle policies.
+uci commit qmodem
+exit 0

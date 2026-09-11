@@ -1,0 +1,4 @@
+#!/bin/sh
+# Discovery belongs to QModem's scanner. Never restart both dialers, change
+# GPIO, or rewrite network protocols on an event belonging to just one slot.
+exit 0

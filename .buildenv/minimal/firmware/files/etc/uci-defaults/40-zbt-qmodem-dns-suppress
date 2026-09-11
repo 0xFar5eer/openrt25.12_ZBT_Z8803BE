@@ -1,0 +1,7 @@
+#!/bin/sh
+# Apply the same contract after actual discovery, not to fake modem devices.
+uci set qmodem.main.try_preset_usb=1
+uci set qmodem.main.try_preset_pcie=0
+uci set qmodem.main.enable_pcie_scan=0
+uci commit qmodem
+exit 0

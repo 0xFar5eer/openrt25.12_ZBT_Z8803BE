@@ -1,0 +1,10 @@
+#!/bin/sh
+case "$ACTION" in add|remove) ;; *) exit 0 ;; esac
+case "$DEVPATH" in
+	*/usb4/4-1/*|*/usb2/2-1/*) ;;
+	*) exit 0 ;;
+esac
+# Do not block netifd. Refresh only TTL rules; physical ifindices prevent
+# a removed modem's rules from matching the other modem during rediscovery.
+/usr/sbin/zbt-qmodem-ttl refresh >/dev/null 2>&1 &
+exit 0

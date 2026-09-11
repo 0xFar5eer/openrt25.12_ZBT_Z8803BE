@@ -1,0 +1,242 @@
+name: Build Minimal Firmware
+
+on:
+  push:
+    branches: [main]
+    paths: ['firmware/**', '.github/workflows/**']
+  workflow_dispatch:
+    inputs:
+      openwrt_git_ref:
+        description: "Pinned Far5eer tag (must match expected commit)"
+        required: true
+        default: "v25.12.021"
+
+concurrency:
+  group: minimal-firmware
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    uses: ./.github/workflows/sanity.yml
+  build:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: write
+    env:
+      GEMINI_MODEL: gemini-flash-latest
+      OPENWRT_ROOT: /workspace/openwrt
+      OPENWRT_GIT_URL: https://github.com/0xFar5eer/openwrt25.12_ZBT_Z8803BE.git
+      OPENWRT_GIT_REF: ${{ inputs.openwrt_git_ref || 'v25.12.021' }}
+      ALLOW_CLONE_OPENWRT: "1"
+      FILES_OVERLAY_DIR: /workspace/firmware/files
+      PROFILE_PACKAGES_FILE: /workspace/firmware/profiles/packages-default.txt
+      PROFILE_KCONFIG_FILE: /workspace/firmware/profiles/kconfig-fragment.conf
+      TARGET: mediatek/filogic
+      SUBTARGET: filogic
+      DEVICE: zbtlink_zbt-z8803be
+      FINAL_MAKE_JOBS: "2"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Allocate chronological firmware version
+        run: echo "FIRMWARE_RELEASE_VERSION=firmware-$(date -u +%Y%m%d%H%M).${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+
+      - name: Create output directories
+        run: |
+          mkdir -p artifacts/build-logs
+          mkdir -p artifacts/build-diagnostics
+          mkdir -p artifacts/build-output
+
+      - name: Validate firmware inputs
+        run: bash firmware/scripts/check-build-inputs.sh
+
+      - name: Free runner disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /opt/hostedtoolcache
+          sudo rm -rf /usr/local/share/boost
+          sudo apt-get clean
+          docker system prune --all --force
+          df -h /
+          available_kb="$(df --output=avail -k / | tail -n 1 | tr -d ' ')"
+          if [ "${available_kb}" -lt 41943040 ]; then
+            echo "Less than 40 GiB is available for the OpenWrt build" >&2
+            exit 1
+          fi
+
+      - name: Build remote builder image
+        run: |
+          docker build -f firmware/docker/Dockerfile.remote-builder -t owrt-remote-builder .
+
+      - name: Run OpenWrt build
+        id: openwrt_build
+        run: |
+          set -o pipefail
+          set +e
+          docker run --rm \
+            -e OPENWRT_ROOT \
+            -e OPENWRT_GIT_URL \
+            -e OPENWRT_GIT_REF \
+            -e ALLOW_CLONE_OPENWRT \
+            -e FILES_OVERLAY_DIR \
+            -e PROFILE_PACKAGES_FILE \
+            -e PROFILE_KCONFIG_FILE \
+            -e TARGET \
+            -e SUBTARGET \
+            -e DEVICE \
+            -e FINAL_MAKE_JOBS \
+            -v "${PWD}:/workspace" \
+            owrt-remote-builder \
+            bash /workspace/firmware/docker/build-openwrt.sh \
+            | tee artifacts/build-logs/openwrt-build.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "${rc}" -ne 0 ]; then
+            df -h . || true
+            if [ -d openwrt/build_dir/hostpkg ]; then
+              echo "===== openwrt/build_dir/hostpkg/*golang-bootstrap*/.built check ====="
+              find openwrt/build_dir/hostpkg -maxdepth 2 -type d -name '*golang-bootstrap*' -print
+              echo "===== openwrt/build_dir/hostpkg/*golang-bootstrap*/ logs ====="
+              find openwrt/build_dir/hostpkg -type f -path '*golang-bootstrap*' \
+                \( -name '*.log' -o -name 'config.log' -o -name 'dump.txt' \) \
+                -print -exec sed -n '1,240p' {} \;
+            fi
+            if [ -f openwrt/logs/tools/tar/dump.txt ]; then
+              echo "===== openwrt/logs/tools/tar/dump.txt ====="
+              cat openwrt/logs/tools/tar/dump.txt
+            fi
+            if [ -d openwrt/logs ]; then
+              echo "===== openwrt/logs/*/dump.txt (head) ====="
+              find openwrt/logs -name dump.txt -type f -print -exec sed -n '1,120p' {} \;
+            fi
+          fi
+          exit "${rc}"
+
+      - name: Collect validated firmware
+        if: ${{ success() && steps.openwrt_build.outcome == 'success' }}
+        run: |
+          release_dir=artifacts/release-assets
+          target_dir=openwrt/bin/targets/mediatek/filogic
+          mkdir -p "$release_dir"
+          for pattern in '*zbt-z8803be-initramfs-kernel.bin' '*zbt-z8803be-squashfs-sysupgrade.bin' '*zbt-z8803be.manifest'; do
+            file="$(find "$target_dir" -maxdepth 1 -type f -name "$pattern" -print -quit)"
+            if [ -z "$file" ]; then echo "Missing release file: $pattern" >&2; exit 1; fi
+            cp "$file" "$release_dir/"
+          done
+          cp firmware/scripts/verify-router-runtime.sh "$release_dir/"
+          {
+            echo "Recipe commit: $GITHUB_SHA"
+            echo "OpenWrt source: $OPENWRT_GIT_URL"
+            echo "OpenWrt ref: $OPENWRT_GIT_REF"
+            echo "OpenWrt commit: $(git -C openwrt rev-parse HEAD)"
+            echo "Target: $TARGET"
+            echo "Device: $DEVICE"
+          } > "$release_dir/BUILD-INFO.txt"
+          (cd "$release_dir" && sha256sum -- *.bin > SHA256SUMS)
+
+      - name: Collect bounded firmware changes for release notes
+        if: ${{ success() && steps.openwrt_build.outcome == 'success' }}
+        id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          evidence="$RUNNER_TEMP/firmware-release-evidence.txt"
+          previous_sha="$(gh release view --json body --jq .body 2>/dev/null | sed -nE 's/^<!-- source-sha: ([0-9a-f]{40}) -->$/\1/p' | head -n1 || true)"
+          if [ -n "$previous_sha" ] && git cat-file -e "${previous_sha}^{commit}" 2>/dev/null; then
+            range="$previous_sha..$GITHUB_SHA"
+          else
+            base="$(git rev-list --max-count=1 --skip=25 "$GITHUB_SHA" || true)"
+            [ -n "$base" ] || base="$(git hash-object -t tree /dev/null)"
+            range="$base..$GITHUB_SHA"
+          fi
+          {
+            echo "Build: ZBT-Z8803BE Minimal Build"
+            echo "Pinned base: Far5eer $OPENWRT_GIT_REF / Linux 6.12.74"
+            echo "Changed files:"
+            git diff --find-renames --name-status "$range" -- firmware README.md
+            echo
+            echo "Change statistics:"
+            git diff --stat "$range" -- firmware README.md
+            echo
+            echo "Firmware diff excerpt:"
+            git diff --find-renames --unified=1 "$range" -- firmware README.md | head -c 24000
+          } > "$evidence"
+          echo "evidence=$evidence" >> "$GITHUB_OUTPUT"
+
+      - name: Generate detailed Gemini release notes
+        if: ${{ success() && steps.openwrt_build.outcome == 'success' }}
+        id: notes
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          EVIDENCE: ${{ steps.changes.outputs.evidence }}
+        run: |
+          ai_notes="$RUNNER_TEMP/ai-notes.md"
+          final_notes="$RUNNER_TEMP/release-notes.md"
+          python3 .github/scripts/generate_firmware_release_notes.py \
+            --name 'ZBT-Z8803BE Minimal Build' --evidence "$EVIDENCE" --output "$ai_notes"
+          {
+            printf '<!-- source-sha: %s -->\n\n' "$GITHUB_SHA"
+            cat "$ai_notes"
+            printf '\n## Build details\n\n'
+            # Literal Markdown backticks, not command substitutions.
+            # shellcheck disable=SC2016
+            printf -- '- Base firmware: Far5eer `%s` (Linux 6.12.74).\n' "$OPENWRT_GIT_REF"
+            printf -- '- Device target: ZBT-Link ZBT-Z8803BE.\n'
+            # shellcheck disable=SC2016
+            printf -- '- Verify downloads against the included `SHA256SUMS` file before flashing.\n'
+          } > "$final_notes"
+          cp "$final_notes" artifacts/release-assets/RELEASE_NOTES.md
+          echo "file=$final_notes" >> "$GITHUB_OUTPUT"
+
+      - name: Publish flashable firmware release
+        if: ${{ success() && steps.openwrt_build.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES_FILE: ${{ steps.notes.outputs.file }}
+        run: |
+          tag="$FIRMWARE_RELEASE_VERSION"
+          gh release create "$tag" artifacts/release-assets/* \
+            --target "$GITHUB_SHA" \
+            --title "ZBT-Z8803BE Minimal ${FIRMWARE_RELEASE_VERSION}" \
+            --notes-file "$NOTES_FILE" --latest
+
+      - name: Upload validated firmware
+        if: ${{ success() && steps.openwrt_build.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: zbt-z8803be-minimal-${{ github.run_number }}
+          path: artifacts/release-assets
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Collect build diagnostics
+        if: failure()
+        run: |
+          if [ -f openwrt/.config ]; then cp openwrt/.config artifacts/build-diagnostics/resolved.config; fi
+          if [ -f openwrt/.config.bak ]; then cp openwrt/.config.bak artifacts/build-diagnostics/resolved.config.bak; fi
+          if [ -f firmware/scripts/verify-router-runtime.sh ]; then cp firmware/scripts/verify-router-runtime.sh artifacts/build-diagnostics/verify-router-runtime.sh; fi
+          if [ -d firmware/files ]; then cp -a firmware/files artifacts/build-diagnostics/files-overlay; fi
+
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: minimal-diagnostics-${{ github.run_number }}
+          path: |
+            artifacts/build-logs
+            artifacts/build-diagnostics
+          if-no-files-found: warn
+          retention-days: 14

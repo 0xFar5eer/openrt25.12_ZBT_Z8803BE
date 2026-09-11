@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+
+DEFAULTS_VERSION=2
+[ "$(uci -q get system.zbt_route_priority.version 2>/dev/null || true)" = "$DEFAULTS_VERSION" ] && exit 0
+
+# Version 1 filled only missing values. Older profiles could therefore retain
+# equal or reversed metrics and let modem2 replace a healthy modem1 route.
+for pair in wan_sfp:9 wan_sfp6:9 wan:10 wan6:10 4_1:200 2_1:210; do
+	section=${pair%:*}
+	metric=${pair#*:}
+	case "$section" in
+		4_1|2_1)
+			if ! uci -q get "network.$section" >/dev/null 2>&1; then
+				uci -q set "network.$section=interface"
+				uci -q set "network.$section.proto=none"
+				uci -q set "network.$section.modem_config=$section"
+			fi
+			[ -n "$(uci -q get "network.$section.modem_config" 2>/dev/null || true)" ] ||
+				uci -q set "network.$section.modem_config=$section"
+			[ -n "$(uci -q get "network.$section.defaultroute" 2>/dev/null || true)" ] ||
+				uci -q set "network.$section.defaultroute=1"
+			[ -n "$(uci -q get "network.$section.peerdns" 2>/dev/null || true)" ] ||
+				uci -q set "network.$section.peerdns=0"
+			if uci -q get "qmodem.$section" >/dev/null 2>&1; then
+				uci -q set "qmodem.$section.metric=$metric"
+			fi
+			;;
+		*) uci -q get "network.$section" >/dev/null 2>&1 || continue ;;
+	esac
+	uci -q set "network.$section.metric=$metric"
+done
+
+uci -q commit network
+uci -q commit qmodem
+uci -q set system.zbt_route_priority=runtime_defaults
+uci -q set "system.zbt_route_priority.version=$DEFAULTS_VERSION"
+uci -q commit system
+
+exit 0

@@ -1,0 +1,9 @@
+# Exact paths relative to target/linux/mediatek/filogic/base-files.
+# Remove cellular watchdogs and automatic monitor installation only.
+# Keep the kernel/procd hardware watchdog and manual modem controls.
+etc/init.d/zbt_qmodem_watchdog
+etc/uci-defaults/52-zbt-qmodem-monitor-overlay
+etc/uci-defaults/99-zbt-z8803be-qmodem-autostart
+usr/lib/zbt/qmodem-modem_monitor.sh
+usr/sbin/zbt-qmodem-watchdog-loop
+usr/sbin/zbt-modem-monitor-cooldown

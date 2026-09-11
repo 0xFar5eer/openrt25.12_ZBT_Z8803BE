@@ -1,0 +1,64 @@
+name: Publish locally built firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing build tag and uploaded draft (firmware-NUMBER.ATTEMPT)
+        required: true
+        type: string
+      source_sha:
+        description: Exact 40-character recipe commit compiled on the local server
+        required: true
+        type: string
+
+# Serialize publication with the normal compiler workflow. This workflow never
+# compiles firmware, explicitly cancels/starts a build, or operates a router.
+# GitHub may still replace an older pending job sharing this concurrency key.
+concurrency:
+  group: minimal-firmware
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.repository == 'mfoster978/openwrt-zbtlink-zbt-z8803be-speedify-minimal-build' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - name: Check out trusted publisher, not the user-selected build commit
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Test publication guards without network, secrets or firmware operations
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+
+      - name: Verify existing draft and downloaded local-build assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/publish_local_release.py prepare --workdir "$RUNNER_TEMP/zbt-local-release"
+
+      - name: Generate evidence-bound Gemini release notes
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-flash-latest
+        run: |
+          python3 .github/scripts/generate_firmware_release_notes.py \
+            --name 'ZBT-Z8803BE Minimal — locally built firmware' \
+            --evidence "$RUNNER_TEMP/zbt-local-release/evidence.txt" \
+            --output "$RUNNER_TEMP/zbt-local-release/ai-notes.md"
+
+      - name: Revalidate, attach release notes, and publish the existing draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/publish_local_release.py publish --workdir "$RUNNER_TEMP/zbt-local-release"

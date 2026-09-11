@@ -1,0 +1,68 @@
+#!/bin/sh
+set -eu
+. /usr/lib/zbt/dual-modem.sh
+migrate_network=0
+[ "$(uci -q get system.zbt_dual_runtime.network_migrated || true)" = 1 ] || migrate_network=1
+# Match Far5eer's DTS defaults: 5G1 on, 5G2 off. Preserve every existing
+# power choice, including a deliberate opt-in to modem2 after installation.
+for section in 4_1 2_1; do
+	zbt_slot "$section"
+	gpio_section=''
+	for candidate in $(uci -q show system | sed -n 's/^system\.\([^=]*\)=gpio_switch$/\1/p'); do
+		[ "$(uci -q get "system.$candidate.gpio_pin")" = "$ZBT_POWER" ] && gpio_section="$candidate"
+	done
+	if [ -z "$gpio_section" ]; then
+		gpio_section="$ZBT_POWER"
+		uci set "system.$gpio_section=gpio_switch"
+		uci set "system.$gpio_section.gpio_pin=$ZBT_POWER"
+		uci set "system.$gpio_section.name=$ZBT_POWER"
+	fi
+	if ! uci -q get "system.$gpio_section.value" >/dev/null; then
+		uci set "system.$gpio_section.value=$(zbt_default_dial "$section")"
+	fi
+	# gpio_switch owns runtime power writes at S94. No late forced power-on.
+	# Keep existing APNs/PINs even on an incomplete profile. The patched
+	# scanner fills path/data_interface after real hardware is discovered.
+	if [ "$(uci -q get "qmodem.$section" || true)" = modem-device ]; then
+		if [ -n "$(uci -q get "qmodem.$section.manufacturer" || true)" ]; then
+			/usr/sbin/zbt-qmodem-profile "$section"
+		fi
+	fi
+	# Keep a stable netifd identity even while the modem is down. The QMI
+	# dialer fills in the physical wwan device after discovery and takes its
+	# route metric from this interface instead of overwriting it on redial.
+	metric=200; [ "$section" = 2_1 ] && metric=210
+	if ! uci -q get "network.$section" >/dev/null 2>&1; then
+		uci set "network.$section=interface"
+		uci set "network.$section.proto=none"
+		uci set "network.$section.modem_config=$section"
+	fi
+	if [ "$migrate_network" = 1 ]; then
+		uci set "network.$section=interface"
+		uci set "network.$section.proto=none"
+		uci set "network.$section.modem_config=$section"
+		uci -q delete "network.$section.ifname" || true
+		uci -q delete "network.$section.device" || true
+		uci -q delete "network.${section}v6" || true
+	fi
+	[ -n "$(uci -q get "network.$section.metric" || true)" ] || uci set "network.$section.metric=$metric"
+	[ -n "$(uci -q get "network.$section.defaultroute" || true)" ] || uci set "network.$section.defaultroute=1"
+	[ -n "$(uci -q get "network.$section.peerdns" || true)" ] || uci set "network.$section.peerdns=0"
+done
+# Old modem1/modem2 aliases refer to the same devices as 4_1/2_1.
+if [ "$migrate_network" = 1 ]; then
+	for pair in modem1:4_1 modem2:2_1; do
+		alias=${pair%:*}; section=${pair#*:}
+		for name in "$alias" "${alias}v6"; do
+			[ "$(uci -q get "network.$name.modem_config" || true)" = "$section" ] &&
+				uci -q delete "network.$name" || true
+		done
+	done
+	uci set system.zbt_dual_runtime=runtime_defaults
+	uci set system.zbt_dual_runtime.network_migrated=1
+fi
+uci -q commit system
+uci -q commit qmodem
+uci -q commit network
+# Services start at their normal rc.d phase; no modem watchdog is installed.
+exit 0

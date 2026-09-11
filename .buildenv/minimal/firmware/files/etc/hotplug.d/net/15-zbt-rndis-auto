@@ -1,0 +1,4 @@
+#!/bin/sh
+# QModem already manages ECM/RNDIS compositions. The inherited single
+# cellular_rndis interface and global restart cannot handle two modems.
+exit 0

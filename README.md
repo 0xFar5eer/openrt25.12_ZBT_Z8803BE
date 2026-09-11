@@ -4,6 +4,10 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
+**Complete Minimal edition:** Michael Foster's full Minimal source snapshot,
+both-modem setup instructions, and dedicated build command are in
+[README-MINIMAL.md](README-MINIMAL.md).
+
 > **Community build.** This firmware is maintained by a single contributor outside of any vendor or the OpenWrt Project. Expect rough edges. Bug reports and pull requests are very welcome.
 
 Current custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.

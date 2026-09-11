@@ -1,0 +1,27 @@
+name: Sanity
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+    paths: ['firmware/**', '.github/scripts/**', '.github/workflows/sanity.yml', '.github/workflows/publish-local-release.yml']
+permissions:
+  contents: read
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends busybox jq patch ripgrep gcc nftables iproute2 python3
+      - name: Validate firmware inputs
+        run: bash firmware/scripts/check-build-inputs.sh
+      - name: Test release notes and publication guards offline
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+      - name: Verify pinned patches and behavioral regressions
+        run: node firmware/tests/check-patches.cjs
+      - name: Verify per-modem TTL on real IPv4 and IPv6 packets in an isolated network
+        run: sudo env "PATH=$PATH" ZBT_TEST_NFT=1 unshare --net -- node --test firmware/tests/ttl.test.cjs

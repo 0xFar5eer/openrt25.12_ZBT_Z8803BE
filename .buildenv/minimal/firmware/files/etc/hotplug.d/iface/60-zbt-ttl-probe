@@ -1,0 +1,6 @@
+#!/bin/sh
+# Replaces the legacy global NAT/TTL auto-writer. User TTLs stay per-slot.
+case "$ACTION" in ifup|ifupdate|ifdown) ;; *) exit 0 ;; esac
+case "$INTERFACE" in 4_1|2_1|4_1v6|2_1v6) ;; *) exit 0 ;; esac
+/usr/sbin/zbt-qmodem-ttl refresh >/dev/null 2>&1 &
+exit 0

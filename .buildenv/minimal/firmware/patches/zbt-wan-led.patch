@@ -1,0 +1,21 @@
+Subject: [PATCH] arm64: dts: mediatek: enable the Z8803BE WAN jack LED
+
+The existing pinctrl already routes the WAN PHY's LED0 to the jack.
+Expose that LED under /sys/class/leds for LuCI/netdev control.
+LED1 stays disabled: the physical jack has a single orange indicator.
+--- a/target/linux/mediatek/dts/mt7988a-zbtlink-zbt-z8803be.dts
++++ b/target/linux/mediatek/dts/mt7988a-zbtlink-zbt-z8803be.dts
+@@ -306,6 +306,13 @@
+ 	pinctrl-0 = <&i2p5gbe_led0_pins>;
+ };
+ 
++&i2p5gbe_led0 {
++	color = <LED_COLOR_ID_AMBER>;
++	function = LED_FUNCTION_WAN;
++	linux,default-trigger = "netdev";
++	status = "okay";
++};
++
+ &switch {
+ 	status = "okay";
+ };

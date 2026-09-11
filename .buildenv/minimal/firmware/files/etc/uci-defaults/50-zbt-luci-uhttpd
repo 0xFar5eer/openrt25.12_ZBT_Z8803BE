@@ -1,0 +1,31 @@
+#!/bin/sh
+# Minimal uses OpenWrt's stock uhttpd web stack. Restore it when upgrading
+# from an older alternate-web-stack image that may have disabled the service.
+
+[ -x /etc/init.d/uhttpd ] || exit 0
+
+# Make the LAN login available without a certificate warning. HTTPS remains
+# available on port 443 for administrators who trust the router certificate.
+# Apply this once so a later administrator choice to disable HTTP is retained.
+if [ "$(uci -q get system.zbt_luci_http.uhttpd_migrated 2>/dev/null || true)" != 1 ]; then
+	uci -q delete uhttpd.main.listen_http 2>/dev/null || true
+	uci -q add_list uhttpd.main.listen_http='0.0.0.0:80'
+	uci -q add_list uhttpd.main.listen_http='[::]:80'
+	uci -q set uhttpd.main.redirect_https='0'
+	uci -q commit uhttpd
+	uci -q set system.zbt_luci_http='defaults'
+	uci -q set system.zbt_luci_http.uhttpd_migrated='1'
+	uci -q commit system
+fi
+
+/etc/init.d/uhttpd enable >/dev/null 2>&1 || true
+rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/* 2>/dev/null || true
+
+# On a settings-preserving upgrade the old image may have disabled uhttpd.
+# Start it after uci-defaults completes so LuCI is reachable on this boot too.
+(
+	sleep 3
+	/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
+) &
+
+exit 0

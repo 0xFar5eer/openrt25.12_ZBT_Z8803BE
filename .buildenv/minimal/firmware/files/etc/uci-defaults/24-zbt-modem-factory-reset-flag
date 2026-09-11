@@ -1,0 +1,4 @@
+#!/bin/sh
+# Remove the obsolete automatic-reset request, not any modem settings.
+rm -f /etc/zbt-modem-factory-reset-pending
+exit 0

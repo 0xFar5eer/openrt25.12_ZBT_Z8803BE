@@ -1,0 +1,143 @@
+Subject: [PATCH] net: phy: mediatek: expose MT7988 WAN LED controls
+
+Adapt the LED callbacks described by MediaTek for the existing 6.12
+driver and its firmware cache. The shared LED helpers expect led_state
+at the start of phydev->priv; keep that separate from fw_loaded.
+Only the MT7988 entry gains callbacks. Preserve firmware and link setup.
+Correct the shared TX masks so TX-only user triggers track TX.
+
+Reference: https://lists.infradead.org/pipermail/linux-mediatek/2025-May/093608.html
+--- a/drivers/net/phy/mediatek/mtk-2p5ge.c
++++ b/drivers/net/phy/mediatek/mtk-2p5ge.c
+@@ -108,4 +108,6 @@
+ struct mtk_i2p5ge_phy_priv {
++	/* Shared LED helpers cast phydev->priv to struct mtk_socphy_priv. */
++	struct mtk_socphy_priv leds;
+ 	bool fw_loaded;
+ };
+ 
+@@ -474,6 +476,17 @@
+ 	phy_set_bits_mmd(phydev, MDIO_MMD_VEND2, MTK_PHY_LED1_ON_CTRL,
+ 			 MTK_PHY_LED_ON_FDX | MTK_PHY_LED_ON_HDX);
+ 
++	if (phydev->drv->phy_id == MTK_2P5GPHY_ID_MT7988) {
++		/* The WAN jack's single LED0 indicates both link and RX/TX. */
++		ret = mtk_phy_led_hw_ctrl_set(phydev, 0,
++			BIT(TRIGGER_NETDEV_LINK) | BIT(TRIGGER_NETDEV_RX) |
++			BIT(TRIGGER_NETDEV_TX), MTK_2P5GPHY_LED_ON_SET,
++			MTK_2P5GPHY_LED_RX_BLINK_SET, MTK_2P5GPHY_LED_TX_BLINK_SET);
++		if (ret)
++			return ret;
++		mtk_phy_leds_state_init(phydev);
++	}
++
+ 	/* Switch pinctrl after setting polarity to avoid bogus blinking */
+ 	pinctrl = devm_pinctrl_get_select(&phydev->mdio.dev, "i2p5gbe-led");
+ 	if (IS_ERR(pinctrl) && PTR_ERR(pinctrl) != -ENODEV)
+@@ -611,3 +611,64 @@
++static const unsigned long mt7988_led_triggers =
++	BIT(TRIGGER_NETDEV_FULL_DUPLEX) |
++	BIT(TRIGGER_NETDEV_LINK) | BIT(TRIGGER_NETDEV_LINK_10) |
++	BIT(TRIGGER_NETDEV_LINK_100) | BIT(TRIGGER_NETDEV_LINK_1000) |
++	BIT(TRIGGER_NETDEV_LINK_2500) |
++	BIT(TRIGGER_NETDEV_RX) | BIT(TRIGGER_NETDEV_TX);
++
++static int mt7988_2p5ge_led_blink_set(struct phy_device *phydev, u8 index,
++				   unsigned long *delay_on,
++				   unsigned long *delay_off)
++{
++	bool blinking = false;
++	int ret;
++
++	ret = mtk_phy_led_num_dly_cfg(index, delay_on, delay_off, &blinking);
++	if (ret)
++		return ret;
++	ret = mtk_phy_hw_led_blink_set(phydev, index, blinking);
++	if (ret)
++		return ret;
++	return mtk_phy_hw_led_on_set(phydev, index, MTK_2P5GPHY_LED_ON_MASK,
++				   false);
++}
++
++static int mt7988_2p5ge_led_brightness_set(struct phy_device *phydev, u8 index,
++					enum led_brightness value)
++{
++	int ret;
++
++	if (index > 1)
++		return -EINVAL;
++	ret = mtk_phy_hw_led_blink_set(phydev, index, false);
++	if (ret)
++		return ret;
++	return mtk_phy_hw_led_on_set(phydev, index, MTK_2P5GPHY_LED_ON_MASK,
++				   value != LED_OFF);
++}
++
++static int mt7988_2p5ge_led_hw_is_supported(struct phy_device *phydev, u8 index,
++					 unsigned long rules)
++{
++	return mtk_phy_led_hw_is_supported(phydev, index, rules,
++					  mt7988_led_triggers);
++}
++
++static int mt7988_2p5ge_led_hw_control_get(struct phy_device *phydev, u8 index,
++					unsigned long *rules)
++{
++	return mtk_phy_led_hw_ctrl_get(phydev, index, rules,
++		MTK_2P5GPHY_LED_ON_SET, MTK_2P5GPHY_LED_RX_BLINK_SET,
++		MTK_2P5GPHY_LED_TX_BLINK_SET);
++}
++
++static int mt7988_2p5ge_led_hw_control_set(struct phy_device *phydev, u8 index,
++					unsigned long rules)
++{
++	return mtk_phy_led_hw_ctrl_set(phydev, index, rules,
++		MTK_2P5GPHY_LED_ON_SET, MTK_2P5GPHY_LED_RX_BLINK_SET,
++		MTK_2P5GPHY_LED_TX_BLINK_SET);
++}
++
+ static int mt798x_2p5ge_phy_probe(struct phy_device *phydev)
+ {
+ 	struct mtk_i2p5ge_phy_priv *priv;
+@@ -635,6 +709,9 @@
+ 	priv->fw_loaded = false;
+ 	phydev->priv = priv;
+ 
++	if (phydev->drv->phy_id == MTK_2P5GPHY_ID_MT7988)
++		mtk_phy_leds_state_init(phydev);
++
+ 	return 0;
+ }
+ 
+@@ -666,6 +743,11 @@
+ 		.resume = genphy_resume,
+ 		.read_page = mtk_phy_read_page,
+ 		.write_page = mtk_phy_write_page,
++		.led_blink_set = mt7988_2p5ge_led_blink_set,
++		.led_brightness_set = mt7988_2p5ge_led_brightness_set,
++		.led_hw_is_supported = mt7988_2p5ge_led_hw_is_supported,
++		.led_hw_control_get = mt7988_2p5ge_led_hw_control_get,
++		.led_hw_control_set = mt7988_2p5ge_led_hw_control_set,
+ 	},
+ };
+ 
+--- a/drivers/net/phy/mediatek/mtk.h
++++ b/drivers/net/phy/mediatek/mtk.h
+@@ -130,6 +130,6 @@
+-#define MTK_GPHY_LED_TX_BLINK_SET		(MTK_PHY_LED_BLINK_1000RX | \
+-						 MTK_PHY_LED_BLINK_100RX | \
+-						 MTK_PHY_LED_BLINK_10RX)
++#define MTK_GPHY_LED_TX_BLINK_SET		(MTK_PHY_LED_BLINK_1000TX | \
++						 MTK_PHY_LED_BLINK_100TX | \
++						 MTK_PHY_LED_BLINK_10TX)
+ 
+ #define MTK_2P5GPHY_LED_ON_SET			(MTK_PHY_LED_ON_LINK2500 | \
+ 						 MTK_GPHY_LED_ON_SET)
+@@ -139,5 +139,5 @@
+-						 MTK_GPHY_LED_RX_BLINK_SET)
+-#define MTK_2P5GPHY_LED_TX_BLINK_SET		(MTK_PHY_LED_BLINK_2500RX | \
++						 MTK_GPHY_LED_RX_BLINK_SET)
++#define MTK_2P5GPHY_LED_TX_BLINK_SET		(MTK_PHY_LED_BLINK_2500TX | \
+ 						 MTK_GPHY_LED_TX_BLINK_SET)
+ 
+ #define MTK_PHY_LED_STATE_FORCE_ON	0

@@ -1,0 +1,34 @@
+#!/bin/sh
+. /usr/lib/zbt/dual-modem.sh
+zbt_slot "$1" || exit 0
+[ "$(uci -q get "qmodem.$1")" = modem-device ] || exit 0
+# Friendly names are UI-only; QModem's alias is also its netifd identity.
+# Preserve a previous custom alias as the display name before normalizing it.
+changed=0
+if [ -z "$(uci -q get "qmodem.$1.display_name")" ]; then
+	label=$(uci -q get "qmodem.$1.alias")
+	case "$label" in
+		''|4_1|2_1|modem1|modem2)
+			label=$(uci -q get "qmodem.slot_$1.display_name")
+			if [ -z "$label" ]; then
+				label='Modem 1'; [ "$1" = 2_1 ] && label='Modem 2'
+			fi ;;
+	esac
+	uci set "qmodem.$1.display_name=$label"
+	changed=1
+fi
+if [ "$(uci -q get "qmodem.$1.alias")" != "$1" ]; then
+	uci set "qmodem.$1.alias=$1"
+	changed=1
+fi
+metric=200; [ "$1" = 2_1 ] && metric=210
+for setting in "metric=$metric" pdp_type=ipv4v6 auth=none do_not_add_dns=1 donot_nat=1 monitor_enabled=0 "enable_dial=$(zbt_default_dial "$1")"; do
+	key=${setting%%=*}
+	if ! uci -q get "qmodem.$1.$key" >/dev/null; then
+		uci set "qmodem.$1.$setting"
+		changed=1
+	fi
+done
+# Blank/auto APN is not persisted here; the dialer computes the narrow AT&T
+# 310/410 fallback at connection time and otherwise preserves auto mode.
+[ "$changed" = 0 ] || uci commit qmodem

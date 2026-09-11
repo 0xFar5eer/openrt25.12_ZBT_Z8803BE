@@ -1,0 +1,170 @@
+Subject: [PATCH] luci-app-mlo: write one shared multi-radio wifi-iface
+
+OpenWrt netifd creates an MLD from one wifi-iface whose device option is a
+list of participating radios.  The old page wrote one scalar-device section
+per band, so each record contained only one link and hostapd never received a
+usable multi-link group.
+
+Read both layouts for compatibility, then always save the native shared
+multi-device representation.  Require PMF on the resulting MLD.
+--- a/htdocs/luci-static/resources/view/mlo/main.js
++++ b/htdocs/luci-static/resources/view/mlo/main.js
+@@ -12,16 +12,15 @@
+  *
+  * Concept:
+  *   Each MLD (Multi-Link Device) is a virtual record with name / SSID /
+- *   security / key / selected bands. Under the hood it maps to one
+- *   wifi-iface section per selected band, all sharing:
+- *     - option mld_ap '1'
+- *     - option mld_id '<N>'     (same for every band in the MLD)
+- *     - matching ssid / encryption / key
++ *   security / key / selected bands. OpenWrt represents an MLD as one
++ *   wifi-iface section with:
++ *     - list device '<radio>' for every participating radio
++ *     - option mlo '1'
++ *     - one shared ssid / encryption / key
+  *
+- *   The app reads wireless uci, groups wifi-iface sections by
+- *   (mld_id, ssid) to derive synthetic MLD records, and lets the user
+- *   edit them as a single logical unit. Saves regenerate the
+- *   underlying wifi-iface sections atomically.
++ *   The app also understands the legacy, broken layout where the old
++ *   page wrote one mlo=1 section per radio. Saving such a group rewrites
++ *   it into the shared multi-device section expected by netifd.
+  */
+ 
+ const BAND_ORDER = [ '2g', '5g', '6g' ];
+@@ -58,12 +57,18 @@ function radiosByBand() {
+ 	return out;
+ }
+ 
++function sectionDevices(section) {
++	if (Array.isArray(section.device))
++		return section.device.filter(Boolean);
++	return section.device ? [ section.device ] : [];
++}
++
+ function loadMlds() {
+ 	/*
+ 	 * OpenWrt's MLO model: a wifi-iface opts into MLO with
+-	 * `option mlo 1`. Each unique SSID that carries mlo=1 on
+-	 * multiple bands IS an MLD - there is no explicit "group id",
+-	 * the link id is the radio index (0/1/2) derived automatically.
++	 * `option mlo 1` and a device list containing two or more radios.
++	 * There is no explicit group id; netifd creates the MLD once from
++	 * that shared section and derives each link id from the radio index.
+ 	 *
+ 	 * We key MLD records by SSID here so multiple SSIDs (e.g. Home
+ 	 * and Guest) each form their own MLD.
+@@ -84,9 +89,10 @@ function loadMlds() {
+ 					sections: []
+ 				};
+ 			}
+-			const dev = s.device;
+-			const band = uci.get('wireless', dev, 'band');
+-			if (band) mlds[key].bands.add(band);
++			sectionDevices(s).forEach(function (dev) {
++				const band = uci.get('wireless', dev, 'band');
++				if (band) mlds[key].bands.add(band);
++			});
+ 			mlds[key].sections.push(s['.name']);
+ 		} else {
+ 			standalone.push(s['.name']);
+@@ -324,9 +330,9 @@ function openMldEditor(existing, onSave) {
+ }
+ 
+ /*
+- * Apply an MLD record into uci.wireless by (re)writing its wifi-iface
+- * sections. Removes old sections belonging to this mld_id, then
+- * creates fresh ones for the selected bands.
++ * Apply an MLD record into uci.wireless by (re)writing one shared
++ * multi-device wifi-iface section. This shape is important: separate
++ * mlo=1 sections produce separate one-link records, not one MLD.
+  */
+ function ssid_to_slug(ssid) {
+ 	/* make a valid-ish uci section name from an SSID */
+@@ -354,8 +360,10 @@ function applyMld(rec) {
+ 	uci.sections('wireless', 'wifi-iface').forEach(function (s) {
+ 		if (s.mode !== 'sta' && s.ssid === target_ssid &&
+ 		    (s.mlo == '1' || s.mlo === 1)) {
+-			const band = uci.get('wireless', s.device, 'band');
+-			if (band) hadBefore.add(band);
++			sectionDevices(s).forEach(function (dev) {
++				const band = uci.get('wireless', dev, 'band');
++				if (band) hadBefore.add(band);
++			});
+ 		}
+ 	});
+ 
+@@ -369,27 +377,9 @@ function applyMld(rec) {
+ 		}
+ 	});
+ 
+-	/*
+-	 * For every available band:
+-	 *   - ticked now        -> create MLO section (mlo=1)
+-	 *   - unticked now, but was in the MLD last save -> create as
+-	 *     a standalone AP (same SSID + security, no mlo=1).
+-	 *   - unticked now and never in the MLD -> skip.
+-	 *
+-	 * OpenWrt's ap.uc translates `option mlo 1` into hostapd's
+-	 * mld_ap=1 + mld_link_id=<radio>, grouping all mlo sections
+-	 * with the same SSID into one MLD.
+-	 */
+-	allBands.forEach(function (band) {
+-		const dev = radios[band];
+-		if (!dev) return;
+-		const inMlo = rec.bands.has(band);
+-		const keepAsStandalone = !inMlo && hadBefore.has(band);
+-		if (!inMlo && !keepAsStandalone) return;
+-
+-		const iface = slug + '_' + band;
++	function writeCommon(iface, device) {
+ 		uci.add('wireless', 'wifi-iface', iface);
+-		uci.set('wireless', iface, 'device', dev);
++		uci.set('wireless', iface, 'device', device);
+ 		uci.set('wireless', iface, 'network', 'lan');
+ 		uci.set('wireless', iface, 'mode', 'ap');
+ 		uci.set('wireless', iface, 'ssid', rec.ssid);
+@@ -397,22 +387,26 @@ function applyMld(rec) {
+ 		if (/^(psk2|sae|sae-mixed)$/.test(rec.encryption)) {
+ 			uci.set('wireless', iface, 'key', rec.key);
+ 		}
+-		/*
+-		 * PMF policy per band:
+-		 *   - 6 GHz: PMF=2 required (802.11ax spec).
+-		 *   - Pure SAE or OWE on any band: PMF=2.
+-		 *   - SAE-mixed on 2.4/5 GHz: PMF=1 (optional, keeps WPA2
+-		 *     clients working).
+-		 *   - psk2 / none: no PMF.
+-		 */
+-		let pmf = null;
+-		if (band === '6g')                             pmf = '2';
+-		else if (/^(sae|owe)$/.test(rec.encryption))   pmf = '2';
+-		else if (rec.encryption === 'sae-mixed')       pmf = '1';
+-		if (pmf) uci.set('wireless', iface, 'ieee80211w', pmf);
+-
+-		if (inMlo) uci.set('wireless', iface, 'mlo', '1');
+ 		uci.set('wireless', iface, 'disabled', '0');
++	}
++
++	const selectedBands = allBands.filter(band => rec.bands.has(band));
++	const selectedDevices = selectedBands.map(band => radios[band]);
++	const mldIface = slug;
++	writeCommon(mldIface, selectedDevices);
++	uci.set('wireless', mldIface, 'mlo', '1');
++	/* MLO and 6 GHz both require protected management frames. */
++	uci.set('wireless', mldIface, 'ieee80211w', '2');
++
++	/* A band removed from an existing MLD remains available as a normal AP. */
++	allBands.forEach(function (band) {
++		if (rec.bands.has(band) || !hadBefore.has(band)) return;
++		const iface = slug + '_standalone_' + band;
++		writeCommon(iface, radios[band]);
++		let pmf = null;
++		if (band === '6g' || /^(sae|owe)$/.test(rec.encryption)) pmf = '2';
++		else if (rec.encryption === 'sae-mixed') pmf = '1';
++		if (pmf) uci.set('wireless', iface, 'ieee80211w', pmf);
+ 	});
+ }
+ 

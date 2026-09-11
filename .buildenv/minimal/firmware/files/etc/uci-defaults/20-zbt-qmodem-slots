@@ -1,0 +1,30 @@
+#!/bin/sh
+. /usr/lib/zbt/dual-modem.sh
+# Keep user-facing slot labels across the firmware-owned slot migration.
+display_4_1=$(uci -q get qmodem.slot_4_1.display_name)
+display_2_1=$(uci -q get qmodem.slot_2_1.display_name)
+# Use stable UCI IDs, so deleting an anonymous section cannot shift the
+# indexes of later sections (including users with more than ten entries).
+for entry in $(uci -q -X show qmodem | sed -n 's/^qmodem\.\([^=]*\)=modem-slot$/\1/p'); do
+	case "$(uci -q get "qmodem.$entry.slot")" in
+		4-1|4-2|2-1) uci -q delete "qmodem.$entry" ;;
+	esac
+done
+for section in 4_1 2_1; do
+	zbt_slot "$section"
+	key="slot_$section"
+	uci set "qmodem.$key=modem-slot"
+	uci set "qmodem.$key.type=usb"
+	uci set "qmodem.$key.slot=$ZBT_USB"
+	uci set "qmodem.$key.alias=$section"
+	label='Modem 1'; [ "$section" = 2_1 ] && label='Modem 2'
+	eval "custom=\${display_$section:-}"
+	uci set "qmodem.$key.display_name=${custom:-$label}"
+	uci set "qmodem.$key.gpio=$ZBT_POWER"
+	uci set "qmodem.$key.gpio_up=1"
+	uci set "qmodem.$key.gpio_down=0"
+	metric=200; [ "$section" = 2_1 ] && metric=210
+	uci set "qmodem.$key.default_metric=$metric"
+done
+uci commit qmodem
+exit 0

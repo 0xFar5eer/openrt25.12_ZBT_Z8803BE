@@ -1,0 +1,7 @@
+{
+	"luci-app-qmodem-ttlfw4": {
+		"description": "Read modem display names and edit independent modem TTL policies",
+		"read": { "uci": [ "qmodem_ttl", "qmodem" ] },
+		"write": { "uci": [ "qmodem_ttl" ] }
+	}
+}

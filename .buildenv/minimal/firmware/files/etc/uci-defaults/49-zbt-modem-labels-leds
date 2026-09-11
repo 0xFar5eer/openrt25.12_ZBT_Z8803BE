@@ -1,0 +1,56 @@
+#!/bin/sh
+# Idempotent upgrade migration; no modem/network reload or power toggles.
+for section in 4_1 2_1; do
+	/usr/sbin/zbt-qmodem-profile "$section"
+done
+
+# Populate LuCI's stock System -> LED Configuration with the four physical
+# Ethernet jack indicators. MediaTek phylib exposes these names from the DTS;
+# the netdev trigger is hardware-offloaded by the PHY, keeping link solid and
+# blinking for receive/transmit traffic without a polling process.
+ensure_ethernet_led() {
+	local name="$1" sysfs="$2" device="$3" section
+	for section in $(uci -q show system 2>/dev/null | sed -n 's/^system\.\([^.=]*\)=led$/\1/p'); do
+		[ "$(uci -q get "system.$section.sysfs" 2>/dev/null)" = "$sysfs" ] && return 0
+	done
+	section=$(uci add system led) || return 1
+	uci set "system.$section.name=$name"
+	uci set "system.$section.sysfs=$sysfs"
+	uci set "system.$section.trigger=netdev"
+	uci set "system.$section.dev=$device"
+	uci set "system.$section.mode=link tx rx"
+}
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand)
+		# Delete only the inert inventory rows created by the affected release.
+		# They made the generic S96 LED service set the automatic chassis LEDs
+		# to trigger=none/brightness=0. Preserve any row the administrator
+		# actually changed to a different trigger.
+		while :; do
+			stale=''
+			for section in $(uci -q show system 2>/dev/null | sed -n 's/^system\.\([^.=]*\)=led$/\1/p'); do
+				[ "$(uci -q get "system.$section.zbt_automatic" 2>/dev/null)" = 1 ] || continue
+				[ "$(uci -q get "system.$section.trigger" 2>/dev/null)" = none ] || continue
+				case "$(uci -q get "system.$section.sysfs" 2>/dev/null)" in
+					blue:mobile-1|blue:mobile-2|red:status|green:wan|blue:power) stale="$section"; break ;;
+				esac
+			done
+			[ -n "$stale" ] || break
+			uci -q delete "system.$stale"
+		done
+		ensure_ethernet_led 'LAN 1 orange: link and activity' 'mt7530-0:00:green:lan' lan0
+		ensure_ethernet_led 'LAN 2 orange: link and activity' 'mt7530-0:02:green:lan' lan1
+		ensure_ethernet_led 'LAN 3 orange: link and activity' 'mt7530-0:03:green:lan' lan2
+		ensure_ethernet_led 'WAN orange: link and activity' 'mdio-bus:0f:amber:wan' eth1
+		uci commit system
+		;;
+esac
+# Older images can contain more than one link for the same service. Remove only
+# those exact links, then create one S97 owner after OpenWrt's S96 LED service.
+for link in /etc/rc.d/S??zbt-modem-leds /etc/rc.d/K??zbt-modem-leds; do
+	[ -L "$link" ] && rm -f "$link"
+done
+/etc/init.d/zbt-modem-leds enable
+/etc/init.d/zbt-leds enable >/dev/null 2>&1 || true
+exit 0

@@ -1,0 +1,334 @@
+From: OpenWrt Mega Edition <mfoster978@gmail.com>
+Subject: [PATCH] AP MLD: backport interoperability and reload fixes
+
+Backport the following upstream hostapd fixes on top of the pinned OpenWrt
+package patch set:
+
+  ce69407e6 AP MLD: Fix memory leak in control interface initialization path
+  bf9a9eac9 nl80211: Fix a crash when stopping non-first BSS during ACS
+  d5f756562 AP MLD: Fix EHT MLE length calculation
+  e1b33088e AP MLD: Include correct EHT BSS parameter change count
+  aa96ee0df AP MLD: Clear reserved fields in EML capability for AP MLD
+  7290cb869 AP MLD: Fix stale mld_link_info fields on reassociation
+  2b7ec3abf hostapd: Reset num_multi_hws on interface cleanup
+  3b201c486 Fix incorrect iface removal during config reload for AP MLD
+  fa13b8a3f nl80211: Avoid bogus ENFILE with use_existing
+
+The base OpenWrt patch set already contains the equivalent of e275c3dc7
+(deinitialize the first BSS link after interface setup failure), so that
+change is intentionally not duplicated here.
+
+Additionally, log key-free requested, accepted, and rejected MLD link bitmaps
+at INFO level. This makes it possible to distinguish a client that requested
+one setup link from a link lost later in hostapd without exposing SAE or other
+key material.
+
+diff --git a/src/ap/hostapd.c b/src/ap/hostapd.c
+index 10f63c08c..6ded8cf50 100644
+--- a/src/ap/hostapd.c
++++ b/src/ap/hostapd.c
+@@ -275,6 +275,37 @@ int hostapd_check_max_sta(struct hostapd_data *hapd)
+ 	return 0;
+ }
+ 
++static int hostapd_remove_hapd_iface(struct hostapd_iface *hapd_iface)
++{
++	struct hapd_interfaces *interfaces;
++	size_t i;
++
++	hapd_iface->driver_ap_teardown =
++		!!(hapd_iface->drv_flags &
++		   WPA_DRIVER_FLAGS_AP_TEARDOWN_SUPPORT);
++
++	interfaces = hapd_iface->interfaces;
++	for (i = 0; i < interfaces->count; i++) {
++		if (interfaces->iface[i] == hapd_iface)
++			break;
++	}
++
++	if (i >= interfaces->count)
++		return -1;
++
++	hostapd_interface_deinit_free(hapd_iface);
++
++	while (i < interfaces->count - 1) {
++		interfaces->iface[i] = interfaces->iface[i + 1];
++		i++;
++	}
++	interfaces->count--;
++
++	hostapd_cleanup_unused_mlds(interfaces);
++	return 0;
++}
++
++
+ int hostapd_reload_config(struct hostapd_iface *iface)
+ {
+ 	struct hapd_interfaces *interfaces = iface->interfaces;
+@@ -313,7 +344,12 @@ int hostapd_reload_config(struct hostapd_iface *iface)
+ 			hostapd_config_free(newconf);
+ 			return -1;
+ 		}
+-		hostapd_remove_iface(interfaces, hapd->conf->iface);
++		if (hostapd_remove_hapd_iface(iface) != 0) {
++			os_free(fname);
++			hostapd_config_free(newconf);
++			return -1;
++		}
++
+ 		iface = hostapd_init(interfaces, fname);
+ 		os_free(fname);
+ 		hostapd_config_free(newconf);
+@@ -749,6 +785,7 @@ void hostapd_cleanup_iface_partial(struct hostapd_iface *iface)
+ 	airtime_policy_update_deinit(iface);
+ 	hostapd_free_multi_hw_info(iface->multi_hw_info);
+ 	iface->multi_hw_info = NULL;
++	iface->num_multi_hws = 0;
+ 	iface->current_hw_info = NULL;
+ }
+ 
+@@ -3223,6 +3260,7 @@ fail:
+ 	if (!mld)
+ 		return;
+ 
++	interfaces->mld_ctrl_iface_deinit(mld);
+ 	wpa_printf(MSG_DEBUG, "AP MLD %s: free mld %p", mld->name, mld);
+ 	os_free(mld);
+ 	hapd->mld = NULL;
+@@ -4109,7 +4147,7 @@ static int hostapd_remove_bss(struct hostapd_iface *iface, unsigned int idx)
+ int hostapd_remove_iface(struct hapd_interfaces *interfaces, char *buf)
+ {
+ 	struct hostapd_iface *hapd_iface;
+-	size_t i, j, k = 0;
++	size_t i, j;
+ 
+ 	for (i = 0; i < interfaces->count; i++) {
+ 		hapd_iface = interfaces->iface[i];
+@@ -4118,21 +4156,7 @@ int hostapd_remove_iface(struct hapd_interfaces *interfaces, char *buf)
+ 		if (!os_strcmp(hapd_iface->phy, buf) ||
+ 		    !os_strcmp(hapd_iface->conf->bss[0]->iface, buf)) {
+ 			wpa_printf(MSG_INFO, "Remove interface '%s'", buf);
+-			hapd_iface->driver_ap_teardown =
+-				!!(hapd_iface->drv_flags &
+-				   WPA_DRIVER_FLAGS_AP_TEARDOWN_SUPPORT);
+-
+-			hostapd_interface_deinit_free(hapd_iface);
+-			k = i;
+-			while (k < (interfaces->count - 1)) {
+-				interfaces->iface[k] =
+-					interfaces->iface[k + 1];
+-				k++;
+-			}
+-			interfaces->count--;
+-			hostapd_cleanup_unused_mlds(interfaces);
+-
+-			return 0;
++			return hostapd_remove_hapd_iface(hapd_iface);
+ 		}
+ 
+ 		for (j = 0; j < hapd_iface->conf->num_bss; j++) {
+diff --git a/src/ap/ieee802_11_eht.c b/src/ap/ieee802_11_eht.c
+index 3f4d06735..35e3c0872 100644
+--- a/src/ap/ieee802_11_eht.c
++++ b/src/ap/ieee802_11_eht.c
+@@ -467,6 +467,7 @@ u8 * hostapd_eid_eht_basic_ml_common(struct hostapd_data *hapd,
+ 	u8 common_info_len;
+ 	u16 mld_cap;
+ 	u8 max_simul_links, active_links;
++	u16 mld_eml_capa;
+ 
+ 	/*
+ 	 * As the Multi-Link element can exceed the size of 255 bytes need to
+@@ -508,12 +509,18 @@ u8 * hostapd_eid_eht_basic_ml_common(struct hostapd_data *hapd,
+ 	/* Own Link ID */
+ 	wpabuf_put_u8(buf, hapd->mld_link_id);
+ 
+-	/* Currently hard code the BSS Parameters Change Count to 0x1 */
+-	wpabuf_put_u8(buf, 0x1);
++	wpabuf_put_u8(buf, hapd->eht_mld_bss_param_change);
+ 
+-	wpa_printf(MSG_DEBUG, "MLD: EML Capabilities=0x%x",
+-		   hapd->iface->mld_eml_capa);
+-	wpabuf_put_le16(buf, hapd->iface->mld_eml_capa);
++	/* Set EMLSR/EMLMR Transition and Padding delay to zero for AP MLD as
++	 * per IEEE Std 802.11be-2024, 9.4.2.322.2.3 (Common Info field of the
++	 * Basic Multi-Link element).
++	 */
++	mld_eml_capa = hapd->iface->mld_eml_capa &
++		~(EHT_ML_EML_CAPA_EMLSR_TRANS_DELAY_MASK |
++		  EHT_ML_EML_CAPA_EMLSR_PADDING_DELAY_MASK);
++
++	wpa_printf(MSG_DEBUG, "MLD: EML Capabilities=0x%x", mld_eml_capa);
++	wpabuf_put_le16(buf, mld_eml_capa);
+ 
+ 	mld_cap = hapd->iface->mld_mld_capa;
+ 	max_simul_links = mld_cap & EHT_ML_MLD_CAPA_MAX_NUM_SIM_LINKS_MASK;
+@@ -613,7 +620,7 @@ u8 * hostapd_eid_eht_basic_ml_common(struct hostapd_data *hapd,
+ 
+ 		/* BSS Parameters Change Count */
+ 		if (include_bpcc)
+-			wpabuf_put_u8(buf, hapd->eht_mld_bss_param_change);
++			wpabuf_put_u8(buf, link_bss->eht_mld_bss_param_change);
+ 
+ 		if (!link->resp_sta_profile)
+ 			continue;
+@@ -857,17 +864,17 @@ static size_t hostapd_eid_eht_ml_len(struct mld_info *info,
+ 
+ 		/* Element data and (fragmentation) headers */
+ 		eht_ml_len += sta_len;
+-		eht_ml_len += 2 + sta_len / 255 * 2;
++		eht_ml_len += 2 + (sta_len - 1) / 255 * 2;
+ 	}
+ 
+-	/* Element data */
+-	len += eht_ml_len;
++	/* EID_EXT_MULTI_LINK (1) + Element data */
++	len += 1 + eht_ml_len;
+ 
+-	/* First header (254 bytes of data) */
+-	len += 3;
++	/* Fragmentation headers */
++	len += (len - 1) / 255 * 2;
+ 
+-	/* Fragmentation headers; +1 for shorter first chunk */
+-	len += (eht_ml_len + 1) / 255 * 2;
++	/* Outer header EID_EXT (1) + length (1) */
++	len += 2;
+ 
+ 	return len;
+ }
+@@ -1262,6 +1269,8 @@ u16 hostapd_process_ml_assoc_req(struct hostapd_data *hapd,
+ 	int ret = -1;
+ 	u16 ml_control;
+ 	const u8 *ml_end;
++	u8 saved_peer_addr[ETH_ALEN];
++	u16 requested_links = 0;
+ 
+ 	mlbuf = ieee802_11_defrag(elems->basic_mle, elems->basic_mle_len, true);
+ 	if (!mlbuf)
+@@ -1367,7 +1376,26 @@ u16 hostapd_process_ml_assoc_req(struct hostapd_data *hapd,
+ 		goto out;
+ 	}
+ 
++	/* Reset all per-link state before parsing the new MLE. A STA may send
++	 * back-to-back Reassociation Request frames with different MLEs (e.g.,
++	 * fewer links or without NSTR). The valid-flag-only reset would leave
++	 * stale fields (nstr_bitmap_len, peer_addr, nstr_bitmap, capability) in
++	 * non-association link slots and leak resp_sta_profile heap
++	 * allocations. Free those allocations and zero all link slots. The
++	 * association link's peer_addr holds the link-specific MAC (set from
++	 * mgmt->sa at auth time, before driver address translation) and must be
++	 * saved and restored.
++	 */
++	os_memcpy(saved_peer_addr, info->links[hapd->mld_link_id].peer_addr,
++		  ETH_ALEN);
++	ap_sta_free_sta_profile(info);
++	os_memset(info->links, 0, sizeof(info->links));
+ 	info->links[hapd->mld_link_id].valid = 1;
++	requested_links |= BIT(hapd->mld_link_id);
++	os_memcpy(info->links[hapd->mld_link_id].local_addr,
++		  hapd->own_addr, ETH_ALEN);
++	os_memcpy(info->links[hapd->mld_link_id].peer_addr,
++		  saved_peer_addr, ETH_ALEN);
+ 
+ 	/* Parse the Link Info field that starts after the end of the variable
+ 	 * length Common Info field. */
+@@ -1506,15 +1534,26 @@ u16 hostapd_process_ml_assoc_req(struct hostapd_data *hapd,
+ 			   link_info->nstr_bitmap_len);
+ 
+ 		link_info->valid = true;
++		requested_links |= BIT(control & EHT_PER_STA_CTRL_LINK_ID_MSK);
+ 	}
+ 
++	wpa_printf(MSG_INFO,
++		   "MLD: association request link bitmap=0x%04x association link=%u",
++		   requested_links, hapd->mld_link_id);
+ 	ret = hostapd_mld_validate_assoc_info(hapd, sta);
+ out:
+ 	wpabuf_free(mlbuf);
+ 	if (ret) {
++		wpa_printf(MSG_INFO,
++			   "MLD: association rejected link bitmap=0x%04x association link=%u",
++			   requested_links, hapd->mld_link_id);
++		ap_sta_free_sta_profile(info);
+ 		os_memset(info, 0, sizeof(*info));
+ 		return WLAN_STATUS_UNSPECIFIED_FAILURE;
+ 	}
++	wpa_printf(MSG_INFO,
++		   "MLD: association accepted link bitmap=0x%04x association link=%u",
++		   requested_links, hapd->mld_link_id);
+ 
+ 	return WLAN_STATUS_SUCCESS;
+ }
+diff --git a/src/drivers/driver_nl80211.c b/src/drivers/driver_nl80211.c
+index a15671fba..d94bd4d37 100644
+--- a/src/drivers/driver_nl80211.c
++++ b/src/drivers/driver_nl80211.c
+@@ -6354,6 +6354,24 @@ static int nl80211_create_iface_once(struct wpa_driver_nl80211_data *drv,
+ }
+ 
+ 
++static int nl80211_use_existing_iface(struct wpa_driver_nl80211_data *drv,
++				      const char *ifname,
++				      enum nl80211_iftype iftype,
++				      const u8 *addr)
++{
++	wpa_printf(MSG_DEBUG, "nl80211: Continue using existing interface %s",
++		   ifname);
++	if (addr && iftype != NL80211_IFTYPE_MONITOR &&
++	    linux_set_ifhwaddr(drv->global->ioctl_sock, ifname, addr) < 0 &&
++	    (linux_set_iface_flags(drv->global->ioctl_sock, ifname, 0) < 0 ||
++	     linux_set_ifhwaddr(drv->global->ioctl_sock, ifname, addr) < 0 ||
++	     linux_set_iface_flags(drv->global->ioctl_sock, ifname, 1) < 0))
++		return -1;
++
++	return -ENFILE;
++}
++
++
+ int nl80211_create_iface(struct wpa_driver_nl80211_data *drv,
+ 			 const char *ifname, enum nl80211_iftype iftype,
+ 			 const u8 *addr, int wds, u32 radio_mask,
+@@ -6362,25 +6380,17 @@ int nl80211_create_iface(struct wpa_driver_nl80211_data *drv,
+ {
+ 	int ret;
+ 
++	if (use_existing && if_nametoindex(ifname))
++		return nl80211_use_existing_iface(drv, ifname, iftype, addr);
++
+ 	ret = nl80211_create_iface_once(drv, ifname, iftype, addr, wds, radio_mask,
+ 					handler, arg);
+ 
+ 	/* if error occurred and interface exists already */
+ 	if (ret < 0 && if_nametoindex(ifname)) {
+ 		if (use_existing) {
+-			wpa_printf(MSG_DEBUG, "nl80211: Continue using existing interface %s",
+-				   ifname);
+-			if (addr && iftype != NL80211_IFTYPE_MONITOR &&
+-			    linux_set_ifhwaddr(drv->global->ioctl_sock, ifname,
+-					       addr) < 0 &&
+-			    (linux_set_iface_flags(drv->global->ioctl_sock,
+-						   ifname, 0) < 0 ||
+-			     linux_set_ifhwaddr(drv->global->ioctl_sock, ifname,
+-						addr) < 0 ||
+-			     linux_set_iface_flags(drv->global->ioctl_sock,
+-						   ifname, 1) < 0))
+-					return -1;
+-			return -ENFILE;
++			return nl80211_use_existing_iface(drv, ifname, iftype,
++							  addr);
+ 		}
+ 		wpa_printf(MSG_INFO, "Try to remove and re-create %s", ifname);
+ 
+@@ -9246,6 +9256,9 @@ static int wpa_driver_nl80211_if_remove(struct i802_bss *bss,
+ 
+ 	wpa_printf(MSG_DEBUG, "nl80211: %s(type=%d ifname=%s) ifindex=%d added_if=%d",
+ 		   __func__, type, ifname, ifindex, bss->added_if);
++
++	eloop_cancel_timeout(wpa_driver_nl80211_scan_timeout, drv, bss->ctx);
++
+ 	if (ifindex > 0 && (bss->added_if || bss->ifindex != ifindex))
+ 		nl80211_remove_iface(drv, ifindex);
+ 	else if (ifindex > 0 && !bss->added_if) {
+-- 
+2.51.0

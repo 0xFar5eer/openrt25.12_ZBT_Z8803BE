@@ -1,0 +1,68 @@
+#!/bin/sh
+. /usr/lib/zbt/ttl.sh
+
+mode="${1:-refresh}"
+case "$mode" in start|refresh|stop|migrate|render) ;; *) exit 2 ;; esac
+if [ "$mode" = render ]; then zbt_ttl_render; exit $?; fi
+
+run="${ZBT_TTL_RUN:-/var/run/qmodem-ttl}"
+mkdir -p "$run" /var/lock || exit 1
+lock "$run/lock" || exit 1
+candidate=''
+trap '[ -z "$candidate" ] || rm -f "$candidate"; lock -u "$run/lock"' EXIT
+trap 'exit 1' INT TERM
+
+if [ "$mode" = migrate ]; then zbt_ttl_migrate; exit $?; fi
+[ "$mode" != refresh ] || [ -e "$run/running" ] || exit 0
+zbt_ttl_migrate || exit 1
+
+candidate=$(mktemp "$run/.candidate.XXXXXX") || exit 1
+if [ "$mode" = stop ]; then
+	printf '%s\n' '# QModem TTL is stopped.' > "$candidate"
+else
+	zbt_ttl_render > "$candidate" || exit 1
+fi
+
+offload_changed=0
+flow=$(uci -q get 'firewall.@defaults[0].flow_offloading') || flow=unset
+hardware=$(uci -q get 'firewall.@defaults[0].flow_offloading_hw') || hardware=unset
+if [ "$mode" != stop ] && zbt_ttl_any_enabled; then
+	# Offloaded flows can bypass TTL rewriting. Keep the upstream behavior
+	# explicit: enabling either policy disables flow offload globally. Do not
+	# automatically re-enable it when disabled (SQM/other user settings may rely on it).
+	if [ "$flow" != 0 ] || [ "$hardware" != 0 ]; then offload_changed=1; fi
+fi
+
+rollback() {
+	if [ -f "$run/.previous" ]; then
+		mv "$run/.previous" "$run/active.nft"
+	else
+		rm -f "$run/active.nft"
+	fi
+	if [ "$offload_changed" = 1 ]; then
+		if [ "$flow" = unset ]; then uci -q delete 'firewall.@defaults[0].flow_offloading';
+		else uci set "firewall.@defaults[0].flow_offloading=$flow"; fi
+		if [ "$hardware" = unset ]; then uci -q delete 'firewall.@defaults[0].flow_offloading_hw';
+		else uci set "firewall.@defaults[0].flow_offloading_hw=$hardware"; fi
+		uci commit firewall
+	fi
+	logger -t qmodem_ttl 'Firewall update failed; restored previous TTL include and offload settings'
+}
+
+if ! cmp -s "$candidate" "$run/active.nft" || [ "$offload_changed" = 1 ]; then
+	rm -f "$run/.previous"
+	if [ -e "$run/active.nft" ]; then cp "$run/active.nft" "$run/.previous" || exit 1; fi
+	mv "$candidate" "$run/active.nft" || exit 1
+	candidate=''
+	if [ "$offload_changed" = 1 ]; then
+		if ! { uci set 'firewall.@defaults[0].flow_offloading=0' &&
+			uci set 'firewall.@defaults[0].flow_offloading_hw=0' && uci commit firewall; }; then
+			rollback; exit 1
+		fi
+	fi
+	# fw4 reload replaces its rules atomically; never firewall restart, network
+	# restart, modem stop/redial or a power toggle. Failed reloads keep live rules.
+	if ! fw4 reload; then rollback; exit 1; fi
+	rm -f "$run/.previous"
+fi
+if [ "$mode" = stop ]; then rm -f "$run/running"; else : > "$run/running"; fi

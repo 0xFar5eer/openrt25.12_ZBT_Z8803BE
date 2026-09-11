@@ -1,0 +1,23 @@
+#!/bin/sh
+# One-shot repair for settings preserved from the affected LED release. That
+# release created inert trigger=none rows for both cellular indicators. LuCI
+# can discard the private marker while retaining the row, so match the exact
+# hardware LEDs here. This runs under a new filename exactly once on upgrade;
+# LED rows an administrator creates afterwards remain authoritative.
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+changed=0
+for section in $(uci -q show system 2>/dev/null | sed -n 's/^system\.\([^.=]*\)=led$/\1/p'); do
+	[ "$(uci -q get "system.$section.trigger" 2>/dev/null)" = none ] || continue
+	case "$(uci -q get "system.$section.sysfs" 2>/dev/null)" in
+		blue:mobile-1|blue:mobile-2)
+			uci -q delete "system.$section"
+			changed=1
+			;;
+	esac
+done
+[ "$changed" = 0 ] || uci commit system
+exit 0

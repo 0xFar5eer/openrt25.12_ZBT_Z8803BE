@@ -1,0 +1,29 @@
+name: Complete Minimal source
+on:
+  pull_request:
+    paths: ['.buildenv/minimal/**', '.buildenv/*minimal*', '.github/workflows/minimal-source.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends busybox jq patch ripgrep gcc nftables iproute2 python3
+      - name: Verify every imported file and Minimal build inputs
+        run: bash .buildenv/build-minimal.sh check
+      - name: Check upstream baseline
+        run: sh tests/check-zbt-firmware.sh
+      - name: Check complete Minimal regressions
+        working-directory: .buildenv/minimal
+        run: |
+          python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+          node firmware/tests/check-patches.cjs
+      - name: Verify TTL on actual IPv4 and IPv6 packets
+        working-directory: .buildenv/minimal
+        run: sudo env "PATH=$PATH" ZBT_TEST_NFT=1 unshare --net -- node --test firmware/tests/ttl.test.cjs

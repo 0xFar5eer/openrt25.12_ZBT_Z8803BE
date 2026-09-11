@@ -1,0 +1,9 @@
+#!/bin/sh /etc/rc.common
+START=95
+STOP=13
+USE_PROCD=1
+
+start_service() { /usr/sbin/zbt-qmodem-ttl start; }
+reload_service() { /usr/sbin/zbt-qmodem-ttl start; }
+stop_service() { /usr/sbin/zbt-qmodem-ttl stop; }
+service_triggers() { procd_add_reload_trigger qmodem_ttl; }

@@ -1,0 +1,54 @@
+#!/bin/sh
+# Restore Far5eer's published ZBT-Z8803BE netdev LED binding. The released
+# script's suffix-based 4-1/4-2 assumption does not match this board's two
+# independent USB controllers: field logs establish 5G1 at 4-1 and 5G2 at
+# 2-1. Keep Far5eer's direct /etc/zbt-leds.sh mechanism and map only those
+# two exact physical paths so enumeration order (wwan0/wwan1) cannot swap
+# the front-panel indicators.
+
+[ "$ACTION" = add ] || exit 0
+[ -n "$DEVICENAME" ] || exit 0
+
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	zbtlink,zbt-z8803be|zbtlink,zbt-z8803be,mt7988a-nand) ;;
+	*) exit 0 ;;
+esac
+
+net_path="/sys/class/net/$DEVICENAME"
+[ -d "$net_path" ] || exit 0
+[ -d "$net_path/qmi" ] || [ -d "$net_path/mhi" ] || exit 0
+
+device=$(readlink -f "$net_path/device" 2>/dev/null) || exit 0
+usb=''
+i=0
+while [ -n "$device" ] && [ "$i" -lt 6 ]; do
+	case "$(basename "$device")" in
+		4-1|2-1) usb=$(basename "$device"); break ;;
+	esac
+	device=$(dirname "$device")
+	i=$((i + 1))
+done
+
+case "$usb" in
+	4-1) slot=1; led=/sys/class/leds/blue:mobile-1 ;;
+	2-1) slot=2; led=/sys/class/leds/blue:mobile-2 ;;
+	*) exit 0 ;;
+esac
+
+[ -d "$led" ] || {
+	logger -t zbt-modem-led "LED sysfs node $led missing"
+	exit 0
+}
+
+logger -t zbt-modem-led "binding $led to $DEVICENAME (USB $usb)"
+if [ -x /etc/zbt-leds.sh ]; then
+	# This is the helper shipped byte-for-byte in Far5eer v25.12.021.
+	/etc/zbt-leds.sh slot "$slot" wwan "$DEVICENAME"
+else
+	# Rescue fallback mirrors Far5eer's published hotplug writes.
+	printf 'netdev' > "$led/trigger" 2>/dev/null
+	printf '%s' "$DEVICENAME" > "$led/device_name" 2>/dev/null
+	printf '1' > "$led/link" 2>/dev/null
+	printf '1' > "$led/tx" 2>/dev/null
+	printf '1' > "$led/rx" 2>/dev/null
+fi

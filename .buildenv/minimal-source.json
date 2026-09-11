@@ -1,0 +1,372 @@
+{
+  "source_repository": "mfoster978/openwrt-zbtlink-zbt-z8803be-speedify-minimal-build",
+  "source_commit": "8edc09442a088a3e89df03e7947700cc8fe7b261",
+  "openwrt_commit": "edc738504fe8fae81eb15de967456204699b1830",
+  "files": [
+    {
+      "path": ".dockerignore",
+      "mode": "100644",
+      "sha256": "aa3950af39fff5acbe8fb5efd2034d6e22a196a339eb03973082530e1fa98572"
+    },
+    {
+      "path": ".gitattributes",
+      "mode": "100644",
+      "sha256": "7c2d2399fecb5072956ea50983f169aff84a28517787ed940901366efee8f393"
+    },
+    {
+      "path": ".github/scripts/generate_firmware_release_notes.py",
+      "mode": "100644",
+      "sha256": "8ccf6586f2ddb6371aceae4fc8dd16e73ac0773ed832113bb7701bbe4af0c79d"
+    },
+    {
+      "path": ".github/scripts/publish_local_release.py",
+      "mode": "100644",
+      "sha256": "789d573083816f19fda4d51906a8010b5b8ff5b13be407feaf6e1407efe198ee"
+    },
+    {
+      "path": ".github/scripts/test_generate_firmware_release_notes.py",
+      "mode": "100644",
+      "sha256": "e770633eac484ede790583311a488a42333908f5ccd57d1ad3a15adb2f62b62c"
+    },
+    {
+      "path": ".github/scripts/test_publish_local_release.py",
+      "mode": "100644",
+      "sha256": "869fddd54afa286ae20ebe016decde2d862582c7a7eab6c28d17817da377de41"
+    },
+    {
+      "path": ".github/workflows/build-openwrt-firmware.yml",
+      "mode": "100644",
+      "sha256": "b40a8347c3d45f11437534d1d3dba97562bb3ce3ab49ac55666384f68611001c"
+    },
+    {
+      "path": ".github/workflows/publish-local-release.yml",
+      "mode": "100644",
+      "sha256": "e62f8e181801c6f66ae20dc9898afbeceab4b4d72d3079c554c40b978b273984"
+    },
+    {
+      "path": ".github/workflows/sanity.yml",
+      "mode": "100644",
+      "sha256": "dc8a42627d5dd4aafbcb20cb91fc4f758443e4854e2080dc49ea30215fe6fd15"
+    },
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "sha256": "1593efa856722514c3b06902a8ef5e57774002f7d97e982454d10e4623d9595b"
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "sha256": "4c7865c0c3b58f907f6a73105b436587a38bf6442eeb4d07d814e9bd1891e913"
+    },
+    {
+      "path": "firmware/README-build.md",
+      "mode": "100644",
+      "sha256": "1e34d6bade98594275990c7f64a244f21912aa06eb9904f8ee96ddcce8ef24ce"
+    },
+    {
+      "path": "firmware/docker/Dockerfile.remote-builder",
+      "mode": "100644",
+      "sha256": "7a9ce6dedd5af8a25b4dd9a60c14677b5774e4d46f61f332a86d2357a57f812d"
+    },
+    {
+      "path": "firmware/docker/build-openwrt.sh",
+      "mode": "100644",
+      "sha256": "f6bc56c5b98962a10fd91e64054b5d73dd9f58e5fbed57ad581282fe7cad8be6"
+    },
+    {
+      "path": "firmware/docs/band-readback.md",
+      "mode": "100644",
+      "sha256": "67fc33f3e5c05930f6d49189ddea35a460008c0bdaa8ae6247c5a3b3d399aed5"
+    },
+    {
+      "path": "firmware/docs/per-modem-ttl.md",
+      "mode": "100644",
+      "sha256": "4bb21206d46f773f9eddba338a01c76586bbf700c1a6e47b3737fa9e81e7de51"
+    },
+    {
+      "path": "firmware/docs/runtime-repair-2026-09.md",
+      "mode": "100644",
+      "sha256": "995f24bde7a3e425b2b7eaae70287f750856a95a6dbe411b25e2853740f7a328"
+    },
+    {
+      "path": "firmware/docs/warp-modem2-handoff.md",
+      "mode": "100644",
+      "sha256": "035f6967122af6c549f2be1748ee2063f0456e93cbe2feefe5c5ad7ed794c29d"
+    },
+    {
+      "path": "firmware/files/etc/hotplug.d/iface/60-zbt-ttl-probe",
+      "mode": "100644",
+      "sha256": "4ac3ee149897f9ab57f01b89b2fbae49a3612cd653d02fbd108dc18a51c73cc2"
+    },
+    {
+      "path": "firmware/files/etc/hotplug.d/net/15-zbt-rndis-auto",
+      "mode": "100644",
+      "sha256": "cbaa3c8c981c9ea69fe286d9910194f53aa9a24c889e6b3ea3810fcd25f1d7a9"
+    },
+    {
+      "path": "firmware/files/etc/hotplug.d/net/20-zbt-modem-led",
+      "mode": "100644",
+      "sha256": "5d12e9e48ab545b15446e0d04cd19d2d4c2d035df9f8691346154b8ac4dd1fca"
+    },
+    {
+      "path": "firmware/files/etc/hotplug.d/net/95-zbt-qmodem-ttl",
+      "mode": "100644",
+      "sha256": "8b2b89a7585ac51ddad2de975e9e98f405cfdaeb9190f4f45bd05c0db134f843"
+    },
+    {
+      "path": "firmware/files/etc/hotplug.d/usb/20-zbt-modem-factory-reset",
+      "mode": "100644",
+      "sha256": "c4be2d5066535583c5a65fd38707898dcaf206d8101ee0cdcb8785f4abb3220b"
+    },
+    {
+      "path": "firmware/files/etc/hotplug.d/usb/40-zbt-qmodem-autoenable",
+      "mode": "100644",
+      "sha256": "609ae981f85e0e3e16a4db8dfad3196e3a1b92af99ea9382d9695feb134ca0db"
+    },
+    {
+      "path": "firmware/files/etc/init.d/qmodem_network",
+      "mode": "100644",
+      "sha256": "1b07da115ff730b7c328d0a0b5bd626a241a17c80b9a3222e7cbef4790867e31"
+    },
+    {
+      "path": "firmware/files/etc/init.d/qmodem_ttl",
+      "mode": "100644",
+      "sha256": "7958e9851ccad5320b3ce760cd2cad9eb00071dc846215e74cb241f9033da8cf"
+    },
+    {
+      "path": "firmware/files/etc/init.d/zbt-modem-leds",
+      "mode": "100755",
+      "sha256": "3e8ff60a691d3ee04922cf1636c6866c1f3e452ce8caa98d0b00e8c80b9d52d6"
+    },
+    {
+      "path": "firmware/files/etc/nftables.d/99-qmodem-ttl.nft",
+      "mode": "100644",
+      "sha256": "0df72696bbd4487d2c6bb99c7d5fa700f16ae3dbcca929bf70689b500198b221"
+    },
+    {
+      "path": "firmware/files/etc/uci-defaults/20-zbt-qmodem-slots",
+      "mode": "100644",
+      "sha256": "7eb8677f292172cfaddd6534c27c4506fd8b8841a52b4eff72333f35ee11c6a0"
+    },
+    {
+      "path": "firmware/files/etc/uci-defaults/24-zbt-modem-factory-reset-flag",
+      "mode": "100644",
+      "sha256": "b157e3e2380224b08a0008fce9515ea3a0e02ebf774fdde942cdbbc951b3bb0f"
+    },
+    {
+      "path": "firmware/files/etc/uci-defaults/36-zbt-z8803be-wan-speed-mode",
+      "mode": "100644",
+      "sha256": "644a849b0f61c2a3de1c1582f2fa2483c61ba09791fdb0f0c9b010ae24669e3a"
+    },
+    {
+      "path": "firmware/files/etc/uci-defaults/40-zbt-qmodem-dns-suppress",
+      "mode": "100644",
+      "sha256": "eaed276905f2c91ad45b327ac14d7a9fed7989b6df22f7256c83d61c284d0dde"
+    },
+    {
+      "path": "firmware/files/etc/uci-defaults/48-zbt-modem-led-dark-repair",
+      "mode": "100755",
+      "sha256": "55e088f265072e67d83c3d1cdebfe676a58f8993ba6bc8e391cea218cd54dc70"
+    },
+    {
+      "path": "firmware/files/etc/uci-defaults/48-zbt-qmodem-monitor-defaults",
+      "mode": "100644",
+      "sha256": "ba3b3f1917c0fce88cbb0336aff592803c76b3897f4efa32ea23a03ccc86f937"
+    },
+    {
+      "path": "firmware/files/etc/uci-defaults/49-zbt-modem-labels-leds",
+      "mode": "100755",
+      "sha256": "40203b23e9c9a77f6373676b99692095ff09ec8c1ba35f50c0325b2bed39735d"
+    },
+    {
+      "path": "firmware/files/etc/uci-defaults/50-zbt-luci-uhttpd",
+      "mode": "100755",
+      "sha256": "56adac9671c0248169fbf128641c2497645cc204db36b846bfa26ea13d8606ca"
+    },
+    {
+      "path": "firmware/files/etc/uci-defaults/54-zbt-qmodem-ttl-defaults",
+      "mode": "100644",
+      "sha256": "fc16cf4d96b6ba0916847f25e3d77fd042157fa6fb11fd836811b612cf3350eb"
+    },
+    {
+      "path": "firmware/files/etc/uci-defaults/74-zbt-mlo-shared-iface-repair",
+      "mode": "100755",
+      "sha256": "907b0fac2ff209d6fa668fea619ed3bac6454d2ca1ab745ec2ae34acf9fe377a"
+    },
+    {
+      "path": "firmware/files/etc/uci-defaults/99-cellular-multiwan-defaults",
+      "mode": "100644",
+      "sha256": "f24994166a6151cc5bbcc5a0da8b4194551775f7fad29252d61af67c044fb5ba"
+    },
+    {
+      "path": "firmware/files/etc/uci-defaults/99-zbt-route-priority-repair",
+      "mode": "100755",
+      "sha256": "bca67dd7ddd3faf20e50f6c03244bd8c74c3099f919ccbaec3f52337e6f2bbe2"
+    },
+    {
+      "path": "firmware/files/etc/zbt-build-flavor",
+      "mode": "100644",
+      "sha256": "d9ba01ca22a2e217ee6a7dd7329d57fd375507abeb6a9aaebc8c1e58c858614a"
+    },
+    {
+      "path": "firmware/files/usr/lib/zbt/dual-modem.sh",
+      "mode": "100644",
+      "sha256": "35c64f7552ead53fdc330b7346c11f0d7394223be96b768b6b0ac773fcda2fc1"
+    },
+    {
+      "path": "firmware/files/usr/lib/zbt/modem-leds.sh",
+      "mode": "100644",
+      "sha256": "aae63f97d1299cac6e2179fc5acfb755f2d9e63e1e09c3d7b7da7d8cec45f11d"
+    },
+    {
+      "path": "firmware/files/usr/lib/zbt/quectel-bands.sh",
+      "mode": "100644",
+      "sha256": "7ff9143a1e7f10000e3f6f11d544e94231079769b2860c35569b23354cbb8ff1"
+    },
+    {
+      "path": "firmware/files/usr/lib/zbt/ttl.sh",
+      "mode": "100644",
+      "sha256": "59c6eed88456f4c4c9b8cf6d17bad94d0155828c378600a92ab4fc81ddbb93a3"
+    },
+    {
+      "path": "firmware/files/usr/sbin/zbt-modem-led-poller",
+      "mode": "100644",
+      "sha256": "ec3d0fcf2e4ec0e078ae3740b58d258e0194c8ca4abda1f95fc7fe525e55a38d"
+    },
+    {
+      "path": "firmware/files/usr/sbin/zbt-qmodem-profile",
+      "mode": "100644",
+      "sha256": "a582fbe412e7e10260202f56be2c3e60b77fa31e8886859f245faea6236652e5"
+    },
+    {
+      "path": "firmware/files/usr/sbin/zbt-qmodem-ttl",
+      "mode": "100644",
+      "sha256": "e0c254eb1e6af3811fc6c9dbedb6fe17b4a3ff495a61173ebb6db3b05f183f96"
+    },
+    {
+      "path": "firmware/files/usr/share/rpcd/acl.d/luci-app-qmodem-ttlfw4.json",
+      "mode": "100644",
+      "sha256": "d2be725a2d657cca99dee429f898be13d2041a0ce9c6d65f25688081eb12d432"
+    },
+    {
+      "path": "firmware/files/www/luci-static/resources/view/qmodem/ttl.js",
+      "mode": "100644",
+      "sha256": "5d9690cc6188abc7bdd533219a49aa08a72886fcd809cee2249d24c107e7c1b9"
+    },
+    {
+      "path": "firmware/kernel-patches/753-net-phy-mediatek-mt7988-led-control.patch",
+      "mode": "100644",
+      "sha256": "6956ffd1d2dec5b2a6913d33416e6d627e968b1c436fde25eacad2804cd32a76"
+    },
+    {
+      "path": "firmware/patches/hostapd-mlo-interoperability.patch",
+      "mode": "100644",
+      "sha256": "6900fbee58b8a479568ce7c5e9c1922b5dbbf78f5214506db0490c6f93cd1e13"
+    },
+    {
+      "path": "firmware/patches/luci-app-mlo-shared-iface.patch",
+      "mode": "100644",
+      "sha256": "98d26eb955141b64573d6954d012155bf1a6afe2245523216943ec8590e2e851"
+    },
+    {
+      "path": "firmware/patches/qmodem-dual-runtime.patch",
+      "mode": "100644",
+      "sha256": "f1672b036fda667484aee8c6ad691692226c4f112c27a422beb32eb4de9a21c2"
+    },
+    {
+      "path": "firmware/patches/zbt-wan-led.patch",
+      "mode": "100644",
+      "sha256": "20738732e04a6d9377f6472f1e068c11f1cdee4f7af58b5197487194079c080f"
+    },
+    {
+      "path": "firmware/profiles/base-config-zbt-z8803be-v25.12.021.config",
+      "mode": "100644",
+      "sha256": "98b960b5fcd0908453387b9a1d17efa2d7a0ea03c58eab65e752b5873362028a"
+    },
+    {
+      "path": "firmware/profiles/excluded-base-files.txt",
+      "mode": "100644",
+      "sha256": "a80e302e62b02901e3550dd64c8279244a4958f9d146094ad204465e714ac24f"
+    },
+    {
+      "path": "firmware/profiles/kconfig-fragment.conf",
+      "mode": "100644",
+      "sha256": "3f44fb6e8df44c35049c234d05030cc66ab758e4bd670ee1b6802930fe805261"
+    },
+    {
+      "path": "firmware/profiles/packages-default.txt",
+      "mode": "100644",
+      "sha256": "145375713757bc78af68e575ee8c65746cdbaf0b6773ab2e3d469d71c280ff9a"
+    },
+    {
+      "path": "firmware/scripts/apply-router-defaults.sh",
+      "mode": "100644",
+      "sha256": "ac0ae8e447139091f91100063b7ba67c6a04c52871077519f8d259676b9ced37"
+    },
+    {
+      "path": "firmware/scripts/check-build-inputs.sh",
+      "mode": "100755",
+      "sha256": "6f0fb7c3a7fba161fe63c64581a2883b1f40c02e96ee9fc09bcc8bb0177c4e47"
+    },
+    {
+      "path": "firmware/scripts/check-minimal-profile.sh",
+      "mode": "100644",
+      "sha256": "240fb00f90f61998688b762072ce88450718326b808f4fb0f02488c4aa123fcc"
+    },
+    {
+      "path": "firmware/scripts/verify-router-runtime.sh",
+      "mode": "100644",
+      "sha256": "d88dee048f86ca71ea053d56c4e54e89d5e5e9abcf5d5c630fa88c79e0efcf19"
+    },
+    {
+      "path": "firmware/tests/band-ui.test.cjs",
+      "mode": "100644",
+      "sha256": "820ff085beae6a1f3fe0aad629cb71c213282d993173e0dc2c29c6279afcb4e0"
+    },
+    {
+      "path": "firmware/tests/bands.test.cjs",
+      "mode": "100644",
+      "sha256": "ec52be5c10220b24e85e3c5b5de646422b9283c60db03b61b52b9b566b08d660"
+    },
+    {
+      "path": "firmware/tests/check-ethernet-leds.cjs",
+      "mode": "100644",
+      "sha256": "667875cde4da0b627eec11b01084b8deabb4ad81be1b2828b7432e68b3bc0403"
+    },
+    {
+      "path": "firmware/tests/check-patches.cjs",
+      "mode": "100644",
+      "sha256": "c8a86313850c5082235887a0fb09501931f078325d2b7d56e85b89a0158b45a5"
+    },
+    {
+      "path": "firmware/tests/ethernet-led-harness.c",
+      "mode": "100644",
+      "sha256": "57e6f57b61b5768a3cc12375d2228542e6f6975561fcecaf84b7e38c84079493"
+    },
+    {
+      "path": "firmware/tests/led-labels.test.cjs",
+      "mode": "100644",
+      "sha256": "3d7d6c3a0eea0fd82b21e95b48f2b1bf227421e916f2bb9e4cf33c127e2acf1d"
+    },
+    {
+      "path": "firmware/tests/mlo-ui.test.cjs",
+      "mode": "100644",
+      "sha256": "bba55255abf20ace7ee146f43bdbc882346c849a6b0d92a626eac8158cb6af0b"
+    },
+    {
+      "path": "firmware/tests/runtime.test.cjs",
+      "mode": "100644",
+      "sha256": "c933450f7a3509f699a4ea372c8bf4714131e3826a3e59916c75dd0d73614bf3"
+    },
+    {
+      "path": "firmware/tests/ttl-packet-probe.py",
+      "mode": "100644",
+      "sha256": "8be62d66a92adee8223dc52a87425e72acc812cb6e1f4678e190804c1e00dbec"
+    },
+    {
+      "path": "firmware/tests/ttl.test.cjs",
+      "mode": "100644",
+      "sha256": "1389d22e497347f4c37366167e83482fa122fc2018a9fec09371762a33cc3543"
+    }
+  ]
+}
