@@ -23,6 +23,9 @@ qmodem_dial="$root/package/qmodem/files/usr/share/qmodem/modem_dial.sh"
 ttl="$bf/etc/uci-defaults/54-zbt-qmodem-ttl-defaults"
 natprobe="$bf/usr/sbin/zbt-modem-nat-probe"
 ttlhook="$bf/etc/hotplug.d/iface/60-zbt-ttl-probe"
+monitor="$bf/usr/lib/zbt/qmodem-modem_monitor.sh"
+monitor_overlay="$bf/etc/uci-defaults/52-zbt-qmodem-monitor-overlay"
+collector="$root/package/luci-app-wifi-clients/root/usr/bin/wifi-clients-collector.py"
 
 require() {
 	grep -Fq "$2" "$1" || {
@@ -170,6 +173,34 @@ require "$watchdog" 'boot_ts'
 require "$auto" 'if [ "$was_disabled" = 1 ] && [ -x /etc/init.d/qmodem_network ]; then'
 require "$auto" 'set_q "qmodem.$section.metric" 200'
 
+# The 52- overlay installs the tree copy of modem_monitor.sh over the feed
+# file, so the hardening must be IN the tree copy:
+#   1. The curl probe verifies the HTTP status, not merely "curl exited 0".
+#      A walled-garden/portal answer used to count as success and reset
+#      failed_count, so a wedged modem survived for hours with the monitor
+#      running and never reached the action threshold.
+#   2. Recovery needs RECOVERY_STREAK consecutive good probes; a single
+#      stray success must not clear a failure streak.
+#   3. The action cooldown is marked AFTER run_actions: the guard script
+#      re-checks the same cooldown and refuses to fire while it is active,
+#      so marking first made every dispatch a self-blocked no-op.
+require "$monitor" "%{http_code}' 2>&1)"
+require "$monitor" 'code=$(printf '"'"'%s'"'"' "$res" | awk '"'"'END{print $NF}'"'"')'
+require "$monitor" '*generate_204*) return 1 ;;'
+require "$monitor" 'RECOVERY_STREAK_DEFAULT=3'
+require "$monitor" 'config_get RECOVERY_STREAK main zbt_monitor_recovery_streak'
+require "$monitor" 'consecutive_ok=${success_streak}'
+require "$monitor" '(recovery streak $RECOVERY_STREAK)'
+require "$monitor" '# Mark the action cooldown AFTER dispatching, not before.'
+require "$monitor_overlay" 'SRC=/usr/lib/zbt/qmodem-modem_monitor.sh'
+require "$monitor_overlay" 'DST=/usr/share/qmodem/modem_monitor.sh'
+
+# Device names rendered by the wifi-clients app are display-normalized:
+# DHCP-reported hostnames like robot-2fl must not reach the UI raw.
+require "$collector" 'UPPER_NAME_TOKENS'
+require "$collector" 'def display_name(raw: str) -> str:'
+require "$collector" 'name = display_name(name) if name else name'
+
 # Module-side NAT defeats donot_nat in QMI mode, so the TTL has to be probed.
 # The plugin ships disabled, so the probe must also keep the permanent
 # 99-tether-ttl.nft rule in step — otherwise a module that still NATs is
@@ -234,8 +265,15 @@ done
 for file in "$auto" "$watchdog" "$watchdog_init" "$rndis" "$ledhot" \
 	"$slots" "$mlorepair" "$qmodem_dial" "$ttl" "$failover32" \
 	"$speedmode" "$noula" "$autostart" "$gpioboard" "$natprobe" \
-	"$ttlhook"; do
+	"$ttlhook" "$monitor"; do
 	sh -n "$file"
 done
+
+# The collector is Python; compile-check it when an interpreter exists so the
+# gate stays usable on machines without python3 (same spirit as node --check
+# on the MLO page).
+if command -v python3 >/dev/null 2>&1; then
+	python3 -m py_compile "$collector"
+fi
 
 printf 'zbt firmware static checks passed\n'

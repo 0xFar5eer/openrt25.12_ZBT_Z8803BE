@@ -1,58 +1,45 @@
 # ZBT-Z8803BE OpenWrt 25.12.2 / Linux 6.12.74
 
-Release `v25.12.022` is a community firmware build for ZBTLink ZBT-Z8803BE. It is a new release, not an in-place refresh of `v25.12.021`: everything validated in 021 carries over, and this page describes only what changed since that tag. The OpenWrt base and kernel are unchanged.
+Release `v25.12.023` is a maintenance release on top of `v25.12.022`. The OpenWrt base (`r32858-16347e93b6`), kernel (`6.12.74`) and package set are unchanged; the image ships two service-side fixes that came out of chasing a wedged-cellular incident on the maintainer's unit.
 
 ## Highlights
 
-This release adapts the safe subset of upstream QModem PR #14 (the dialer fixes and the MLO shared-interface repair), hardens two hotplug handlers that only matter once a second modem is installed, and vendors the packages those patches touch so the fixes ship in the image instead of waiting on the feed.
+### 1. Modem monitor worker: three fixes
 
-### 1. QModem dialer: five fixes, vendored
+The QModem monitor's worker script is hardened in the tree copy (`usr/lib/zbt/qmodem-modem_monitor.sh`), which `52-zbt-qmodem-monitor-overlay` installs over the feed's `/usr/share/qmodem/modem_monitor.sh` at first boot as before:
 
-The whole `qmodem` application (3.0.2) now lives in the tree as `package/qmodem/`, following the same pattern as the `autocore` fork. The feed's Makefile installs straight from its `files/` tree and cannot carry patches, so shipping a fixed `modem_dial.sh` required vendoring; the vendored copy supersedes the feed package (`qmodem - 3.0.2-r1` in the manifest). Adapted from PR #14:
+- **Strict probe verification.** The HTTP probe previously counted any `curl` invocation that exited 0 as a success. A walled-garden/portal answer (a 302 redirect or a 200 landing page instead of the probe URL) therefore reset the failure counter, and a wedged connection survived for hours with the monitor running and never reached the action threshold. Probe URLs matching `*generate_204*` must now answer exactly `204`; all other URLs accept any 2xx/3xx.
+- **Recovery streak.** The failure counter is cleared only after `zbt_monitor_recovery_streak` (default `3`) consecutive good probes, so a single stray success no longer clears a failure streak. The default is runtime-only (`qmodem.main.zbt_monitor_recovery_streak`); it is deliberately not seeded into UCI.
+- **Action cooldown is marked after dispatching.** The guard script re-checks the same cooldown and refuses to fire while it is active, so marking the cooldown before `run_actions` made every dispatch a self-blocked no-op.
 
-- Two shell syntax bugs in `modem_dial.sh`: the missing space before `]` in `unlock_sim`'s "this PIN already failed this boot" guard made the comparison error out and take the false branch, so every dial attempt re-sent `AT+CPIN=` toward an already-rejected PIN (modems count failed attempts and eventually present PUK). The same `]`-space bug in the `suggest_pdp_index` fallback inside `update_config` meant the platform-suggested PDP index was never filled in when the option was unset.
-- The SIM-slot-2 branch now falls back to the modem-level `pincode` when `pincode2` is unset; previously it fetched the common PIN into an unused variable, so a locked SIM on slot 2 with only `pincode` set never unlocked.
-- Metric preservation: `set_if()` copied the qmodem profile's `metric` into `network.<iface>.metric` on every redial, clobbering the router-wide route contract (SFP `9`, RJ45 WAN `10`, cellular `200`). A numeric `network.<iface>.metric` now wins over the profile value, so the cellular metric cannot drift away from the WAN-failover seeding.
-- Redial retention: the hang/cleanup pass no longer deletes the primary `network.<iface>` section. It now clears only the runtime `ifname`/`device` binding while keeping `modem_config`, `defaultroute=1` and the metric, and leaves `dns`/`peerdns` untouched, so operator DNS edits and the route metric survive redials. The IPv6 companion section is still deleted and recreated from the current PDP mode.
+Monitor defaults are unchanged and remain **off** (`monitor_enabled=0`). If you had the monitor enabled, upgrading with configuration kept replaces the worker at first boot and restarts the service; if it was never enabled, nothing happens.
 
-### 2. RNDIS hotplug no longer restarts the whole dialer stack
+### 2. WiFi client names are display-normalized (luci-app-wifi-clients)
 
-`15-zbt-rndis-auto` disabled the QModem profile for a detected Quectel RNDIS composition and then restarted `qmodem_network` globally, bouncing every configured modem's dial loop. It now hangs only the matching profile's procd instance (`modem_4_1`/`modem_4_2`), derived from the USB path. With a single modem the visible behavior is identical; with a second modem installed, the unrelated dialer is no longer interrupted.
+DHCP hostnames are often reported all-lowercase by the device itself (`robot-2fl`), which reads badly next to hand-named entries. The collector now renders display names: floor labels (`1FL`/`2FL`/`3FL`) and acronyms (`LG`, `TV`, `AP`) stay uppercase, everything else renders Title-Case-with-dashes, mixed-case tokens (iPhone, OpenWrt, G5Pro) and hex-id-like tokens (69D1, 1B28) are preserved, a trailing `.lan` suffix stays lowercase, and the `unknown-<mac>` fallback is untouched. Both static names and lease-reported names are normalized.
 
-### 3. Front-panel modem LEDs bind by exact USB slot
+Note: `luci-app-wifi-clients` is not preinstalled in the trimmed image — the fix ships for anyone who selects the package on demand.
 
-`20-zbt-modem-led` derived the slot by suffix-matching the USB path, so a WWAN netif appearing on a root-hub port such as `2-1` or `1-1` — which has no modem slot behind it on the MT7988A — would have been bound to the 5G1/5G2 front-panel LED. The hotplug now resolves the LED from `qmodem.@modem-slot[N].led` by exact slot match (seeded by `20-zbt-qmodem-slots` with `blue:mobile-1`/`blue:mobile-2`), keeps a hard-wired `4-1`/`4-2` fallback for configs saved before the option existed, and logs and binds nothing for unmapped paths.
+### 3. Misc
 
-### 4. The MLO page now writes what netifd consumes — plus a one-shot repair
-
-`luci-app-mlo` is vendored and its page rewritten (adapted from PR #14): saving an MLD writes ONE `wifi-iface` whose `device` is the list of participating radios, with `mlo='1'` and `ieee80211w='2'`, instead of one scalar-device section per band. The old representation carried a single link per record, so hostapd never formed a multi-link group. Bands dropped from an existing MLD are rewritten into standalone per-band sections with their PMF rules preserved.
-
-New `74-zbt-mlo-shared-iface-repair` migrates groups written by the old page on first boot: an SSID-group of `mlo=1` AP sections with two or more radios is rewritten into the shared multi-device representation, redundant peer sections and the per-record `mld_ap`/`mld_id` options are removed, and LAN membership is made explicit. Ordinary APs and single-link groups are left alone; the script is board-guarded and commits only when something changed.
-
-### 5. Packages feed tarball regenerated
-
-`packages-aarch64_cortex-a53.tar.gz` was regenerated from this build's package tree with the same 156-apk layout (157 tar members). It now carries the fixed, vendored `qmodem-3.0.2-r1` apk and the current `luci-app-zbt-about` build; the `v25.12.021` tarball had been assembled before the dialer fixes existed (the 021 firmware image itself was not affected — the fixed dialer ships in the image, only the feed tarball lagged). While regenerating, one stale leftover from 021 still present in the feed tree (the superseded `luci-app-zbt-about-26.218.24774~bd3a8ec` apk) was removed, so the tarball again contains exactly one apk per package.
-
-### 6. Misc
-
-- Manifest: 280 packages, image unchanged at ~20.7 MB. `qmodem` and `luci-app-mlo` now come from the vendored copies (`qmodem - 3.0.2-r1`, `luci-app-mlo - 26.221.38405~a36ca24`); the QModem companion apps (`luci-app-qmodem-monitor`/`-next`/`-ttlfw4`, `qmodem_monitor`) report the vendored release number as well.
+- Manifest: 280 packages, image unchanged at ~20.7 MB. `qmodem - 3.0.2-r1`, `qmodem_monitor - 3.0.2-r1` and `luci-app-mlo - 26.254.33408~0ac766c` (version stamp follows the build tree commit).
+- `packages-aarch64_cortex-a53.tar.gz` is byte-identical to the `v25.12.022` tarball (same SHA-256): nothing feed-visible changed in this release.
 
 ## Validation
 
 - Full Docker rebuild completed successfully; `sha256sum -c sha256sums --ignore-missing` passes for all artifacts.
-- The staged rootfs was inspected in the build volume: all five dialer fixes are present in the installed `modem_dial.sh`; the feed's `qmi|mbim|mhi) proto="none"` interface-ownership code is absent; the scoped RNDIS hang, exact-path LED resolution, seeded `led` options, the MLO repair script and the rewritten MLO page are all present.
-- `tests/check-zbt-firmware.sh` — expanded this cycle with guards for the scoped hang (a global `qmodem_network restart` in the RNDIS hotplug now fails the check), exact-path LED mapping, the seeded `led` options, the five vendored dialer fixes, and the MLO repair — plus `node --check` on the MLO page and `git diff --check` pass. The checker also forbids the PR parts deliberately not adopted (`dual-modem.sh`, `zbt_netcard`, `proto="none"` QMI ownership).
-- The regenerated feed tarball was verified member-by-member against the fresh package tree: 157 members, and its `qmodem-3.0.2-r1.apk` is byte-identical to the apk the image was built from.
-- **Not hardware-tested:** MLO client association (no MLO-capable client was available for this pass), the SIM-slot-2 PIN path (single-SIM wiring on this unit), and everything behind a second modem — the 5G2 slot is unpopulated and the remaining PR #14 dual-modem work is deferred until that hardware is in hand. The cellular unit (RM551E-GL, QMI, slot 4-1) and its validated issue #9 behavior are unchanged by this release.
+- `tests/check-zbt-firmware.sh` — expanded this cycle with guards for the strict-204 probe, the recovery streak, the mark-after-dispatch ordering, and the display-name normalization in the collector — plus `git diff --check` pass.
+- The hardened monitor script is the same content that was validated live on the maintainer's RM551E-GL (QMI, slot 4-1) unit during the incident that motivated it: the strict probe classifies a portal answer as a failure, and the full recovery chain (probe → threshold → action → cooldown → recovery streak) was proven end-to-end there with a deliberate failure test. The only difference between that live-validated copy and the tree copy is one generalized comment.
+- **Not hardware-tested:** the `v25.12.023` image itself has not been flashed to a board — the sysupgrade path was not exercised for this tag. The display-name normalization is covered by unit checks only; the maintainer's unit does not run `luci-app-wifi-clients`. Everything listed as not hardware-tested in `v25.12.022` (MLO client association, the SIM-slot-2 PIN path, and everything behind a second modem) remains unverified.
 
 ## Artifacts
 
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin`
-  - SHA-256: `37d2364c3219afb26b9c9b2e6ccdea8a73fe7941de2a0d39b2bb0a9368991ea9`
+  - SHA-256: `1a7ba593cb00d84c2920a977cd95d1666270314a3f808da60c721b7c3a833fd2`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin`
-  - SHA-256: `ff1e023ee2aa1170778552db9e58e334226d3c60d5ef0f3c4daa6250cb2a02cf`
+  - SHA-256: `789bc85751c8cafb0da68c9ac876590968728078d52ab3ddb30d8b4e5df7ba3b`
 - `openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest`
-  - SHA-256: `b7773d432b257ac851b2c973e0397bcbb6eb6f588aa32c0740806c1c8715fc7a`
+  - SHA-256: `2f9c1628d40ad17c43779c54bfd3f0c847718f9565b7580eb85e5653c3d15162`
 - `packages-aarch64_cortex-a53.tar.gz`
   - SHA-256: `fc7b71089f4e1ab3f280294d4bdb64b7acff1018a207b73f99de16e0b771a9ae`
 - `sha256sums`, `config.buildinfo`, `feeds.buildinfo`, and `version.buildinfo`
@@ -66,10 +53,10 @@ For a clean configuration:
 
     sysupgrade -n openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
 
-Upgrading from v25.12.021 with configuration kept:
+Upgrading from `v25.12.022` with configuration kept:
 
-- The one-shot `74-zbt-mlo-shared-iface-repair` rewrites MLO groups created with the previous MLO page into the shared representation on first boot; MLO groups saved afterwards use the new representation directly. If you never configured an MLO group, nothing happens.
-- Existing `network.<cellular>.metric`, `dns` and `peerdns` values now survive redials; nothing needs to be re-entered after upgrading.
+- No migrations run and no stored values change. If the monitor was enabled, the hardened worker is installed at first boot and the monitor service restarts; otherwise nothing happens.
+- All `v25.12.022` behaviors (vendored dialer fixes, scoped RNDIS hang, exact-path modem LEDs, MLO shared-iface representation and its one-shot repair) carry over unchanged.
 
 ## Donate
 Optional donations help support maintenance and testing:

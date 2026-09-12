@@ -336,16 +336,63 @@ def is_active_client(client_info: dict) -> bool:
     return bool((client_info or {}).get("assoc")) and bool((client_info or {}).get("authorized"))
 
 
+# Tokens that stay fully uppercase in display names: floor labels and common
+# acronyms. Everything else renders Title-Case-with-dashes (see display_name).
+UPPER_NAME_TOKENS = {"1fl", "2fl", "3fl", "lg", "tv", "ap"}
+
+
+def display_name(raw: str) -> str:
+    """Normalize a device hostname for display.
+
+    'robot-2fl' -> 'Robot-2FL', 'curtains-second-bedroom' ->
+    'Curtains-Second-Bedroom', 'PRINTER' -> 'Printer'. Floor labels
+    (1FL/2FL/3FL) and acronyms (LG, TV, AP) stay uppercase; mixed-case
+    tokens (iPhone, OpenWrt, G5Pro) and hex-id-like tokens (69D1, 1B28)
+    are preserved. Idempotent, leaves the 'unknown-<mac>' fallback
+    untouched, and keeps a trailing '.lan' DNS suffix lowercase.
+    """
+    if not raw:
+        return raw
+    if raw.lower().startswith("unknown-"):
+        return raw
+    suffix = re.fullmatch(r"(.+)\.lan", raw, re.IGNORECASE)
+    if suffix:
+        # Lease-reported hostnames sometimes carry the LAN DNS domain;
+        # title-casing would read as '.Lan'.
+        return display_name(suffix.group(1)) + ".lan"
+    out = []
+    for tok in re.split(r"([-_. ])", raw):
+        if not tok or not re.search(r"[A-Za-z]", tok):
+            out.append(tok)
+            continue
+        low = tok.lower()
+        if low in UPPER_NAME_TOKENS:
+            out.append(low.upper())
+        elif tok[0].isalpha() and tok == tok.upper() and len(tok) > 1:
+            # ALL-CAPS word -> Title Case (PRINTER -> Printer). A single
+            # letter inside an id token (the M of 'M3') is left alone.
+            out.append(tok[:1].upper() + tok[1:].lower())
+        elif tok == tok.lower():
+            out.append(tok[:1].upper() + tok[1:])
+        else:
+            out.append(tok)
+    return "".join(out)
+
+
 def load_device_names() -> tuple:
     """
     Build authoritative MAC -> {name, ip} and IP -> {name, mac} maps.
     Priority (highest wins): static DHCP config > dynamic DHCP leases.
+    Names are display-normalized: DHCP hostnames are often reported
+    all-lowercase by the device itself (robot-2fl), which then reads
+    badly in the UI next to hand-named entries.
     Returns: (mac_map, ip_map)
     """
     mac_map: dict = {}
     ip_map:  dict = {}
 
     def add(mac: str, name: str, ip: str):
+        name = display_name(name) if name else name
         if mac:
             mac_map[mac.lower()] = {"name": name, "ip": ip}
         if ip and name:

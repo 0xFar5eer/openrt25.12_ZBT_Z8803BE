@@ -5,6 +5,8 @@ MONITOR_COOLDOWN_FILE="/tmp/zbt-qmodem-monitor-action.lock"
 MONITOR_COOLDOWN_HELPER="/usr/sbin/zbt-modem-monitor-cooldown"
 MONITOR_COOLDOWN_S_DEFAULT=300
 MONITOR_COOLDOWN_S=$MONITOR_COOLDOWN_S_DEFAULT
+RECOVERY_STREAK_DEFAULT=3
+RECOVERY_STREAK=$RECOVERY_STREAK_DEFAULT
 # Envs
 # Modem_ID
 # Modem_ID=$1
@@ -89,6 +91,12 @@ load_monitor_cooldown(){
     config_get MONITOR_COOLDOWN_S main zbt_monitor_cooldown "$MONITOR_COOLDOWN_S_DEFAULT"
     case "$MONITOR_COOLDOWN_S" in *[!0-9]*|"") MONITOR_COOLDOWN_S=$MONITOR_COOLDOWN_S_DEFAULT ;; esac
     [ "$MONITOR_COOLDOWN_S" -gt 0 ] || MONITOR_COOLDOWN_S=$MONITOR_COOLDOWN_S_DEFAULT
+    # Consecutive successful probes required before the failure counter
+    # resets. A single stray success (fluke packet through a dying bearer,
+    # portal answer) must not clear a failure streak.
+    config_get RECOVERY_STREAK main zbt_monitor_recovery_streak "$RECOVERY_STREAK_DEFAULT"
+    case "$RECOVERY_STREAK" in *[!0-9]*|"") RECOVERY_STREAK=$RECOVERY_STREAK_DEFAULT ;; esac
+    [ "$RECOVERY_STREAK" -gt 0 ] || RECOVERY_STREAK=$RECOVERY_STREAK_DEFAULT
 }
 
 monitor_cooldown_active(){
@@ -277,15 +285,40 @@ _ping() {
 
 # Method curl - Download file using curl
 # Usage: curl <URL>
+# The probe must verify the HTTP response, not merely "curl exited 0":
+# any HTTP answer (carrier walled-garden 30x, captive portal, garbage
+# from a half-dead bearer) used to count as success and reset
+# failed_count, which let a wedged modem survive ~5h after a reboot
+# with monitor_enabled=1: the interface flapped down and netifd
+# re-created it every ~15min and each bogus success wiped the counter
+# before the threshold was reached. generate_204 probe URLs must
+# answer exactly 204 (a 30x/200 from such a URL is a portal, not the
+# probe target); any other URL must answer 2xx/3xx. curl's stderr is
+# merged into res so failures actually log a reason (the old code
+# captured only stdout, which is why "Curl failed:" logged nothing).
 _curl() {
   url=$1
+  local res code
   # timeout 10s
-  res=$(curl --connect-timeout 10 --max-time 15 --interface "$NET_DEV" "$url" -o /dev/null --silent --show-error)
+  res=$(curl --connect-timeout 10 --max-time 15 --interface "$NET_DEV" "$url" -o /dev/null --silent --show-error -w '%{http_code}' 2>&1)
   status=$?
-  if [ "$status" -ne 0 ]; then
-    log "Curl failed: $res"
-  fi
-  return $status
+  # The %{http_code} is the LAST whitespace field of the merged
+  # stdout+stderr (curl's stderr may span lines, so a space-suffix strip
+  # would grab error text instead): 000 when the request never completed.
+  code=$(printf '%s' "$res" | awk 'END{print $NF}')
+  case "$code" in
+    204)
+      return 0
+      ;;
+    2??|3??)
+      case "$url" in
+        *generate_204*) return 1 ;;
+        *) return 0 ;;
+      esac
+      ;;
+  esac
+  log "Curl failed: rc=$status code=$code res=$res"
+  return 1
 }
 
 # Method: signal - Get signal strength
@@ -456,13 +489,15 @@ NO_SIM_STATE_FILE="/tmp/zbt-qmodem-monitor-no-sim-${Modem_ID}"
 update_cfg
 load_monitor_cooldown
 update_netcfg
-log "Start monitoring $Modem_ID($Method) with interval $Interval and threshold $Threshold"
+log "Start monitoring $Modem_ID($Method) with interval $Interval and threshold $Threshold (recovery streak $RECOVERY_STREAK)"
 failed_count=0
+success_streak=0
 while true; do
     update_netcfg
     if no_sim_present; then
         record_no_sim_suspended
         failed_count=0
+        success_streak=0
         sleep "$Interval"
         continue
     fi
@@ -482,13 +517,20 @@ while true; do
             continue
         fi
         failed_count=$((failed_count + 1))
+        success_streak=0
         log "Failed count: $failed_count Threshold: $Threshold"
         record_modem_event monitor monitor_check_failed warning "$Modem_ID" "Monitor probe failed" "count=${failed_count}/${Threshold} method=${Method} netdev=${NET_DEV:-none} url=${Http_Url:-}"
     else
         if [ "$failed_count" -gt 0 ]; then
-            record_modem_event monitor monitor_recovered ok "$Modem_ID" "Monitor probe recovered" "after_failed_checks=${failed_count} method=${Method} netdev=${NET_DEV:-none}"
+            success_streak=$((success_streak + 1))
+            if [ "$success_streak" -ge "$RECOVERY_STREAK" ]; then
+                record_modem_event monitor monitor_recovered ok "$Modem_ID" "Monitor probe recovered" "after_failed_checks=${failed_count} consecutive_ok=${success_streak} method=${Method} netdev=${NET_DEV:-none}"
+                failed_count=0
+                success_streak=0
+            else
+                log "Probe OK; recovery needs $RECOVERY_STREAK consecutive successes (streak=$success_streak failed_count=$failed_count)"
+            fi
         fi
-        failed_count=0
     fi
     sleep "$Interval"
 
@@ -496,6 +538,7 @@ while true; do
         if no_sim_present; then
             record_no_sim_suspended
             failed_count=0
+            success_streak=0
             sleep "$Interval"
             continue
         fi
@@ -504,9 +547,15 @@ while true; do
         if monitor_cooldown_active; then
             failed_count=0
         else
-            mark_monitor_action
             record_modem_event monitor monitor_action danger "$Modem_ID" "Monitor dispatching configured action" "failed_checks=${failed_count} action=run_scripts"
+            # Mark the action cooldown AFTER dispatching, not before. The action
+            # scripts (zbt-modem-hard-reboot-guard) re-check the same cooldown
+            # and refuse to fire while it is active, so marking first made the
+            # whole recovery chain a no-op: every dispatch was self-blocked for
+            # 300s. This call only rate-limits the NEXT threshold event; this
+            # loop re-checks monitor_cooldown_active before dispatching anyway.
             run_actions
+            mark_monitor_action
         fi
         failed_count=0
         sleep 60

@@ -12,7 +12,7 @@ Current custom OpenWrt build for the **ZBTLink ZBT-Z8803BE** WiFi 7 router.
 - **Kernel:** Linux `6.12.74`
 - **Target:** `mediatek/filogic`
 - **Device:** MediaTek MT7988A / Filogic 880 + MT7996-family tri-band WiFi 7
-- **Release tag:** `v25.12.022`
+- **Release tag:** `v25.12.023`
 
 ## Download
 
@@ -32,9 +32,9 @@ Use the latest GitHub release assets:
 ## Checksums
 
 ```text
-37d2364c3219afb26b9c9b2e6ccdea8a73fe7941de2a0d39b2bb0a9368991ea9  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
-ff1e023ee2aa1170778552db9e58e334226d3c60d5ef0f3c4daa6250cb2a02cf  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
-b7773d432b257ac851b2c973e0397bcbb6eb6f588aa32c0740806c1c8715fc7a  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
+1a7ba593cb00d84c2920a977cd95d1666270314a3f808da60c721b7c3a833fd2  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-squashfs-sysupgrade.bin
+789bc85751c8cafb0da68c9ac876590968728078d52ab3ddb30d8b4e5df7ba3b  openwrt-mediatek-filogic-zbtlink_zbt-z8803be-initramfs-kernel.bin
+2f9c1628d40ad17c43779c54bfd3f0c847718f9565b7580eb85e5653c3d15162  openwrt-mediatek-filogic-zbtlink_zbt-z8803be.manifest
 fc7b71089f4e1ab3f280294d4bdb64b7acff1018a207b73f99de16e0b771a9ae  packages-aarch64_cortex-a53.tar.gz
 ```
 
@@ -55,7 +55,7 @@ fc7b71089f4e1ab3f280294d4bdb64b7acff1018a207b73f99de16e0b771a9ae  packages-aarch
 - **WAN failover defaults:** first boot seeds SFP metric `9`, RJ45 WAN metric `10`, and cellular metric `200`, so a wired uplink always wins and cellular carries the router when nothing wired is up.
 - **Storage:** USB 3.0, ext4, vfat, exfat, `block-mount`, SFTP.
 - **Monitoring:** ZBT Health page, autocore, temperature logging, modem event history.
-- **Deliberately small image:** v25.12.016 shipped 525 packages in a 62 MB image; v25.12.022 ships 280 in 20.7 MB. This board runs from SPI-NAND with a squashfs rootfs plus a UBIFS overlay, and a fat rootfs stretched the post-flash configuration reset into minutes during which modem hotplug, WiFi bring-up and firewall rules raced a half-built overlay. Traffic statistics, QoS, DDNS, NAS, DNS filtering and broad diagnostic tools are therefore not preinstalled; install them on demand from the package manager.
+- **Deliberately small image:** v25.12.016 shipped 525 packages in a 62 MB image; v25.12.023 ships 280 in 20.7 MB. This board runs from SPI-NAND with a squashfs rootfs plus a UBIFS overlay, and a fat rootfs stretched the post-flash configuration reset into minutes during which modem hotplug, WiFi bring-up and firewall rules raced a half-built overlay. Traffic statistics, QoS, DDNS, NAS, DNS filtering and broad diagnostic tools are therefore not preinstalled; install them on demand from the package manager.
 - **Temperature monitor:** built-in ZBT temperature charts with per-module avoid-limit overlays and fan PWM logging.
 - **Router health page:** built-in ZBT Health page for overlay/storage, RAM, conntrack, uptime, and write-hotspot checks.
 - **Shell defaults:** banner, color prompt, useful aliases/tools, `git`, `git-http`, and a BusyBox-compatible `install` shim.

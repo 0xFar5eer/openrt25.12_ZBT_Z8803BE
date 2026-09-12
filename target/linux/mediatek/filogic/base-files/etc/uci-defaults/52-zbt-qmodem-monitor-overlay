@@ -34,7 +34,26 @@
 # reboot dispatches against a healthy modem every ~6 minutes.
 #
 # Our patched version (shipped in this firmware at
-# /usr/lib/zbt/qmodem-modem_monitor.sh) layers all three fixes.
+# /usr/lib/zbt/qmodem-modem_monitor.sh) layers all three fixes, plus
+# three further hardening fixes carried since:
+#
+#   4. Probe verification: the curl method reads the HTTP status
+#      (%{http_code}) instead of trusting curl's exit status. Any HTTP
+#      answer — carrier walled-garden 30x, captive portal, garbage from
+#      a half-dead bearer — used to count as success and reset
+#      failed_count, so a wedged modem survived for hours with the
+#      monitor running and never reached the action threshold.
+#      generate_204 URLs must answer exactly 204; other URLs 2xx/3xx.
+#      Failures now log curl's stderr so the reason is visible.
+#   5. Recovery streak: failed_count is cleared only after
+#      RECOVERY_STREAK (qmodem.main.zbt_monitor_recovery_streak,
+#      default 3) consecutive good probes, so one fluke packet through
+#      a dying bearer cannot clear a failure streak. The startup log
+#      line reports the configured streak.
+#   6. Mark-after-dispatch: the action cooldown is recorded AFTER
+#      run_actions. The hard-reboot guard re-checks the same cooldown
+#      and refuses to fire while it is active, so marking first made
+#      every dispatch a self-blocked no-op.
 #
 # WHY OVERLAY-ON-BOOT (not patch the package source):
 # The qmodem_monitor package comes from an external feed
